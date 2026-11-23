@@ -61,6 +61,7 @@ function input(overrides: Partial<RoutineInput> = {}): RoutineInput {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+    artifact: null,
     enabled: true,
     ...overrides,
   };
@@ -94,6 +95,7 @@ function harness() {
     isRoutineTab: () => true,
     inRun: (t) => running.has(t),
     awaitingHumanAnswer: () => false,
+    isViewed: () => false,
     openDialogIds: () => [],
     settleSession,
     rpcSend: () => {},
@@ -114,6 +116,10 @@ function harness() {
     clearSessionRoutine: (tabId) => {
       const s = sessions.find((x) => x.tabId === tabId);
       if (s) s.routine = null;
+    },
+    markSessionSettled: (tabId, settledAtMs) => {
+      const s = sessions.find((x) => x.tabId === tabId);
+      if (s) s.settledAtMs = settledAtMs;
     },
     isLive: (t) => live.has(t),
     isTurnRunning: (t) => running.has(t),
@@ -416,6 +422,43 @@ describe("RoutineService notifications (#1294)", () => {
       onApproval: false,
       agentMessage: true,
     });
+    h.service.dispose();
+  });
+});
+
+describe("RoutineService boot hygiene (#1305)", () => {
+  it("stamps settledAtMs on dormant unsettled routine records without touching live or non-routine records", () => {
+    const h = harness();
+    h.enabled.value = false;
+    const routine = { id: "r".repeat(22), name: "Daily", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 };
+    const base = {
+      projectCwd: "/proj",
+      lineageDir: "lin",
+      mode: "rpc-ui" as const,
+      sessionId: "s",
+      title: "t",
+      agentMode: "build" as const,
+      launchedAt: "2026-11-22T06:00:00.000Z",
+      cachedModified: "2026-11-22T06:30:00.000Z",
+      settledAtMs: null as number | null,
+      routine,
+    } as unknown as OwnedSessionRecord;
+    h.sessions.push(
+      { ...base, tabId: "dormant-unsettled" },
+      { ...base, tabId: "live-routine" },
+      { ...base, tabId: "dormant-settled", settledAtMs: 1234 },
+      { ...base, tabId: "ordinary-dormant", routine: null },
+    );
+    h.live.add("live-routine");
+
+    h.service.boot();
+
+    expect(h.sessions.find((s) => s.tabId === "dormant-unsettled")?.settledAtMs).toBe(
+      Date.parse("2026-11-22T06:30:00.000Z"),
+    );
+    expect(h.sessions.find((s) => s.tabId === "live-routine")?.settledAtMs).toBeNull();
+    expect(h.sessions.find((s) => s.tabId === "dormant-settled")?.settledAtMs).toBe(1234);
+    expect(h.sessions.find((s) => s.tabId === "ordinary-dormant")?.settledAtMs).toBeNull();
     h.service.dispose();
   });
 });

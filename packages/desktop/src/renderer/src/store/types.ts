@@ -519,6 +519,10 @@ export interface LastTurnMeta {
   stopReason?: string;
   errorMessage?: string;
   errorId?: number;
+  /** omp 19.1.1 (`AssistantMessage.requestId`): Anthropic's `request-id` for
+   *  the failed turn, quotable at provider support (issue #1291). Absent on an
+   *  older binary and on providers that report none. */
+  requestId?: string;
   /** The terminal assistant text carried a server repetition-halt notice (issue #839). */
   repetitionStop?: boolean;
 }
@@ -730,6 +734,8 @@ export type SettingsPage =
   | "knowledge-vault"
   | "omp"
   | "council"
+  | "routines"
+  | "artifacts"
   | "experimental"
   | "advanced"
   | "about";
@@ -903,8 +909,8 @@ export interface SettingsSlice {
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   /** The installed omp's judge-kind catalog for the judge role row (issue #669). */
   readJudgeModels(): Promise<JudgeModelSnapshot>;
-  /** The installed omp's chat-kind catalog for the model-role browse picker (#797). */
-  readChatModels(): Promise<ModelCatalogSnapshot>;
+  /** The installed omp's chat-kind catalog for the model-role browse picker (#797, #1306). */
+  readChatModels(instanceId?: string | null): Promise<ModelCatalogSnapshot>;
   setProviderKey(
     projectCwd: string | null,
     envName: string,
@@ -1503,6 +1509,20 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     datasetIds: string[];
     title: string;
     projectCwd: string | null;
+  }): Promise<string | null>;
+  /**
+   * Reference a kept artifact in a fresh session (project or Chat, #1307):
+   * spawns in background so slow spawns never steal focus or unmount Artifacts
+   * prematurely (ADR-0090), mints the grant, attaches the reference chip without
+   * sending, and focuses the new tab only if navigation did not move away.
+   */
+  referenceArtifactInNewSession(request: {
+    artifactId: string;
+    codeRevisionId: string;
+    dataSnapshotId: string;
+    includeData: boolean;
+    projectCwd: string | null;
+    navigationGeneration?: number;
   }): Promise<string | null>;
   /** A background launch whose first prompt was not sent (issue #982); its
    *  toast names the session and offers to open it. Null = no toast. */

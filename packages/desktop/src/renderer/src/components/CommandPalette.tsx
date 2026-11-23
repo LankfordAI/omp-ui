@@ -7,7 +7,7 @@ import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { useActionHotkeys, useKeybindingOverrides } from "../lib/keybindings";
 import { effectiveChord } from "@omp-ui/core/keybindings";
-import { canSettle, deriveSidebarSessionState, findOwner, findRecord, isChatTab, sessionCwd, useStore, type SidebarSessionState } from "../store";
+import { canSettle, deriveSidebarSessionState, findOwner, findRecord, hasAnyRoutinesHost, isChatTab, sessionCwd, useStore, type SidebarSessionState } from "../store";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { SESSION_FACE } from "./SessionRow";
@@ -256,12 +256,12 @@ export function CommandPalette() {
       });
     }
     if (state?.artifactLibraryEnabled === true) out.push({ id: "app:artifacts", group: "App", name: "Artifacts", desc: "Browse kept artifacts, exact versions, and saved data", run: () => openArtifacts() });
-    if (state?.routinesEnabled === true) {
+    if (hasAnyRoutinesHost(state)) {
       out.push({
         id: "app:routines",
         group: "App",
         name: "Open Routines",
-        desc: "host-local scheduled sessions and tool policies",
+        desc: "scheduled sessions and tool policies on this computer and joined hosts",
         run: () => openRoutines(),
       });
     }

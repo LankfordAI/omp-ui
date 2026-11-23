@@ -111,7 +111,7 @@ import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type Mcp
 import { assertArtifactKey, assertArtifactUuid } from "./artifacts";
 import type {
   ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
-  ArtifactRenameRequest, ArtifactPruneRequest, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
+  ArtifactRenameRequest, ArtifactPinRequest, ArtifactPruneRequest, ArtifactReadThumbnailRequest, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
   ArtifactDescribeRequest, ArtifactKeepRequest, ArtifactListRequest,
   ArtifactPrepareRefreshRequest, ArtifactReadRequest, ArtifactReferenceRequest,
   ArtifactResolveSourceRequest,
@@ -291,6 +291,9 @@ export const artifactListCodec = objectOf<ArtifactListRequest>({
   cursor: optional(shortStr(200)),
   limit: optional(codec<number>("an integer from 1 to 50", value => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 50)),
   query: optional(shortStr(200)),
+  filter: optional(oneOf("all", "review", "managed", "document")),
+  origin: optional(shortStr(512)),
+  sort: optional(oneOf("recent", "name", "revisions")),
 });
 export const artifactDescribeCodec = objectOf<ArtifactDescribeRequest>({
   artifactId: artifactUuidCodec, codeRevisionId: optional(artifactUuidCodec), dataSnapshotId: optional(artifactUuidCodec),
@@ -312,7 +315,8 @@ export const artifactReferenceCodec = objectOf<ArtifactReferenceRequest>({
   targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
   dataSnapshotId: artifactUuidCodec, includeData: bool(),
 });
-export const artifactRefreshCodec = objectOf<Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">>({
+// autoApply/scheduledBy (ADR-0101) are host-minted only; the renderer channel can never set them.
+export const artifactRefreshCodec = objectOf<Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData" | "autoApply" | "scheduledBy">>({
   targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
   dataSnapshotId: artifactUuidCodec, datasetIds: arrayOf(artifactKeyCodec),
 });
@@ -322,6 +326,8 @@ export const artifactApplyCodec = objectOf<ArtifactApplyCaptureRequest>({
 export const artifactDiscardCodec = objectOf<{draftId: string}>({draftId: artifactUuidCodec});
 export const artifactDeleteCodec = objectOf<ArtifactDeleteRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec});
 export const artifactRenameCodec = objectOf<ArtifactRenameRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec, title: shortStr(200)});
+export const artifactPinCodec = objectOf<ArtifactPinRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec, pinned: bool()});
+export const artifactReadThumbnailCodec = objectOf<ArtifactReadThumbnailRequest>({artifactId: artifactUuidCodec, dark: bool()});
 export const artifactDiscardCaptureCodec = objectOf<{captureId: string}>({captureId: artifactUuidCodec});
 export const artifactDismissRefreshCodec = objectOf<{refreshRequestId: string}>({refreshRequestId: artifactUuidCodec});
 export const artifactPruneCodec = objectOf<ArtifactPruneRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec, keepRevisions: artifactOffsetCodec, keepSnapshots: artifactOffsetCodec});

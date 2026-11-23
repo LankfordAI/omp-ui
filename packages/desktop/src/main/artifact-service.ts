@@ -6,13 +6,15 @@ import {
   parseHtmlArtifactArgs, validateArtifactJson, normalizeArtifactAuthoringSpec, validateArtifactDatasets,
   composeHtmlArtifactDocument, htmlArtifactThemeCss,
   type ArtifactJson, type ArtifactJsonObject, type ArtifactSource, type ArtifactDatasetInput, type ArtifactProvenance,
-  type ManagedArtifactSpec, type HtmlArtifactArgs, type ArtifactListRequest, type ArtifactDescribeRequest, type ArtifactOriginContext,
+  type ManagedArtifactSpec, type HtmlArtifactArgs, type ArtifactListRequest, type ArtifactListResult, type ArtifactDescribeRequest, type ArtifactOriginContext,
   type ArtifactReadRequest, type ArtifactKeepRequest, type ArtifactAcceptRevisionRequest,
   type ArtifactReferenceRequest, type ArtifactPrepareRefreshRequest, type ArtifactApplyCaptureRequest,
   type ArtifactDeleteRequest, type ArtifactResolveSourceRequest, type ArtifactLibraryChanged,
-  type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactPruneRequest, type ArtifactRestoreSnapshotRequest, type ArtifactSavePartRequest, type ArtifactExportHtmlSourceRequest,
+  type ArtifactRenameRequest, type ArtifactPinRequest, type ArtifactReadThumbnailRequest,
+  type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactPruneRequest, type ArtifactRestoreSnapshotRequest, type ArtifactSavePartRequest, type ArtifactExportHtmlSourceRequest,
 } from "@omp-ui/core";
-import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext } from "@omp-ui/core";
+import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext, withArtifactReferenceContext, withArtifactRefreshContext } from "@omp-ui/core";
+import type { ArtifactRefreshEntry, RoutineArtifactBinding } from "@omp-ui/core";
 import { artifactSourceHash, readHistoricalArtifactSource } from "./artifact-source";
 import { resolveArtifactLocalRoot } from "./artifact-dataset-file";
 
@@ -56,6 +58,7 @@ export class ArtifactService {
   private closed = false;
   private readonly listeners = new Set<(event: ArtifactLibraryChanged) => void>();
   private readonly sourceReads = new Set<AbortController>();
+  private readonly draftThumbnails = new Map<string, { draftStateId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array; expiresAt: number }>();
   private readonly root: string;
   constructor(private readonly options: ArtifactServiceOptions) {
     this.gate = options.enabled();
@@ -67,6 +70,7 @@ export class ArtifactService {
     if (this.gate === on) return;
     this.gate = on; this.revision++;
     if (!on) { for (const read of this.sourceReads) read.abort(); this.sourceReads.clear(); }
+    if (!on) this.draftThumbnails.clear();
     this.publish([], on ? "changed" : "disabled");
     if (!on && this.activeAuthorization === null && !this.cleaningSource) {
       this.store?.close(); this.store = null; this.storeOwner = null;
@@ -218,6 +222,17 @@ export class ArtifactService {
       return {status: "failed", refreshRequestId, artifactId: failed.artifactId, message};
     }
     const capture = this.run(this.authorizer(request.tabId, target, epoch), () => this.storage().stageCapture({...destination, datasets: this.datasets(args.datasets, source)}));
+    // ADR-0101 autoApply: the host settles the staged capture itself when
+    // every acceptance fence still matches; any conflict leaves it staged.
+    if (refresh.autoApply === true) {
+      try {
+        this.humanMutation(store => store.applyCapture({
+          captureId: capture.captureId,
+          expectedCodeRevisionId: capture.codeRevisionId,
+          expectedDatasetHeads: capture.expectedDatasetHeads,
+        }));
+      } catch { /* heads moved or request dismissed: stays staged for review */ }
+    }
     this.options.onChanged?.({ epoch: this.revision, artifactIds: [capture.artifactId], kind: "changed" });
     return {...capture, status: "captured"};
   }
@@ -269,7 +284,13 @@ export class ArtifactService {
     const draft = this.stageDocument(request.tabId, target, epoch, parsed.args, { ...source, createdAt: historical.timestamp ?? source.createdAt }, authorize);
     return this.storage().lookupSource({ source: draft.source });
   }
-  list(request: ArtifactListRequest = {}) { return this.storage().list(request); }
+  list(request: ArtifactListRequest = {}): ArtifactListResult {
+    this.assertEnabled();
+    if (this.store === null && !existsSync(path.join(this.root, "library.sqlite"))) {
+      return { artifacts: [], nextCursor: null, libraryBytesUsed: 0, totalCount: 0, pendingReviewCount: 0, pendingReviewPreview: [], origins: [] };
+    }
+    return this.storage().list(request);
+  }
   describe(request: ArtifactDescribeRequest) {
     const description = this.storage().describe(request);
     return {...description, sourceTarget: this.options.sourceTarget?.(description.code.source) ?? null,
@@ -278,8 +299,31 @@ export class ArtifactService {
   readPart(request: ArtifactReadRequest) {
     return this.storage().readPart(request);
   }
-  keep(request: ArtifactKeepRequest) { const value = this.humanMutation(store => store.keepDraft(request)); this.publish([value.artifactId, request.draftId], "changed"); return value; }
-  acceptRevision(request: ArtifactAcceptRevisionRequest) { const value = this.humanMutation(store => store.acceptRevision(request)); this.publish([value.artifactId, request.draftId], "changed"); return value; }
+  keep(request: ArtifactKeepRequest) {
+    const store = this.storage();
+    let draftStateId: string | null = null;
+    try { draftStateId = store.readDraft({ draftId: request.draftId }).draft.draftStateId; } catch { /* handled by keepDraft */ }
+    const value = this.humanMutation(s => s.keepDraft(request));
+    const staged = this.consumeDraftThumbnail(request.draftId, draftStateId);
+    if (staged) {
+      this.saveThumbnail({
+        artifactId: value.artifactId,
+        codeRevisionId: value.currentCodeRevisionId,
+        dataSnapshotId: value.currentDataSnapshotId,
+        dark: staged.dark,
+        mime: staged.mime,
+        bytes: staged.bytes,
+      });
+    }
+    this.publish([value.artifactId, request.draftId], "changed");
+    return value;
+  }
+  acceptRevision(request: ArtifactAcceptRevisionRequest) {
+    this.draftThumbnails.delete(request.draftId);
+    const value = this.humanMutation(store => store.acceptRevision(request));
+    this.publish([value.artifactId, request.draftId], "changed");
+    return value;
+  }
   reference(request: ArtifactReferenceRequest) { this.target(request.targetTabId); return this.humanMutation(store => store.createReference(request)); }
   prepareRefresh(request: Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">) {
     this.target(request.targetTabId);
@@ -287,9 +331,122 @@ export class ArtifactService {
     const reference = this.storage().readReference({ referenceId: refresh.referenceId });
     return { request: refresh, reference };
   }
+  /** Fire-time binding validity (ADR-0101): null when the selection still resolves. */
+  artifactRefreshBlocked(binding: RoutineArtifactBinding): string | null {
+    try {
+      const description = this.storage().describe({ artifactId: binding.artifactId });
+      if (!description.artifact.managed) return "The bound artifact is no longer managed";
+      const defined = new Set(description.code.definition?.datasets.map(dataset => dataset.id) ?? []);
+      const missing = binding.datasetIds.filter(id => !defined.has(id));
+      if (missing.length > 0) return `Artifact datasets no longer exist: ${missing.join(", ")}`;
+      return null;
+    } catch (error) {
+      return error instanceof ArtifactError && error.code === "source-missing"
+        ? "The bound artifact no longer exists"
+        : error instanceof Error ? error.message : String(error);
+    }
+  }
+  /** Human-minted refresh prepared by the host for this routine run's tab (ADR-0101);
+   *  never exposed to any renderer channel. Throws ArtifactError on a stale selection. */
+  prepareRoutineRefresh(request: RoutineArtifactBinding & {
+    tabId: string;
+    routineName: string;
+    /** The run's own first-prompt text the blocks ride ahead of. */
+    promptText: string;
+  }): { wirePrompt: string } {
+    this.target(request.tabId);
+    const prepared = this.humanMutation(store => {
+      const description = store.describe({ artifactId: request.artifactId });
+      if (!description.artifact.managed) throw new ArtifactError("unsupported-contract", "Document-only artifacts cannot refresh datasets");
+      return store.prepareRefresh({
+        artifactId: request.artifactId,
+        codeRevisionId: description.artifact.currentCodeRevisionId,
+        dataSnapshotId: description.artifact.currentDataSnapshotId,
+        datasetIds: [...request.datasetIds],
+        targetTabId: request.tabId,
+        includeData: true,
+        autoApply: request.autoApply,
+        scheduledBy: request.routineName,
+      });
+    });
+    const reference = this.storage().readReference({ referenceId: prepared.referenceId });
+    const entry: ArtifactRefreshEntry = {
+      version: 1,
+      refreshRequestId: prepared.refreshRequestId,
+      artifactId: prepared.artifactId,
+      title: reference.title,
+      datasetIds: prepared.datasetIds,
+    };
+    // ADR-0101: identical grammar to the renderer's Refresh now (ADR-0092) —
+    // refresh block outermost, then the grant, over the run's own prompt text.
+    this.publish([prepared.artifactId], "changed");
+    return { wirePrompt: withArtifactRefreshContext(withArtifactReferenceContext(request.promptText, [reference]), [entry]) };
+  }
+  /** True when this tab already owns a prepared refresh (idempotence across respawn/resume). */
+  hasPreparedRefreshFor(tabId: string): boolean {
+    if (!this.enabled) return false;
+    try { return this.storage().hasPreparedRefreshFor({ targetTabId: tabId }); }
+    catch { return false; }
+  }
   applyCapture(request: ArtifactApplyCaptureRequest) { const value = this.humanMutation(store => store.applyCapture(request)); this.publish([value.artifactId], "changed"); return value; }
   discardDraft(request: { draftId: string }) { this.humanMutation(store => store.discardDraft(request)); this.publish([request.draftId], "changed"); }
   rename(request: ArtifactRenameRequest) { const value = this.humanMutation(store => store.rename(request)); this.publish([], "changed"); return value; }
+  pin(request: ArtifactPinRequest) { const value = this.humanMutation(store => store.pin(request)); this.publish([], "changed"); return value; }
+  readThumbnail(request: ArtifactReadThumbnailRequest) { return this.storage().readThumbnail(request); }
+  readDocumentForThumbnail(artifactId: string) {
+    this.assertEnabled();
+    if (this.store === null && !existsSync(path.join(this.root, "library.sqlite"))) return null;
+    const description = this.storage().describe({ artifactId });
+    if (description.artifact.managed) return null;
+    const code = this.storage().readCode({ artifactId, codeRevisionId: description.artifact.currentCodeRevisionId });
+    return {
+      artifactId,
+      codeRevisionId: description.artifact.currentCodeRevisionId,
+      dataSnapshotId: description.artifact.currentDataSnapshotId,
+      html: code.html,
+      scripts: this.options.scriptsEnabled?.() ?? false,
+    };
+  }
+  stageDraftThumbnail(request: { draftId: string; draftStateId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array }): void {
+    if (!this.enabled) return;
+    assertArtifactUuid(request.draftId, "draftId");
+    assertArtifactUuid(request.draftStateId, "draftStateId");
+    if (request.bytes.byteLength === 0 || request.bytes.byteLength > ARTIFACT_LIMITS.thumbnailBytes) return;
+    const nowMs = Date.now();
+    for (const [id, entry] of this.draftThumbnails) {
+      if (entry.expiresAt <= nowMs) this.draftThumbnails.delete(id);
+    }
+    if (this.draftThumbnails.size >= 32) {
+      const oldest = this.draftThumbnails.keys().next().value;
+      if (oldest !== undefined) this.draftThumbnails.delete(oldest);
+    }
+    this.draftThumbnails.set(request.draftId, {
+      draftStateId: request.draftStateId,
+      dark: request.dark,
+      mime: request.mime,
+      bytes: new Uint8Array(request.bytes),
+      expiresAt: nowMs + 60_000,
+    });
+  }
+  private consumeDraftThumbnail(draftId: string, draftStateId: string | null) {
+    const entry = this.draftThumbnails.get(draftId);
+    this.draftThumbnails.delete(draftId);
+    if (!entry || entry.expiresAt <= Date.now() || draftStateId === null || entry.draftStateId !== draftStateId) return null;
+    return entry;
+  }
+  saveThumbnail(request: { artifactId: string; codeRevisionId: string; dataSnapshotId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array }): { hash: string } | null {
+    if (!this.enabled) return null;
+    try {
+      const saved = this.humanMutation(store => store.saveThumbnail(request));
+      if (saved) this.publish([request.artifactId], "thumbnail");
+      return saved;
+    } catch (error) {
+      if (error instanceof ArtifactError && (error.code === "over-limit" || error.code === "disabled" || error.code === "source-missing" || error.code === "conflict")) {
+        return null;
+      }
+      throw error;
+    }
+  }
   discardCapture(request: ArtifactDiscardCaptureRequest) { this.humanMutation(store => store.discardCapture(request)); this.publish([], "changed"); }
   dismissRefreshRequest(request: ArtifactDismissRefreshRequest) { this.humanMutation(store => store.dismissRefreshRequest(request)); this.publish([], "changed"); }
   prune(request: ArtifactPruneRequest) { const value = this.humanMutation(store => store.prune(request)); this.publish([], "changed"); return value; }
@@ -461,6 +618,7 @@ export class ArtifactService {
   close(): void {
     if (this.closed) return;
     for (const read of this.sourceReads) read.abort(); this.sourceReads.clear();
+    this.draftThumbnails.clear();
     this.closed = true; this.gate = false; this.revision++; this.publish([], "disabled");
     if (this.activeAuthorization === null && !this.cleaningSource) { this.store?.close(); this.store = null; this.storeOwner = null; }
   }

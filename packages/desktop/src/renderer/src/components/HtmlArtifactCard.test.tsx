@@ -184,7 +184,8 @@ describe("HtmlArtifactCard retained file-backed draft", () => {
         managed: resolved.managed, readOnly: resolved.readOnly };
     });
     window.ompArtifactHost = { prepareSurface, releaseSurface: vi.fn(async () => {}),
-      updateTheme: vi.fn(async () => {}), onSurfaceNotice: () => () => {} };
+      updateTheme: vi.fn(async () => {}), captureThumbnail: vi.fn(async () => null),
+      ensureDocumentThumbnail: vi.fn(async () => null), onSurfaceNotice: () => () => {} };
     const localProject = remoteOwnedState(TAB, "unused-remote").remoteInstances[0]!.projects[0]!;
     const session = localProject.sessions[0]!;
     useStore.setState({ state: backendState({ artifactLibraryEnabled: true, htmlArtifactScripts: true,
@@ -229,6 +230,65 @@ describe("HtmlArtifactCard retained file-backed draft", () => {
     expect(accepted.datasets.rows).not.toHaveProperty("valueFile");
     expect(artifactService.describe({ artifactId: kept.artifactId }).code.source.sourceHash).toBe(rawHash);
     expect(JSON.stringify(rawArgs)).toBe(original);
+  });
+
+  it("renders a persistent draft footer bar on managed drafts while keeping plain documents flush", async () => {
+    const localProject = remoteOwnedState(TAB, "unused-remote").remoteInstances[0]!.projects[0]!;
+    const session = localProject.sessions[0]!;
+    useStore.setState({ state: backendState({ artifactLibraryEnabled: true, htmlArtifactScripts: true,
+      projects: [{ ...localProject, sessions: [{ ...session, sessionId: SESSION, lineageDir: "/tmp/l" }] }] }), activeTabId: TAB });
+    backendMock.artifactResolveSource.mockResolvedValue({
+      status: "draft",
+      draft: {
+        draftId: "11111111-1111-4111-8111-111111111111",
+        title: "Managed report",
+        source: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "/tmp/l", sessionId: SESSION, runtimeKey: null, toolCallId: TOOL_CALL, sourceHash: "a".repeat(64), createdAt: "2026-11-09T00:00:00.000Z" },
+        originContext: { kind: "chat" },
+        managed: true,
+        basedOnReferenceId: null,
+        createdAt: "2026-11-09T00:00:00.000Z",
+        artifactId: null,
+        stateRevision: 0,
+        draftStateId: "22222222-2222-4222-8222-222222222222",
+        previewDataSnapshotId: null,
+      },
+    });
+    const managedItem = artifact({
+      toolCallId: TOOL_CALL,
+      args: {
+        title: "Managed report",
+        html: "<p>Hello</p>",
+        artifact: { protocolVersion: 1, stateSchema: "s-v1", initialState: {}, datasets: [] },
+      },
+    });
+    const host = render(managedItem, TAB);
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(host.querySelector("[data-artifact-draft-bar]")).not.toBeNull();
+    });
+    expect(host.querySelector("[data-artifact-draft-bar]")?.textContent).toContain("Keep");
+    act(() => root?.unmount()); root = null;
+
+    // Plain document draft has no persistent draft bar.
+    backendMock.artifactResolveSource.mockResolvedValue({
+      status: "draft",
+      draft: {
+        draftId: "33333333-3333-4333-8333-333333333333",
+        title: "Plain chart",
+        source: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "/tmp/l", sessionId: SESSION, runtimeKey: null, toolCallId: TOOL_CALL, sourceHash: "a".repeat(64), createdAt: "2026-11-09T00:00:00.000Z" },
+        originContext: { kind: "chat" },
+        managed: false,
+        basedOnReferenceId: null,
+        createdAt: "2026-11-09T00:00:00.000Z",
+        artifactId: null,
+        stateRevision: 0,
+        draftStateId: "44444444-4444-4444-8444-444444444444",
+        previewDataSnapshotId: null,
+      },
+    });
+    const plainHost = render(artifact({ toolCallId: TOOL_CALL }), TAB);
+    await act(async () => {});
+    expect(plainHost.querySelector("[data-artifact-draft-bar]")).toBeNull();
   });
 });
 

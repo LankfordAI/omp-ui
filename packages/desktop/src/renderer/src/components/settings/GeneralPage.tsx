@@ -314,7 +314,6 @@ export function GeneralPage() {
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
-  const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
   const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
   const setThemeAgentAccess = useStore((s) => s.setThemeAgentAccess);
   const setIssueAgentAccess = useStore((s) => s.setIssueAgentAccess);
@@ -483,16 +482,6 @@ export function GeneralPage() {
           on={state?.desktopNotifications ?? true}
           onChange={(next) => void setDesktopNotifications(next)}
           label="Desktop notifications"
-        />
-      </Row>
-      <Row
-        title="Run scripts in HTML artifacts"
-        hint="Interactive documents the agent renders inline in the transcript run their scripts sandboxed, with no network, storage, popups, forms, or navigation. Off shows every artifact as a static document. Remote browser clients always show artifacts static."
-      >
-        <Switch
-          on={state?.htmlArtifactScripts ?? true}
-          onChange={(next) => void setHtmlArtifactScripts(next)}
-          label="Run scripts in HTML artifacts"
         />
       </Row>
       <Row

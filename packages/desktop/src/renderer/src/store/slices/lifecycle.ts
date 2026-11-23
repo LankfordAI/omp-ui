@@ -55,7 +55,7 @@ import {
 import { disposeTabRuntime } from "./rpc-command";
 import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { liveVoiceGeneration } from "./live-switch";
-import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, liveForksOf } from "./view";
+import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, getNavigationGeneration, liveForksOf } from "./view";
 import type {
   BulkDeleteRow,
   DeleteConfirmation,
@@ -115,6 +115,7 @@ export type LifecycleSlice = Pick<
   | "newWorktreeSession"
   | "launchSession"
   | "runArtifactRefresh"
+  | "referenceArtifactInNewSession"
   | "backgroundSeedFailedTabId"
   | "dismissBackgroundSeedToast"
   | "convertSessionToWorktree"
@@ -282,6 +283,9 @@ export function createLifecycleSlice(
       deps,
       m,
     );
+    // A settled/hibernated session holds no unread mark (CONTEXT.md Attention
+    // stack, #1305); clear it here so stale marks do not linger in localStorage.
+    if (hibernated) get().clearUnread(tabId);
     set((s) => {
       // The stall field must clear even when no tool cards were running
       // — a pure-text stall settles to `settled === before.items`.
@@ -1354,6 +1358,24 @@ export function createLifecycleSlice(
     return tabId;
   };
 
+  const referenceArtifactInNewSession: LifecycleSlice["referenceArtifactInNewSession"] = async (request) => {
+    const navigationGeneration = request.navigationGeneration ?? getNavigationGeneration();
+    const tabId = request.projectCwd === null
+      ? await newChat({ background: true })
+      : await newSession(request.projectCwd, "rpc-ui", null, { background: true });
+    if (tabId === null) return null;
+    const { artifactId, codeRevisionId, dataSnapshotId, includeData } = request;
+    const reference = await backend
+      .artifactReference({ targetTabId: tabId, artifactId, codeRevisionId, dataSnapshotId, includeData })
+      .catch(async (error: unknown) => {
+        if (findRecord(get().state, tabId)?.sessionId === null) await eraseSession(tabId);
+        throw error;
+      });
+    get().attachArtifactReference(tabId, { ...reference, instanceId: null });
+    if (getNavigationGeneration() === navigationGeneration) get().focusTab(tabId);
+    return tabId;
+  };
+
   /**
    * Converts an unprompted session to a worktree session (issue #225): the
    * main process mints the checkout, patches the record, and respawns in
@@ -2305,6 +2327,7 @@ export function createLifecycleSlice(
     newWorktreeSession,
     launchSession,
     runArtifactRefresh,
+    referenceArtifactInNewSession,
     backgroundSeedFailedTabId: null,
     dismissBackgroundSeedToast: () => set({ backgroundSeedFailedTabId: null }),
     convertSessionToWorktree,

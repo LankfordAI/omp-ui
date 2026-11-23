@@ -31,6 +31,7 @@ import { FleetTerminalView } from "./components/fleet/FleetTerminalView";
 import { Artifacts } from "./components/artifacts/Artifacts";
 import { RoutineFocusProvider } from "./components/RoutineFocusProvider";
 import { RoutinesView } from "./components/routines/RoutinesView";
+import { RoutinesHostMenu } from "./components/routines/RoutinesHostMenu";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { SettleToast } from "./components/SettleToast";
@@ -53,7 +54,7 @@ import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "./lib/window-controls";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell, useDockedSidebar } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
-import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./store";
+import { findInstance, findOwner, findRecord, hasAnyRoutinesHost, isChatTab, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers in their effective chords. */
 const HINTS: [action: KeybindingActionId, what: string][] = [
@@ -118,8 +119,7 @@ function TitleBar() {
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
   const artifactsOpen = useStore((s) => s.artifacts !== null);
-  const routinesOpen = useStore((s) => s.routinesOpen && s.state?.routinesEnabled === true);
-  const routinesState = useStore((s) => s.routinesState);
+  const routinesOpen = useStore((s) => s.routinesOpen && hasAnyRoutinesHost(s.state));
 
   return (
     <header
@@ -148,7 +148,11 @@ function TitleBar() {
         )}
       </div>
 
-      {routinesOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{routinesState === null ? "Routines" : `Routines on ${routinesState.machineLabel}`}</span> : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">Artifacts</span> : activeTab?.mode === "rpc-ui" ? (
+      {routinesOpen ? (
+        <div className="flex min-w-0 flex-1 items-center px-3">
+          <RoutinesHostMenu />
+        </div>
+      ) : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">Artifacts</span> : activeTab?.mode === "rpc-ui" ? (
         <SessionHud tabId={activeTab.tabId} />
       ) : (
         <>
@@ -298,10 +302,19 @@ export default function App() {
   const fleetTerminal = useStore((s) => s.fleetTerminal);
   const artifacts = useStore((s) => s.artifacts);
   const artifactLibraryEnabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
-  const routinesEnabled = useStore((s) => s.state?.routinesEnabled === true);
-  // The Routines view shows only while the gate is on (ADR-0100); the effect
-  // below also drops the flag so re-enabling never resurrects a stale view.
+  const routinesEnabled = useStore((s) => hasAnyRoutinesHost(s.state));
+  // The Routines view shows while this computer or any joined remote has
+  // Routines enabled (ADR-0100, amended §8, #1306); the effect below drops
+  // the flag if every host disables it so re-enabling never resurrects stale UI.
   const routinesOpen = useStore((s) => s.routinesOpen) && routinesEnabled;
+  const routinesHostLabel = useStore((s) => {
+    if (s.routinesInstanceId === null) return s.routinesState?.machineLabel ?? null;
+    return (
+      findInstance(s.state, s.routinesInstanceId)?.nickname ??
+      s.routinesByInstance[s.routinesInstanceId]?.machineLabel ??
+      s.routinesInstanceId
+    );
+  });
   const fleetTerminals = useStore((s) => s.state?.fleetTerminals ?? EMPTY_FLEET_TERMINALS);
   // A shown terminal that was closed (here or in another window) leaves the pane to the tabs.
   const shownFleetTerminal = fleetTerminals.some((ft) => ft.terminalId === fleetTerminal) ? fleetTerminal : null;
@@ -540,7 +553,9 @@ export default function App() {
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
     routinesOpen
-      ? "Routines"
+      ? routinesHostLabel === null
+        ? "Routines"
+        : `Routines on ${routinesHostLabel}`
       : artifacts !== null
       ? "Artifacts"
       : stats !== null

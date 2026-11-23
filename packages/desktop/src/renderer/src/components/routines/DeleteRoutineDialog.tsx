@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { RoutineRecord } from "@omp-ui/core/routine";
 import { displayMessage } from "../../backend";
-import { useStore } from "../../store";
+import { findInstance, useStore } from "../../store";
 import { Button, ConfirmDialog } from "../ui";
 
 /**
@@ -12,15 +12,19 @@ import { Button, ConfirmDialog } from "../ui";
  */
 export function DeleteRoutineDialog({
   routine,
+  instanceId = null,
   onClose,
   onDeleted,
 }: {
   routine: RoutineRecord;
+  instanceId?: string | null;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const removeRoutine = useStore((s) => s.removeRoutine);
-  const projects = useStore((s) => s.state?.projects);
+  const projects = useStore((s) =>
+    instanceId === null ? s.state?.projects : findInstance(s.state, instanceId)?.projects,
+  );
   const runs = (projects ?? []).flatMap((group) => group.sessions).filter((session) => session.routine?.id === routine.id);
   const live = runs.filter((session) => session.live === "live").length;
   const retained = runs.length - live;
@@ -45,7 +49,7 @@ export function DeleteRoutineDialog({
             onClick={() => {
               setBusy(true);
               setError(null);
-              removeRoutine(routine.id).then(onDeleted, (err: unknown) => {
+              removeRoutine(routine.id, instanceId).then(onDeleted, (err: unknown) => {
                 setError(displayMessage(err));
                 setBusy(false);
               });

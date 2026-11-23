@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { remoteOwnedState, rpcTabState } from "../test/fixtures";
+import { backendState, remoteOwnedState, rpcTabState } from "../test/fixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 
@@ -12,7 +12,8 @@ HTMLElement.prototype.scrollIntoView = vi.fn();
 const rpcSend = vi.fn();
 const updateRoutine = vi.fn().mockResolvedValue({});
 const getRoutinesState = vi.fn();
-Object.assign(window, { ompBackend: { rpcSend, updateRoutine, getRoutinesState } });
+const remoteInstanceRequest = vi.fn().mockResolvedValue({});
+Object.assign(window, { ompBackend: { rpcSend, updateRoutine, getRoutinesState, remoteInstanceRequest } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { ApprovalCard } = await import("./ApprovalCard");
@@ -341,6 +342,7 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
             scripts: { pre: "", post: "" },
             timeoutMinutes: null,
             notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+            artifact: null,
             createdAt: "2026-11-01T00:00:00.000Z",
             nextRunAtMs: null,
             lastRunAtMs: null,
@@ -355,15 +357,17 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
       },
     });
   };
-  const seed = (routine: boolean): void => {
-    const state = remoteOwnedState(TAB, "inst-1");
-    const session = state.remoteInstances[0]!.projects[0]!.sessions[0]!;
-    session.routine = routine
+  const seed = (routine: boolean, remote = false): void => {
+    const template = remoteOwnedState(TAB, "inst-1");
+    const group = template.remoteInstances[0]!.projects[0]!;
+    group.sessions[0]!.routine = routine
       ? { id: ROUTINE_ID, name: "Triage", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 }
       : null;
-    useStore.setState({ state });
+    useStore.setState({
+      state: remote ? template : backendState({ projects: [group] }),
+    });
   };
-  afterEach(() => useStore.setState({ state: null }));
+  afterEach(() => useStore.setState({ state: null, routinesState: null, routinesByInstance: {} }));
 
   it("renders Deny, Always allow and Allow — never the session-wide option", () => {
     seed(true);
@@ -390,6 +394,28 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
     expect(patch.toolPolicy.deny).toEqual([]);
   });
 
+  it("Always allow on a remote Routine run routes grantRoutineTool to that tab's owning instance (#1306)", async () => {
+    seed(true, true);
+    seedRoutineState();
+    const localSnap = useStore.getState().routinesState!;
+    useStore.setState({ routinesState: null, routinesByInstance: { "inst-1": localSnap } });
+    render(SESSION_PROMPT, SESSION_FRAME);
+    await act(async () => {
+      button("Always allow").click();
+    });
+    expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Approve" });
+    expect(updateRoutine).not.toHaveBeenCalled();
+    expect(remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-1",
+      "routines:update",
+      [
+        ROUTINE_ID,
+        expect.objectContaining({
+          toolPolicy: expect.objectContaining({ allow: ["read", "bash"], deny: [] }),
+        }),
+      ],
+    );
+  });
   it("keeps the three options on an ordinary session", () => {
     seed(false);
     render(SESSION_PROMPT, SESSION_FRAME);

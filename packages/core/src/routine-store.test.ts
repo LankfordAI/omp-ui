@@ -42,6 +42,7 @@ function record(overrides: Partial<RoutineRecord> = {}): RoutineRecord {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+    artifact: null,
     enabled: true,
     createdAt: "2026-11-20T12:00:00.000Z",
     nextRunAtMs: null,
@@ -191,6 +192,51 @@ describe("RoutineStore notifications normalization (#1294)", () => {
           record({ id: VALID_ID }),
           { ...record({ id: "b".repeat(22) }), notifications: null },
           { ...record({ id: "c".repeat(22) }), notifications: { onStart: "yes" } },
+        ],
+      }),
+      "utf8",
+    );
+    expect(new RoutineStore(badFile).list().map((r) => r.id)).toEqual([VALID_ID]);
+  });
+});
+
+describe("RoutineStore scheduled-refresh backfill (ADR-0101)", () => {
+  it("backfills a legacy record missing artifact to null once and round-trips", () => {
+    const file = tempFile("routines");
+    const legacy = { ...record() } as Partial<RoutineRecord>;
+    delete legacy.artifact;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, routines: [legacy] }), "utf8");
+
+    const store = new RoutineStore(file);
+    expect(store.get(VALID_ID)?.artifact).toBeNull();
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { routines: Array<Record<string, unknown>> };
+    expect(onDisk.routines[0]!.artifact).toBeNull();
+
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.artifact).toBeNull();
+  });
+
+  it("preserves a configured binding and drops records with malformed ones", () => {
+    const file = tempFile("routines");
+    const store = new RoutineStore(file);
+    const binding = {
+      artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+      datasetIds: ["scores"],
+      autoApply: true,
+    };
+    store.add(record({ artifact: binding }));
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.artifact).toEqual(binding);
+
+    const badFile = tempFile("routines-bad-artifact");
+    fs.writeFileSync(
+      badFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        routines: [
+          record({ id: VALID_ID }),
+          { ...record({ id: "b".repeat(22) }), artifact: { artifactId: "x", datasetIds: [], autoApply: false } },
+          { ...record({ id: "c".repeat(22) }), artifact: 7 },
         ],
       }),
       "utf8",

@@ -18,11 +18,14 @@ export interface ArtifactPreparedSurface {
 export type ArtifactSurfaceNotice =
   | { surfaceId: string; reason: "changed" | "disabled" | "released" | "crashed"; reloadRequired: true }
   | { surfaceId: string; reason: "saving" | "saved" | "not-saved"; reloadRequired: false; stateRevision?: number; dataSnapshotId?: string }
-  | { surfaceId: string; reason: "escape"; reloadRequired: false };
+  | { surfaceId: string; reason: "escape"; reloadRequired: false }
+  | { surfaceId: string; reason: "ready"; reloadRequired: false };
 export interface ArtifactHostBridge {
   prepareSurface(source: ArtifactSurfaceSource, theme: ArtifactSurfaceTheme): Promise<ArtifactPreparedSurface>;
   updateTheme(surfaceId: string, theme: ArtifactSurfaceTheme): Promise<void>;
   releaseSurface(surfaceId: string): Promise<void>;
+  captureThumbnail(surfaceId: string, dark: boolean): Promise<{ hash: string } | null>;
+  ensureDocumentThumbnail(artifactId: string, theme: ArtifactSurfaceTheme): Promise<{ hash: string } | null>;
   onSurfaceNotice(listener: (notice: ArtifactSurfaceNotice) => void): () => void;
 }
 export interface ArtifactRuntimeDataset {

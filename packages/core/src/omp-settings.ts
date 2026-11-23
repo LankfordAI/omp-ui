@@ -48,8 +48,10 @@ import type {
 // keep importing everything omp-settings from one place.
 export {
   BASH_GIT_GUARD_KEY,
+  BINJA_INSTALL_DIR_KEY,
   CONTEXT_FILES_EXTRA_KEY,
   CONTEXT_FILES_SETTING_GROUP,
+  EDIT_MAGIC_MODEL_KEY,
   MEMORY_SETTING_GROUP,
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,

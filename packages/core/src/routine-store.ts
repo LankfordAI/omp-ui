@@ -62,6 +62,11 @@ export class RoutineStore {
         record.notifications = { ...DEFAULT_ROUTINE_NOTIFICATIONS };
         mutated = true;
       }
+      // Legacy pre-ADR-0101 record: backfill missing artifact binding to null.
+      if (!("artifact" in (record as Partial<RoutineRecord>))) {
+        record.artifact = null;
+        mutated = true;
+      }
       this.records.push(record);
     }
     if (mutated) {

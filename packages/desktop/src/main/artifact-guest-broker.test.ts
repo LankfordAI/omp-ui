@@ -180,6 +180,37 @@ describe("artifact guest broker authority", () => {
     await write; await release;
     await expect(f.invoke("artifact-runtime:load")).rejects.toThrow();
   });
+  it("emits ready on dom-ready, freezes heads across capturePage, and ignores kind='thumbnail' invalidations", async () => {
+    const f = await fixture();
+    const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const saveThumbnail = vi.fn(() => ({ hash: "abc123" }));
+    f.service.saveThumbnail = saveThumbnail;
+    (f.guest as unknown as { capturePage: () => Promise<unknown> }).capturePage = vi.fn(async () => ({
+      isEmpty: () => false,
+      getSize: () => ({ width: 960, height: 600 }),
+      crop: function () { return this; },
+      resize: function () { return this; },
+      toPNG: () => PNG,
+      toJPEG: () => Buffer.alloc(0),
+    }));
+    f.guest.emit("dom-ready");
+    expect(f.root.sent.some((row) => row[0] === "artifact-host:surface-notice" && (row[1] as { reason?: string }).reason === "ready")).toBe(true);
+
+    const rootEvent = { sender: f.root, senderFrame: f.root.mainFrame } as unknown as IpcMainInvokeEvent;
+    const captured = await f.invoke("artifact-host:capture-thumbnail", [f.surface.surfaceId, true], rootEvent);
+    expect(captured).toEqual({ hash: "abc123" });
+    expect(saveThumbnail).toHaveBeenCalledWith(expect.objectContaining({
+      artifactId: SOURCE.artifactId,
+      codeRevisionId: SOURCE.codeRevisionId,
+      dataSnapshotId: SOURCE.dataSnapshotId,
+      dark: true,
+      mime: "image/png",
+    }));
+
+    // Thumbnail save events must NOT revoke the active writer surface.
+    f.invalidate("thumbnail", [SOURCE.artifactId]);
+    expect(await f.invoke("artifact-runtime:load")).toMatchObject({ readOnly: false });
+  });
 });
 
 describe("artifact bounded inputs", () => {

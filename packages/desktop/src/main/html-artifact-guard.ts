@@ -59,6 +59,11 @@ export function artifactWebviewAdmitted(params: Record<string, string>, sessionL
 let sessionLocked = false;
 let installed = false;
 
+/** True only once the locked artifact partition's dead proxy has been installed. */
+export function isArtifactSessionLocked(): boolean {
+  return sessionLocked;
+}
+
 function lockArtifactSession(): void {
   const ses = session.fromPartition(HTML_ARTIFACT_PARTITION, { cache: false });
   ses.webRequest.onBeforeRequest((details, callback) => {
@@ -82,7 +87,7 @@ function lockArtifactSession(): void {
 }
 
 /** Confines one guest at creation, before it loads anything. */
-function confineGuest(guest: WebContents): void {
+export function confineGuest(guest: WebContents): void {
   guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   guest.setWindowOpenHandler(() => ({ action: "deny" }));
   guest.on("will-navigate", (event) => event.preventDefault());

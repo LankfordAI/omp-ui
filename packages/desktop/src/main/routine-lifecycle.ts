@@ -52,6 +52,8 @@ export interface RoutineLifecycleDeps {
   /** `turns.isRunning(tabId) || awaitingHumanAnswer(tabId)`. */
   inRun: (tabId: string) => boolean;
   awaitingHumanAnswer: (tabId: string) => boolean;
+  /** True while any renderer client reports viewing this tab (ViewTracker.isViewed). */
+  isViewed: (tabId: string) => boolean;
   /** Ids of the tab's open blocking dialogs (`DialogGateTracker.openFrames`). */
   openDialogIds: (tabId: string) => string[];
   /** The ordinary Settle path; resolves false when the child did not stop. */
@@ -176,6 +178,44 @@ export class RoutineLifecycleManager implements FrameObserver {
     // synchronous arm already ran on the early frame.
     if (state.finalized && this.claimPost(state)) void this.runPostScript(tabId, state);
     this.schedule(tabId, state);
+  }
+
+  /**
+   * Tracks a resumed Routine run opened for inspection (ADR-0100, #1305):
+   * marked already finalized/postClaimed so reading never rewrites history,
+   * re-runs post hooks, or re-emits terminal notifications, and armed to
+   * self-Settle 60 s after no client views it.
+   */
+  trackResume(tabId: string): void {
+    const state = this.state(tabId);
+    state.finalized = true;
+    state.postClaimed = true;
+    state.wallDeadline = null;
+    if (!this.deps.inRun(tabId)) {
+      state.settleDeadline = this.now() + ROUTINE_RUN_SETTLE_GRACE_MS;
+    }
+    this.schedule(tabId, state);
+  }
+
+  /**
+   * Updates settle grace when a client changes which tab it views (#1305):
+   * leaving a finalized routine tab arms a fresh 60 s grace once no client
+   * views it, while viewing defers self-Settle in `tick`.
+   */
+  noteViewedChanged(prevTabId: string | null, nextTabId: string | null): void {
+    if (prevTabId === null || prevTabId === nextTabId) return;
+    const state = this.runs.get(prevTabId);
+    if (
+      state === undefined ||
+      !state.finalized ||
+      this.postRunningTabs.has(prevTabId) ||
+      this.deps.isViewed(prevTabId) ||
+      this.deps.inRun(prevTabId)
+    ) {
+      return;
+    }
+    state.settleDeadline = this.now() + ROUTINE_RUN_SETTLE_GRACE_MS;
+    this.schedule(prevTabId, state);
   }
 
   /** Tabs currently holding at least one open Approval card. */
@@ -511,9 +551,16 @@ export class RoutineLifecycleManager implements FrameObserver {
     }
 
     if (state.settleDeadline !== null && state.settleDeadline <= now) {
-      state.settleDeadline = null;
-      if (!this.deps.inRun(tabId)) {
-        void this.deps.settleSession(tabId).catch((err: unknown) => console.warn(`[routines] ${tabId}: self-settle failed:`, err));
+      if (this.deps.inRun(tabId)) {
+        state.settleDeadline = null;
+      } else if (this.deps.isViewed(tabId)) {
+        // Still actively viewed: re-check in 60 s so a silently-gone client still settles after VIEWED_STALE_MS.
+        state.settleDeadline = now + ROUTINE_RUN_SETTLE_GRACE_MS;
+      } else {
+        state.settleDeadline = null;
+        void this.deps.settleSession(tabId).catch((err: unknown) =>
+          console.warn(`[routines] ${tabId}: self-settle failed:`, err),
+        );
       }
     }
 

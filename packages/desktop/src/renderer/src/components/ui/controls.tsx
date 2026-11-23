@@ -440,6 +440,7 @@ export function ChoiceCapsule<T extends string | number>({
   value,
   options,
   onChange,
+  disabled = false,
   tone = "neutral",
   className,
   optionClassName,
@@ -448,20 +449,21 @@ export function ChoiceCapsule<T extends string | number>({
   value: T;
   options: readonly ChoiceCapsuleOption<T>[];
   onChange: (value: T) => void;
+  disabled?: boolean;
   tone?: Tone;
   className?: string;
   optionClassName?: string;
 }) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
   const matchingIndex = options.findIndex((option) => option.value === value);
-  const firstEnabledIndex = options.findIndex((option) => option.disabled !== true);
+  const firstEnabledIndex = options.findIndex((option) => !disabled && option.disabled !== true);
   const selectedIndex =
     matchingIndex >= 0 ? matchingIndex : firstEnabledIndex >= 0 ? firstEnabledIndex : options.length > 0 ? 0 : -1;
 
   const nextEnabled = (from: number, direction: -1 | 1): number => {
     for (let step = 1; step <= options.length; step += 1) {
       const candidate = (from + direction * step + options.length) % options.length;
-      if (options[candidate]?.disabled !== true) return candidate;
+      if (!disabled && options[candidate]?.disabled !== true) return candidate;
     }
     return -1;
   };
@@ -482,10 +484,12 @@ export function ChoiceCapsule<T extends string | number>({
             }}
             type="button"
             title={option.title}
-            disabled={option.disabled}
+            disabled={disabled || option.disabled}
             aria-pressed={selected}
-            tabIndex={selected && option.disabled !== true ? 0 : -1}
-            onClick={() => onChange(option.value)}
+            tabIndex={selected && !disabled && option.disabled !== true ? 0 : -1}
+            onClick={() => {
+              if (!disabled) onChange(option.value);
+            }}
             onKeyDown={(event) => {
               const target =
                 event.key === "ArrowLeft" || event.key === "ArrowUp"

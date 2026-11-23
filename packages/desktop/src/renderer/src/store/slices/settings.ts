@@ -1,6 +1,6 @@
 import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold";
 import type { StateCreator } from "zustand";
-import { backend } from "../../backend";
+import { backend, backendFor } from "../../backend";
 import type { ThemePreference } from "@omp-ui/core/theme";
 import { applyThemePreference, currentStoredThemes, currentThemePreference } from "../../lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
@@ -828,10 +828,10 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return backend.readJudgeModels();
     },
 
-    readChatModels() {
+    readChatModels(instanceId = null) {
       // Uncached on purpose, exactly like readJudgeModels: the catalog belongs
-      // to the installed omp version and the provider keys (issue #797).
-      return backend.readChatModels();
+      // to the target host's installed omp version and provider keys (#797, #1306).
+      return backendFor(instanceId).readChatModels();
     },
 
     async ensureCompactionSettings(projectCwd) {

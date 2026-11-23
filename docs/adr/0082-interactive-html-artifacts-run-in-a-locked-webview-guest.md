@@ -236,3 +236,11 @@ artifacts share a reply. Every other boundary, deferred-note, settled tail
 fallback, and display-only invariant from #1141 stays unchanged. The tool
 description in `packages/core/src/host-bridge.ts` tells the model that figures
 render directly below its final reply, as the last thing in the turn.
+
+## Amendment — guard-gated offscreen document thumbnail capturer (2026-11-23, issue #1307)
+
+The Artifacts gallery displays cached raster thumbnails for kept artifacts. Managed artifacts capture pixels directly from their bound live `<webview>` guest via `ArtifactGuestBroker.captureThumbnail()` (`surface.guest.capturePage()`), freezing the surface's `(epoch, codeRevisionId, dataSnapshotId)` before capture and rechecking before committing. Plain document-only kept artifacts have no broker-managed guest until opened, so main adds `ArtifactThumbnailCapturer` (`packages/desktop/src/main/artifact-thumbnail-capturer.ts`):
+
+- **Same locked partition and fail-closed readiness gate.** `html-artifact-guard.ts` exports `isArtifactSessionLocked()` and `confineGuest()`. `ArtifactThumbnailCapturer` refuses to create any window unless `isArtifactSessionLocked()` is true (the dead proxy on `HTML_ARTIFACT_PARTITION` has resolved) and `ArtifactService.enabled` is true.
+- **Offscreen window confinement.** Each serialized capture job creates a hidden offscreen `BrowserWindow` (`show: false`, `offscreen: true`, `paintWhenInitiallyHidden: true`, `...ARTIFACT_GUEST_PREFERENCES`, no preload), calls `confineGuest(win.webContents)` before `loadURL(htmlArtifactDataUrl(...))`, captures on `did-finish-load` + first `paint` (200 ms settle, 4 s hard timeout), encodes to 16:10 640x400 PNG/JPEG <= 128 KiB, and destroys the window in `finally`.
+- **Main window tracking.** `packages/desktop/src/main/index.ts` tracks its main app `BrowserWindow` explicitly rather than reading `BrowserWindow.getAllWindows()[0]`, ensuring transient offscreen capture windows can never be surfaced on `activate` / `second-instance` or targeted by quit dialogs.

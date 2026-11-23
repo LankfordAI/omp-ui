@@ -219,6 +219,12 @@ export const GIT_SETTING_GROUP: OmpSettingGroup = {
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
+/** Apply model override for `edit.mode = "magic"`; "" falls back to the `smol` role (issue #1273). */
+export const EDIT_MAGIC_MODEL_KEY = "edit.magic.model";
+
+/** Binary Ninja install directory override; "" auto-detects (issue #1275). */
+export const BINJA_INSTALL_DIR_KEY = "binja.installDir";
+
 /**
  * Sharpshooter decision extraction (omp 18.12.0, issue #887). The shortest
  * prompt an exchange must reach before Sharpshooter extracts decisions from
@@ -410,18 +416,24 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // verified-passage hit threshold (both unset = omp's built-in behavior).
     // Each is a plain scalar row; keys an older binary does not publish
     // render no row, the existing per-key skip rule.
+    // omp 19.1 (issue #1273): `edit.mode` gains the `magic` value — described
+    // changes a fast model turns into patches — whose option rides in from
+    // `omp config list` like the rest of the enum; `edit.magic.model` picks
+    // the apply model (selector or @role alias, empty = the smol role) and
+    // renders as a plain string row.
     // omp 19.1 (issue #1275): the disassembler enum gains `binja` (Binary
     // Ninja), whose option rides in via parseEnumOptions like the others, and
-    // binja.installDir points at that install — a plain string row.
+    // `binja.installDir` points at that install (empty = auto-detect).
     title: "Tools",
     keys: [
       "edit.mode",
+      EDIT_MAGIC_MODEL_KEY,
       "todo.midRunNudges",
       "grep.contextBefore",
       "grep.contextAfter",
       "commit.enabled",
       "disassembler.backend",
-      "binja.installDir",
+      BINJA_INSTALL_DIR_KEY,
       "find.verifyModel",
       "find.hitThreshold",
     ],

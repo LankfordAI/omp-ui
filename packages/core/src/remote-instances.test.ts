@@ -182,27 +182,44 @@ describe("council roster channels (issue #1049)", () => {
   });
 });
 
-describe("routines channels (ADR-0100, U13)", () => {
-  it("never routes or proxies any routines:* or routine settings channel to a joined instance", () => {
+describe("routines channels (ADR-0100 §8 amendment, #1306)", () => {
+  const PROXIED_ROUTINE_CHANNELS = [
+    "routines:create",
+    "routines:dryRun",
+    "routines:getState",
+    "routines:remove",
+    "routines:runNow",
+    "routines:testScript",
+    "routines:toolCatalog",
+    "routines:update",
+  ];
+  const LOCAL_ONLY_ROUTINE_CHANNELS = [
+    "routines:focus",
+    "routines:state",
+    "remote-routines:state",
+    "settings:setRoutineSpendDefaults",
+    "settings:setRoutinesEnabled",
+  ];
+
+  it("proxies the eight routines:* request channels and models:readChat while keeping routine settings and events off the allowlist", () => {
     const routineChannels = Object.values(BACKEND_CHANNELS)
       .map((d) => d.channel)
-      .filter((c) => c.startsWith("routines:") || c === "settings:setRoutinesEnabled" || c === "settings:setRoutineSpendDefaults");
-    expect(routineChannels.sort()).toEqual([
-      "routines:create",
-      "routines:dryRun",
-      "routines:focus",
-      "routines:getState",
-      "routines:remove",
-      "routines:runNow",
-      "routines:state",
-      "routines:testScript",
-      "routines:toolCatalog",
-      "routines:update",
-      "settings:setRoutineSpendDefaults",
-      "settings:setRoutinesEnabled",
-    ]);
-    // REMOTE_PROXY_CHANNELS is the union of the tab-routed and project-proxy sets.
-    for (const channel of routineChannels) {
+      .filter(
+        (c) =>
+          c.startsWith("routines:") ||
+          c === "remote-routines:state" ||
+          c === "settings:setRoutinesEnabled" ||
+          c === "settings:setRoutineSpendDefaults",
+      );
+    expect(routineChannels.sort()).toEqual([...PROXIED_ROUTINE_CHANNELS, ...LOCAL_ONLY_ROUTINE_CHANNELS].sort());
+    for (const channel of PROXIED_ROUTINE_CHANNELS) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(true);
+      expect(TAB_ROUTED_REQUESTS.has(channel), channel).toBe(false);
+      expect(TAB_ROUTED_NOTIFIES.has(channel), channel).toBe(false);
+      expect(REMOTE_TAB_EVENTS.has(channel), channel).toBe(false);
+    }
+    expect(REMOTE_PROXY_CHANNELS.has("models:readChat")).toBe(true);
+    for (const channel of LOCAL_ONLY_ROUTINE_CHANNELS) {
       expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
       expect(TAB_ROUTED_REQUESTS.has(channel), channel).toBe(false);
       expect(TAB_ROUTED_NOTIFIES.has(channel), channel).toBe(false);

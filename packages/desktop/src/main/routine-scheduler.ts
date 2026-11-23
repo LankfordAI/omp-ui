@@ -12,6 +12,7 @@ import {
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type OwnedSessionRecord,
+  type RoutineArtifactBinding,
   type RoutineCatalogSnapshot,
   type RoutineRecord,
   type RoutineRunHistory,
@@ -32,8 +33,8 @@ export const ROUTINE_SCHEDULER_MAX_WAIT_MS = 60_000;
 export const ROUTINE_DISPATCH_DEADLINE_MS = 45_000;
 /** Exact inline refusal string when Run now hits a busy host-wide active-turn lane (§7.1, #1253). */
 export const ROUTINE_BUSY_REFUSAL = "Another routine is running — try again in a moment";
-/** Exact refusal string when the Experimental gate is off (§9). */
-export const ROUTINES_DISABLED_ERROR = "Routines is disabled in Settings → Experimental";
+/** Exact refusal string when the Routines gate is off (§9). */
+export const ROUTINES_DISABLED_ERROR = "Routines is disabled in Settings → Routines";
 
 export interface RoutineSchedulerDeps {
   store: RoutineStore;
@@ -49,6 +50,8 @@ export interface RoutineSchedulerDeps {
   /** True while the tab has an open plan gate, project request, or blocking dialog. */
   awaitingHumanAnswer: (tabId: string) => boolean;
   listCatalog: (projectCwd: string, opts?: ListCatalogOptions) => Promise<RoutineCatalogSnapshot>;
+  /** Fire-time scheduled-refresh preflight (ADR-0101): null when the binding is live. */
+  artifactRefreshBlocked: (binding: RoutineArtifactBinding) => string | null;
   dispatch: (
     req: FleetDispatchRequest,
     who: { kind: "routine"; routine: SessionRoutine },
@@ -420,13 +423,35 @@ export class RoutineScheduler {
         }
       }
 
+      // ADR-0101: a bound run whose artifact/dataset selection no longer
+      // resolves fails the row before dispatching anything.
+      if (routine.artifact !== null) {
+        const blocked = this.deps.artifactRefreshBlocked(routine.artifact);
+        if (blocked !== null) {
+          return this.handleDispatchFailure(
+            routine,
+            trigger,
+            firedAtMs,
+            scheduledForMs,
+            missed,
+            "artifact-missing",
+            blocked,
+            staleCatalog,
+            throwOnFailure,
+          );
+        }
+      }
+
       const catalog = await this.deps.listCatalog(routine.destination.projectCwd, {
         fallbackReviewedKeys: routine.toolPolicy.reviewedCatalog,
       });
       staleCatalog = catalog.staleServers.length > 0 || catalog.enumerationError !== null;
 
       const allowAgentNotify = routineAllowsAgentNotification(routine.notifications);
-      const compiled = compileRoutineToolPolicy(routine.toolPolicy, catalog, { allowAgentNotify });
+      const compiled = compileRoutineToolPolicy(routine.toolPolicy, catalog, {
+        allowAgentNotify,
+        allowArtifactCapture: routine.artifact !== null,
+      });
       const warnCostUsd = routine.spend.warnUsd ?? this.deps.defaultWarnCostUsd();
       const maxCostUsd = routine.spend.maxUsd ?? this.deps.defaultMaxCostUsd();
       const sessionRoutine: SessionRoutine = {
@@ -436,6 +461,7 @@ export class RoutineScheduler {
         deniedBuiltins: compiled.deniedBuiltins,
         warnCostUsd,
         maxCostUsd,
+        ...(routine.artifact === null ? {} : { artifact: structuredClone(routine.artifact) }),
       };
 
       const result = await this.deps.dispatch(

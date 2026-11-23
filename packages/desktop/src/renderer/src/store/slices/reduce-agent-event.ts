@@ -104,6 +104,10 @@ function stallNotice(
 ): { notice: NoticeItem; count: number } | null {
   const errorMessage = strField(frame, "errorMessage") ?? "";
   const errorId = numField(frame, "errorId") ?? 0;
+  // omp 19.1.1 keeps Anthropic's request-id on the failed assistant message
+  // (issue #1291): quote it at provider support straight from this notice.
+  const rawRequestId = strField(frame, "requestId")?.trim();
+  const requestId = rawRequestId ? rawRequestId : undefined;
   const watchdogMatch = STALL_MESSAGE_RE.exec(errorMessage);
   if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
     return null;
@@ -125,11 +129,12 @@ function stallNotice(
   } else {
     detail = `${stage} watchdog fired after ${formatDuration(now - checkpoint.at)} since ${checkpoint.label}. Review Settings → omp → Providers.`;
   }
+  // One sentence stem (no trailing period), then the provider request id when
+  // the harness reported one (issue #1291).
+  const quoted = requestId !== undefined ? ` Provider request id: ${requestId}.` : "";
+  const stem = `provider stream stall #${count} — ${detail}${upstream}`.trimEnd().replace(/\.$/, "");
   return {
-    notice: noticeItem(
-      `provider stream stall #${count} — ${detail}${upstream}`,
-      "warn",
-    ),
+    notice: noticeItem(`${stem}.${quoted}`, "warn"),
     count,
   };
 }
@@ -418,10 +423,12 @@ export function reduceAgentEvent(
       hasRpcPatch = true;
     }
     if (strField(message, "role") === "assistant") {
+      const rawRequestId = strField(message, "requestId")?.trim();
       rpc.lastTurn = {
         stopReason: strField(message, "stopReason"),
         errorMessage: strField(message, "errorMessage"),
         errorId: numField(message, "errorId"),
+        requestId: rawRequestId ? rawRequestId : undefined,
         repetitionStop: carriesRepetitionStop(message),
       };
       hasRpcPatch = true;
@@ -541,6 +548,7 @@ export function reduceAgentEvent(
           {
             errorMessage: tab.lastTurn?.errorMessage,
             errorId: tab.lastTurn?.errorId,
+            requestId: tab.lastTurn?.requestId,
           },
           now,
         );
