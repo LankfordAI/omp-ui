@@ -410,7 +410,9 @@ function parseTool(record: Record<string, unknown>): CapabilityTool | typeof INV
   if (enabled === INVALID) return INVALID;
   const direct = nullableBoolean(record.direct);
   if (direct === INVALID) return INVALID;
-  const mounted = nullableBoolean(record.mounted);
+  // Older omp-ui bridges and joined hosts publish `xdev`; accept either field
+  // (preferring `mounted` when present) so rolling upgrades stay parseable.
+  const mounted = nullableBoolean(record.mounted !== undefined ? record.mounted : record.xdev);
   if (mounted === INVALID) return INVALID;
   const evalBridge = nullableBoolean(record.evalBridge);
   if (evalBridge === INVALID) return INVALID;

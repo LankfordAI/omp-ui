@@ -145,9 +145,10 @@ const PLAN_MODE_PREFIX =
   ", and NEVER submit a plan without having written a plan file this turn.\\n\\n";
 
 /** How this harness dispatches plan submission: command (omp 19.1+) or device. */
-const SUBMIT_COMMAND = "run the \`propose\` command with that same <slug>";
+const SUBMIT_COMMAND = "running \`propose <slug>\` with the bash tool (matching that same <slug>)";
+const SUBMIT_COMMAND_IMPERATIVE = "run \`propose <slug>\` with the bash tool (matching that same <slug>)";
 const SUBMIT_DEVICE = "write the same <slug> as plain text to xd://propose";
-
+const SUBMIT_DEVICE_GERUND = "writing the same <slug> as plain text to xd://propose";
 const MD_PLAN_BODY = (submit: string): string =>
   "When the user does ask for a plan: choose a short kebab-case <slug>, write " +
   "the plan to local://<slug>-plan.md with the write tool, then request review " +
@@ -261,16 +262,26 @@ const HTML_PLAN_BODY = (submit: string): string =>
   "Nothing in the document may contain <script>, external resources, or " +
   "refresh/navigation meta tags; inline SVG and data: images are fine. ";
 
-const PLAN_SPEC_SUFFIX =
+const PLAN_SPEC_SUFFIX = (toolCommands: boolean): string =>
   "The plan is an execution spec — a competent implementer who never saw this " +
   "conversation executes it top to bottom with zero design decisions left open: " +
   "ground every claim in code you actually read, give exact signatures/paths/" +
-  "callsites, and state edge-case handling. Writing the slug blocks your turn " +
-  "until the user answers execute, refine, or defers; a plan file with no " +
-  "propose write stays unreviewed, so always propose a plan you were asked to write.";
+  "callsites, and state edge-case handling. " +
+  (toolCommands
+    ? "Submitting the slug with \`propose\` blocks your turn until the user answers " +
+      "execute, refine, or defers; a plan file with no \`propose\` call stays unreviewed, " +
+      "so always propose a plan you were asked to write."
+    : "Writing the slug blocks your turn until the user answers execute, refine, " +
+      "or defers; a plan file with no propose write stays unreviewed, so always " +
+      "propose a plan you were asked to write.");
 
-function planModeInstruction(fmt: "html" | "md", submit: string): string {
-  return PLAN_MODE_PREFIX + (fmt === "html" ? HTML_PLAN_BODY(submit) : MD_PLAN_BODY(submit)) + PLAN_SPEC_SUFFIX;
+function planModeInstruction(fmt: "html" | "md", toolCommands: boolean): string {
+  const submit = toolCommands ? SUBMIT_COMMAND : SUBMIT_DEVICE_GERUND;
+  return (
+    PLAN_MODE_PREFIX +
+    (fmt === "html" ? HTML_PLAN_BODY(submit) : MD_PLAN_BODY(submit)) +
+    PLAN_SPEC_SUFFIX(toolCommands)
+  );
 }
 
 /** Notified when the instruction above cannot be delivered. The mode stays on. */
@@ -1273,7 +1284,7 @@ export default function (pi: PlanExtensionApi) {
                   "No plan file found for \\"" + title + "\\". Write the finalized plan to local://" +
                   (slug ?? "<slug>") +
                   "-plan.html with the write tool, then " +
-                  (toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE) +
+                  (toolCommandsEra(active) ? SUBMIT_COMMAND_IMPERATIVE : SUBMIT_DEVICE) +
                   " again.",
               },
             ],
@@ -1416,7 +1427,7 @@ export default function (pi: PlanExtensionApi) {
               planFilePath +
               ", then " +
               (toolCommandsEra(active)
-                ? "run the \`propose\` command with its title again"
+                ? "run \`propose <slug>\` with the bash tool again"
                 : "write its title to xd://propose again") +
               " when ready.",
           },
@@ -1510,7 +1521,7 @@ export default function (pi: PlanExtensionApi) {
       await active.sendCustomMessage(
         {
           customType: "omp-ui:plan-mode",
-          content: planModeInstruction(format, toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE),
+          content: planModeInstruction(format, toolCommandsEra(active)),
           display: false,
           attribution: "agent",
         },
@@ -1541,7 +1552,7 @@ export default function (pi: PlanExtensionApi) {
       await active.sendCustomMessage(
         {
           customType: "omp-ui:plan-mode-exit",
-          content: planModeExitInstruction(toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE),
+          content: planModeExitInstruction(toolCommandsEra(active) ? SUBMIT_COMMAND_IMPERATIVE : SUBMIT_DEVICE),
           display: false,
           attribution: "agent",
         },

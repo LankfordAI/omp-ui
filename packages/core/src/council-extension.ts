@@ -490,7 +490,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
       // omp 19.1 dispatches plan submission through the \`propose\` command; an
       // older omp takes a plain-text write to the xd://propose device.
       const submit = toolCommandsEra(pi.pi?.AgentSession?.prototype ?? null)
-        ? "run the \`propose\` command with \`" + slug + "\`"
+        ? "run \`propose " + slug + "\` with the bash tool"
         : "write \`" + slug + "\` as plain text to xd://propose";
       lines.push(
         "- Then revise \`" + label + "\` with your write tool: fix every blocker and major finding you agree with, " +

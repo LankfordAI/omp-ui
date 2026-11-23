@@ -473,6 +473,35 @@ describe("generated capabilities extension", () => {
     });
   });
 
+  it("reads mounted tools and allows tool control via getMountedToolCommandNames on omp 19.1+", async () => {
+    const harness = executableExtension();
+    const root = new harness.FakeAgentSession("root-a");
+    root.toolInfos = [
+      { name: "alpha", description: "base", source: "builtin", sourcePath: null },
+      { name: "lsp", description: "lang", source: "builtin", sourcePath: null },
+    ];
+    root.enabledNames = ["alpha", "lsp"];
+    root.activeNames = ["alpha"];
+    root.mountedNames = ["lsp"];
+    // Simulate omp 19.1+: getMountedXdevToolNames removed, getMountedToolCommandNames present.
+    Object.assign(root, {
+      getMountedXdevToolNames: undefined,
+      getMountedToolCommandNames: () => root.mountedNames,
+    });
+    await root.prompt();
+    await harness.arm();
+
+    const snap = harness.latest();
+    expect(snap.toolControl).toBe("available");
+    const byName = new Map(publishedTools(snap).map((t) => [t.name, t]));
+    expect(byName.get("lsp")).toMatchObject({ enabled: true, direct: false, mounted: true });
+    expect(byName.get("alpha")).toMatchObject({ enabled: true, direct: true, mounted: false });
+
+    await sendMutation(harness, root, "lsp", false);
+    expect(root.setterCalls[0]).toEqual({ enabled: ["alpha"], mounted: [], force: false });
+    expect(harness.latest().toolMutation).toEqual({ id: "mut-1", name: "lsp", enabled: false, status: "applied" });
+  });
+
   it("replaces metadata under an unchanged name and stops publishing once settled", async () => {
     vi.useFakeTimers();
     const harness = executableExtension();

@@ -408,7 +408,7 @@ describe("generated council extension", () => {
       const result = await runTool(h, { plan: "local://auth-plan.html" }, cwd);
       expect(result.isError).toBeUndefined();
       const prompt = launchPrompt(h);
-      expect(prompt).toContain("run the `propose` command with `auth`");
+      expect(prompt).toContain("run `propose auth` with the bash tool");
       expect(prompt).not.toContain("xd://propose");
     });
 

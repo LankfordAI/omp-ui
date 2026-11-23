@@ -198,6 +198,15 @@ describe("parseCapabilitySnapshot", () => {
     expect(parsed!.toolMutation).toBeNull();
   });
 
+  it("accepts a legacy snapshot that publishes xdev instead of mounted", () => {
+    const legacyTool = tool();
+    delete legacyTool.mounted;
+    legacyTool.xdev = true;
+    const parsed = parse(snapshot({ tools: { status: "available", items: [legacyTool] } }));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.tools.status === "available" && parsed!.tools.items[0]?.mounted).toBe(true);
+  });
+
   it.each([
     { toolControl: null },
     { toolControl: "maybe" },

@@ -682,15 +682,30 @@ describe("plan mode transitions", () => {
   });
 
   it("names the propose command when the harness dispatches tool commands", async () => {
-    const h = harness(await loadExtension(), { toolCommands: true });
+    const artifacts = tempArtifacts();
+    const h = harness(await loadExtension(), { toolCommands: true, artifactsDir: artifacts });
     await h.run("on html");
     await h.run("off");
 
-    expect(entries(h.sent)[0]?.content).toContain("run the `propose` command with that same <slug>");
-    expect(entries(h.sent)[0]?.content).not.toContain("xd://propose");
+    const entry = entries(h.sent)[0]?.content ?? "";
+    expect(entry).toContain("running `propose <slug>` with the bash tool (matching that same <slug>)");
+    expect(entry).toContain("a plan file with no `propose` call stays unreviewed");
+    expect(entry).not.toContain("xd://propose");
+    expect(entry).not.toContain("propose write");
     const exit = exits(h.sent).at(-1);
-    expect(exit?.content).toContain("run the `propose` command with that same <slug>");
+    expect(exit?.content).toContain("run `propose <slug>` with the bash tool (matching that same <slug>)");
     expect(exit?.content).not.toContain("xd://propose");
+
+    // Missing-file error and refine reply speak the same 19.1 dialect.
+    await h.run("on html");
+    const missing = (await h.propose("auth")).content.map((c) => c.text).join("\n");
+    expect(missing).toContain("run `propose <slug>` with the bash tool");
+    expect(missing).not.toContain("xd://propose");
+
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const refine = (await h.propose("auth")).content.map((c) => c.text).join("\n");
+    expect(refine).toContain("run `propose <slug>` with the bash tool again");
+    expect(refine).not.toContain("xd://propose");
   });
 
   it("keeps the xd://propose submission channel on a harness predating tool commands", async () => {
@@ -698,7 +713,7 @@ describe("plan mode transitions", () => {
     await h.run("on html");
     await h.run("off");
 
-    expect(entries(h.sent)[0]?.content).toContain("write the same <slug> as plain text to xd://propose");
+    expect(entries(h.sent)[0]?.content).toContain("writing the same <slug> as plain text to xd://propose");
     expect(exits(h.sent).at(-1)?.content).toContain("xd://propose");
   });
 
