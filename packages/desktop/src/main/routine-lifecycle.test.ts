@@ -58,6 +58,7 @@ function harness(
   const enabled = { value: true };
   const running = new Set<string>();
   const awaiting = new Set<string>();
+  const viewed = new Set<string>();
   const openDialogs: string[] = [];
   const settleSession = vi.fn(async () => true);
   const sent: Array<{ tabId: string; cmd: RpcFrame }> = [];
@@ -75,6 +76,7 @@ function harness(
     isRoutineTab: (tabId) => tabId === TAB,
     inRun: (tabId) => running.has(tabId) || awaiting.has(tabId),
     awaitingHumanAnswer: (tabId) => awaiting.has(tabId),
+    isViewed: (tabId) => viewed.has(tabId),
     openDialogIds: () => [...openDialogs],
     settleSession,
     rpcSend: (tabId, cmd) => sent.push({ tabId, cmd }),
@@ -107,6 +109,7 @@ function harness(
     enabled,
     running,
     awaiting,
+    viewed,
     openDialogs,
     settleSession,
     sent,
@@ -166,6 +169,51 @@ describe("RoutineLifecycleManager settle grace (U9a)", () => {
     h.awaiting.add(TAB);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(h.settleSession).not.toHaveBeenCalled();
+  });
+
+  it("defers self-Settle while a client views the tab and settles 60 s after leaving view (#1305)", async () => {
+    const h = harness();
+    h.viewed.add(TAB);
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    h.viewed.delete(TAB);
+    h.lifecycle.noteViewedChanged(TAB, "other-tab");
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
+  });
+
+  it("trackResume settles a resumed run 60 s after leaving view without touching history, post hooks, or notifications (#1305)", async () => {
+    const h = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true }, false);
+    const beforeRow = h.rowNow();
+    h.viewed.add(TAB);
+    h.lifecycle.trackResume(TAB);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    // Leaving view arms a fresh 60 s grace.
+    h.viewed.delete(TAB);
+    h.lifecycle.noteViewedChanged(TAB, null);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
+    expect(h.postRuns).toHaveLength(0);
+    expect(h.routineNotifications).toHaveLength(0);
+    expect(h.rowNow()).toEqual(beforeRow);
+  });
+
+  it("trackResume settle is cancelled by agent_start and re-armed after follow-up agent_end (#1305)", async () => {
+    const h = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, { ...DEFAULT_ROUTINE_NOTIFICATIONS }, false);
+    h.lifecycle.trackResume(TAB);
+    await vi.advanceTimersByTimeAsync(30_000);
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
   });
 });
 
@@ -345,6 +393,7 @@ describe("RoutineLifecycleManager outcomes (U9d-e)", () => {
       isRoutineTab: () => true,
       inRun: () => false,
       awaitingHumanAnswer: () => false,
+      isViewed: () => false,
       openDialogIds: () => [],
       settleSession: async () => true,
       rpcSend: () => {},
@@ -517,6 +566,7 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
       isRoutineTab: () => true,
       inRun: () => false,
       awaitingHumanAnswer: () => false,
+      isViewed: () => false,
       openDialogIds: () => [],
       settleSession: async () => true,
       rpcSend: () => {},
@@ -555,6 +605,7 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
       isRoutineTab: () => true,
       inRun: (tabId) => awaiting.has(tabId),
       awaitingHumanAnswer: (tabId) => awaiting.has(tabId),
+      isViewed: () => false,
       openDialogIds: () => [],
       settleSession,
       rpcSend: () => {},

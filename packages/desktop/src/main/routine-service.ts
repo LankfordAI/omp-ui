@@ -52,6 +52,8 @@ export interface RoutineServiceDeps {
   sessions: () => readonly OwnedSessionRecord[];
   /** Clears a routine marker on a surviving session record. */
   clearSessionRoutine: (tabId: string) => void;
+  /** Marks a dormant session record settled (boot hygiene for pre-quit routine runs, #1305). */
+  markSessionSettled?: (tabId: string, settledAtMs: number) => void;
   isLive: (tabId: string) => boolean;
   isTurnRunning: (tabId: string) => boolean;
   awaitingHumanAnswer: (tabId: string) => boolean;
@@ -157,8 +159,18 @@ export class RoutineService {
     this.deps.send(this.state());
   }
 
-  /** Boot: a fire missed while the app was closed runs once now; retention catches up. */
+  /** Boot: stamp dormant unsettled routine runs, run one missed fire if due, and prune retention. */
   boot(): void {
+    if (this.deps.markSessionSettled !== undefined) {
+      let changed = false;
+      for (const s of this.deps.sessions()) {
+        if (s.routine === null || this.deps.isLive(s.tabId) || s.settledAtMs !== null) continue;
+        const parsed = Date.parse(s.cachedModified ?? s.launchedAt);
+        this.deps.markSessionSettled(s.tabId, Number.isFinite(parsed) ? parsed : this.now());
+        changed = true;
+      }
+      if (changed) this.deps.broadcast();
+    }
     this.scheduler.sync();
     void this.retention.prune().catch((err: unknown) => console.warn("[routines] boot retention failed:", err));
   }

@@ -282,6 +282,9 @@ export function createLifecycleSlice(
       deps,
       m,
     );
+    // A settled/hibernated session holds no unread mark (CONTEXT.md Attention
+    // stack, #1305); clear it here so stale marks do not linger in localStorage.
+    if (hibernated) get().clearUnread(tabId);
     set((s) => {
       // The stall field must clear even when no tool cards were running
       // — a pure-text stall settles to `settled === before.items`.

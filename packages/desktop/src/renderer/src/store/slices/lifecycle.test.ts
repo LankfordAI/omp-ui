@@ -1910,6 +1910,19 @@ describe("a settling session hides its tab and releases focus (issue #926)", () 
     expect(st.hibernated[h.TAB]).toBe(true);
   });
 
+  it("hibernation clears any unread mark for the settled tab (#1305)", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true })],
+      activeTabId: null,
+    });
+    h.useStore.getState().markUnread(h.TAB, "finished reply");
+    expect(h.useStore.getState().unread[h.TAB]).toBeDefined();
+
+    lifecycle().teardownProcess(h.TAB, 0, true);
+
+    expect(h.useStore.getState().unread[h.TAB]).toBeUndefined();
+  });
+
   it("settles a live spawned tab hidden and resumeDead brings it back focused with the marks cleared", async () => {
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({

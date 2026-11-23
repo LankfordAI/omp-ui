@@ -188,10 +188,10 @@ ends, and a **Settled** session holds none. The stack hides entirely when
 empty, lists newest reply first with the row's state band and verb, and opens
 the session on click. The mark is renderer-local view state — never a count,
 never on the session record, never synced across renderers (issue #1037).
-A **Routine run** waiting on an Approval card joins the stack like any other
-answer-waiting session; opening its row opens the session to its card. A
-finished-unread Routine run holds its mark even while settled — the one
-exception to "a Settled session holds none" — until it is opened.
+A **Routine run** waiting on an Approval card (local or on a joined remote
+instance) joins the stack; opening its row opens the session to its card. A
+finished Routine run leaves the stack once it self-settles — its history lives
+in the Routines view's run history (#1304, #1305).
 _Avoid_: inbox, unread list, needs-you
 
 **Snoozed session**:
@@ -1272,10 +1272,11 @@ another answer holds it, it surfaces in the **Attention stack** and the footer
 button's count chip. One routine run spans several omp **Run**s: each answered
 card resumes it into a new one. 60 s after its terminal Run — with its post-run
 hook, when configured, running between the outcome being decided and that grace
-being armed (#1283) — the run **Settle**s
-itself, and its history lives in the Routines view's run history rather than
-the coding sidebar; runs idle past 30 days are pruned. Every routine run is a
-**Private session**.
+being armed (#1283) — the run **Settle**s itself (deferring while any client
+views the tab), and its history lives in the Routines view's run history rather
+than the coding sidebar; resuming a settled Routine run to inspect it re-arms
+the 60 s self-Settle once unviewed (#1305). Runs idle past 30 days are pruned.
+Every routine run is a **Private session**.
 _Avoid_: run (the omp agent run), firing, execution, job (omp's Background job)
 
 **Scheduled refresh**:
