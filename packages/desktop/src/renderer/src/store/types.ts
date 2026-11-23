@@ -904,8 +904,8 @@ export interface SettingsSlice {
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   /** The installed omp's judge-kind catalog for the judge role row (issue #669). */
   readJudgeModels(): Promise<JudgeModelSnapshot>;
-  /** The installed omp's chat-kind catalog for the model-role browse picker (#797). */
-  readChatModels(): Promise<ModelCatalogSnapshot>;
+  /** The installed omp's chat-kind catalog for the model-role browse picker (#797, #1306). */
+  readChatModels(instanceId?: string | null): Promise<ModelCatalogSnapshot>;
   setProviderKey(
     projectCwd: string | null,
     envName: string,

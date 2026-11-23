@@ -27,7 +27,7 @@ import { backend, displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
 import { thinkingLevelColor } from "../../lib/thinking-colors";
-import { useStore } from "../../store";
+import { findInstance, useStore } from "../../store";
 import { ModelPalette } from "../ModelSelector";
 import { FIELD } from "../settings/rows";
 import { ThinkingSliderControl } from "../ThinkingSlider";
@@ -196,6 +196,9 @@ function StudioOptionRow({
 export function RoutineEditor({
   routine,
   models,
+  instanceId = null,
+  hostLabel = "this computer",
+  readOnly = false,
   onSaved,
   onDeleted,
   onOpenSession,
@@ -203,13 +206,21 @@ export function RoutineEditor({
 }: {
   routine: RoutineRecord | null;
   models: readonly CatalogModelOption[];
+  instanceId?: string | null;
+  hostLabel?: string;
+  readOnly?: boolean;
   onSaved: (routine: RoutineRecord) => void;
   onDeleted: () => void;
   onOpenSession: () => void;
   onBackToSessions?: () => void;
 }) {
-  const projects = useStore((s) => s.state?.projects);
-  const routinesState = useStore((s) => s.routinesState);
+  const isRemote = instanceId !== null;
+  const projects = useStore((s) =>
+    instanceId === null ? s.state?.projects : findInstance(s.state, instanceId)?.projects,
+  );
+  const routinesState = useStore((s) =>
+    instanceId === null ? s.routinesState : (s.routinesByInstance[instanceId] ?? null),
+  );
   const desktopNotifications = useStore((s) => s.state?.desktopNotifications);
   const createRoutine = useStore((s) => s.createRoutine);
   const updateRoutine = useStore((s) => s.updateRoutine);
@@ -218,13 +229,12 @@ export function RoutineEditor({
   const testRoutineScript = useStore((s) => s.testRoutineScript);
   const loadRoutineToolCatalog = useStore((s) => s.loadRoutineToolCatalog);
   const openSettings = useStore((s) => s.openSettings);
-  const localProjects = projects ?? [];
-
+  const hostProjects = projects ?? [];
   // Re-seed when the saved editable fields change (another selection, this
   // routine's own save echo, the list's enable switch) — never on a schedule
   // bookkeeping broadcast (lastRunAtMs, notices), which would wipe an edit.
-  const seedKey = JSON.stringify([routine?.id ?? null, draftOf(routine, localProjects[0]?.project.path ?? "")]);
-  const initial = useMemo(() => draftOf(routine, localProjects[0]?.project.path ?? ""), [seedKey]);
+  const seedKey = JSON.stringify([instanceId, routine?.id ?? null, draftOf(routine, hostProjects[0]?.project.path ?? "")]);
+  const initial = useMemo(() => draftOf(routine, hostProjects[0]?.project.path ?? ""), [seedKey]);
   const [draft, setDraft] = useState<Draft>(initial);
   const [activeTab, setActiveTab] = useState<StudioTab>("config");
   const [policyTouched, setPolicyTouched] = useState(false);
@@ -267,11 +277,11 @@ export function RoutineEditor({
   // The live catalog of the destination project feeds the tool policy editor.
   const isNew = routine === null;
   useEffect(() => {
-    if (draft.projectCwd === "") return;
+    if (draft.projectCwd === "" || readOnly) return;
     let cancelled = false;
     setCatalog(null);
     setCatalogError(null);
-    loadRoutineToolCatalog(draft.projectCwd).then(
+    loadRoutineToolCatalog(draft.projectCwd, instanceId).then(
       (snapshot) => {
         if (cancelled) return;
         setCatalog(snapshot);
@@ -293,11 +303,15 @@ export function RoutineEditor({
       cancelled = true;
     };
     // policyTouched is read at resolve time only; re-fetching on a checkbox would be wrong.
-  }, [draft.projectCwd, isNew, loadRoutineToolCatalog]);
+  }, [draft.projectCwd, instanceId, isNew, readOnly, loadRoutineToolCatalog]);
 
-  // Managed artifacts for the scheduled-refresh picker (ADR-0101).
+  // Managed artifacts for the scheduled-refresh picker (ADR-0101). Artifact
+  // channels stay host-local: never query local artifacts for a remote host.
   useEffect(() => {
-    if (!artifactLibraryEnabled) return;
+    if (isRemote || !artifactLibraryEnabled) {
+      setArtifactRows([]);
+      return;
+    }
     let cancelled = false;
     backend
       .artifactList({ limit: 40 })
@@ -310,20 +324,20 @@ export function RoutineEditor({
     return () => {
       cancelled = true;
     };
-  }, [artifactLibraryEnabled]);
+  }, [isRemote, artifactLibraryEnabled]);
 
   // The binding may reference an artifact deleted since it was saved; fires
   // then fail with "artifact-missing", and the editor says so.
   useEffect(() => {
-    if (draft.artifactId === null || artifactRows.length === 0) {
+    if (isRemote || draft.artifactId === null || artifactRows.length === 0) {
       setArtifactMissing(false);
       return;
     }
     setArtifactMissing(!artifactRows.some((row) => row.artifactId === draft.artifactId));
-  }, [draft.artifactId, artifactRows]);
+  }, [isRemote, draft.artifactId, artifactRows]);
 
   useEffect(() => {
-    if (draft.artifactId === null || !artifactLibraryEnabled) {
+    if (isRemote || draft.artifactId === null || !artifactLibraryEnabled) {
       setArtifactDatasets(null);
       return;
     }
@@ -339,7 +353,7 @@ export function RoutineEditor({
     return () => {
       cancelled = true;
     };
-  }, [draft.artifactId, artifactLibraryEnabled]);
+  }, [isRemote, draft.artifactId, artifactLibraryEnabled]);
 
   const timeZone = routine?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const schedule = buildSchedule(draft.schedule);
@@ -399,10 +413,13 @@ export function RoutineEditor({
   const dirty = routine === null || JSON.stringify(draft) !== JSON.stringify(initial);
 
   const save = (): void => {
-    if (input === null || busy !== null) return;
+    if (readOnly || input === null || busy !== null) return;
     setBusy("save");
     setSaveError(null);
-    const pending = routine === null ? createRoutine(input) : updateRoutine(routine.id, input);
+    const pending =
+      routine === null
+        ? createRoutine(input, instanceId)
+        : updateRoutine(routine.id, input, instanceId);
     pending
       .then(
         (saved) => onSaved(saved),
@@ -412,11 +429,11 @@ export function RoutineEditor({
   };
 
   const runNow = (): void => {
-    if (routine === null || busy !== null) return;
+    if (readOnly || routine === null || busy !== null) return;
     setBusy("run");
     setActionError(null);
     setSkippedNow(false);
-    runRoutineNow(routine.id)
+    runRoutineNow(routine.id, instanceId)
       .then((result) => {
         // Pre-hook exit 78 (#1283): a neutral "nothing to do" line, not failure.
         if (result.tabId === "") setSkippedNow(true);
@@ -427,10 +444,10 @@ export function RoutineEditor({
 
   const testScriptFor = (phase: "pre" | "post"): void => {
     const command = phase === "pre" ? draft.preScript : draft.postScript;
-    if (busy !== null || draft.projectCwd === "" || command.trim() === "") return;
+    if (readOnly || busy !== null || draft.projectCwd === "" || command.trim() === "") return;
     setBusy("test");
     setTestResult(null);
-    testRoutineScript({ projectCwd: draft.projectCwd, command })
+    testRoutineScript({ projectCwd: draft.projectCwd, command }, instanceId)
       .then(
         (result) => setTestResult({ phase, result }),
         (err: unknown) => setTestResult({ phase, result: { kind: "failed", timedOut: false, exitCode: null, stdout: "", stderr: displayMessage(err) } }),
@@ -439,7 +456,7 @@ export function RoutineEditor({
   };
 
   const preview = (): void => {
-    if (busy !== null) return;
+    if (readOnly || busy !== null) return;
     const req =
       routine !== null && !dirty
         ? ({ kind: "saved", id: routine.id } as const)
@@ -452,13 +469,13 @@ export function RoutineEditor({
     }
     setBusy("dry");
     setActionError(null);
-    dryRunRoutine(req)
+    dryRunRoutine(req, instanceId)
       .then(setDryRun, (err: unknown) => setActionError(displayMessage(err)))
       .finally(() => setBusy(null));
   };
 
   // Catalog-only thinking resolution: never fabricate a fallback ladder.
-  const selectedProject = localProjects.find((g) => g.project.path === draft.projectCwd)?.project ?? null;
+  const selectedProject = hostProjects.find((g) => g.project.path === draft.projectCwd)?.project ?? null;
   const projectModelSelector = selectedProject?.defaultModel ?? selectedProject?.lastModel ?? null;
   const effectiveModelSelector = draft.model ?? projectModelSelector;
   const selectedModel =
@@ -470,7 +487,7 @@ export function RoutineEditor({
   const efforts: readonly string[] = effectiveModel?.thinking?.efforts ?? [];
 
   const reconcileThinking = (nextModel: string | null, nextProjectCwd: string, currentThinking: string | null): string | null => {
-    const nextProject = localProjects.find((g) => g.project.path === nextProjectCwd)?.project ?? null;
+    const nextProject = hostProjects.find((g) => g.project.path === nextProjectCwd)?.project ?? null;
     const nextEffectiveSelector = nextModel ?? nextProject?.defaultModel ?? nextProject?.lastModel ?? null;
     const nextEffectiveModel =
       nextEffectiveSelector === null
@@ -574,10 +591,11 @@ export function RoutineEditor({
           <input
             type="text"
             value={draft.name}
+            disabled={readOnly}
             placeholder="Untitled routine"
             aria-label="Name"
             onChange={(e) => set({ name: e.target.value })}
-            className="min-w-48 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-lg font-semibold text-ink transition-colors placeholder:text-ink-faint hover:border-line focus:border-line-strong focus:bg-raised/70 focus:outline-none"
+            className="min-w-48 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-lg font-semibold text-ink transition-colors placeholder:text-ink-faint hover:border-line focus:border-line-strong focus:bg-raised/70 focus:outline-none disabled:opacity-60"
           />
           <div
             role="tablist"
@@ -631,22 +649,23 @@ export function RoutineEditor({
               </span>
               <Switch
                 on={draft.enabled}
+                disabled={readOnly}
                 onChange={(enabled) => set({ enabled })}
                 label="Enabled"
               />
             </div>
-            <Button size="xs" disabled={busy !== null} onClick={preview}>
+            <Button size="xs" disabled={readOnly || busy !== null} onClick={preview}>
               Dry run
             </Button>
-            <Button size="xs" tone="signal" disabled={routine === null || busy !== null} onClick={runNow}>
+            <Button size="xs" tone="signal" disabled={readOnly || routine === null || busy !== null} onClick={runNow}>
               Run now
             </Button>
-            {routine !== null && dirty && (
+            {routine !== null && dirty && !readOnly && (
               <Button size="xs" variant="ghost" onClick={() => setDraft(initial)}>
                 Reset changes
               </Button>
             )}
-            <Button size="xs" variant="solid" disabled={input === null || !dirty || busy !== null} onClick={save}>
+            <Button size="xs" variant="solid" disabled={readOnly || input === null || !dirty || busy !== null} onClick={save}>
               {routine === null ? "Create routine" : "Save routine"}
             </Button>
           </div>
@@ -705,6 +724,7 @@ export function RoutineEditor({
               <div className="flex min-h-0 flex-1 px-4 pb-3">
                 <textarea
                   value={draft.instructions}
+                  disabled={readOnly}
                   aria-label="Instructions"
                   onChange={(e) => set({ instructions: e.target.value })}
                   className={cn(
@@ -718,7 +738,9 @@ export function RoutineEditor({
                   role="note"
                   className="border-t border-copper-dim bg-copper-wash px-4 py-2 text-xs leading-relaxed text-copper"
                 >
-                  Run hooks execute as you, unattended, outside the tool policy. A post hook running npm/make/repo scripts executes files the just-finished agent may have rewritten.
+                  {isRemote
+                    ? `Run hooks execute on ${hostLabel} as that host's user, outside the tool policy. A post hook running npm/make/repo scripts executes files the just-finished agent may have rewritten.`
+                    : "Run hooks execute as you, unattended, outside the tool policy. A post hook running npm/make/repo scripts executes files the just-finished agent may have rewritten."}
                 </p>
               )}
               <div
@@ -795,6 +817,7 @@ export function RoutineEditor({
                   <ChoiceCapsule<Repeat>
                     label="Schedule"
                     value={draft.schedule.repeat}
+                    disabled={readOnly}
                     options={[
                       { value: "daily", label: "Daily" },
                       { value: "weekdays", label: "Weekdays" },
@@ -809,6 +832,7 @@ export function RoutineEditor({
                       {draft.schedule.repeat === "weekly" && (
                         <select
                           value={draft.schedule.weekday}
+                          disabled={readOnly}
                           aria-label="Weekday"
                           onChange={(e) => setSchedule({ weekday: Number(e.target.value) })}
                           className={FIELD}
@@ -823,6 +847,7 @@ export function RoutineEditor({
                       <input
                         type="time"
                         value={draft.schedule.time}
+                        disabled={readOnly}
                         aria-label="Time"
                         onChange={(e) => setSchedule({ time: e.target.value })}
                         className={FIELD}
@@ -834,6 +859,7 @@ export function RoutineEditor({
                   <input
                     type="text"
                     value={draft.schedule.expr}
+                    disabled={readOnly}
                     spellCheck={false}
                     aria-label="Cron expression or @macro"
                     placeholder="30 8 * * 1-5 · @daily"
@@ -868,21 +894,28 @@ export function RoutineEditor({
                         >
                           {draft.model ?? "Project default"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => openSettings("providers")}
-                          className="shrink-0 text-xs text-ink-faint underline decoration-dotted hover:text-ink-mid"
-                        >
-                          provider keys
-                        </button>
+                        {isRemote ? (
+                          <span className="shrink-0 text-xs text-ink-faint">
+                            {`Configure providers on ${hostLabel}`}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openSettings("providers")}
+                            className="shrink-0 text-xs text-ink-faint underline decoration-dotted hover:text-ink-mid"
+                          >
+                            provider keys
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <button
                         type="button"
+                        disabled={readOnly}
                         aria-label="Model"
                         title={draft.model ?? defaultHint}
                         onClick={() => setModelPickerOpen(true)}
-                        className={cn(CAPSULE_SEGMENT, "max-w-52 text-xs font-medium text-ink")}
+                        className={cn(CAPSULE_SEGMENT, "max-w-52 text-xs font-medium text-ink disabled:opacity-60")}
                       >
                         <span className="min-w-0 truncate">{modelDisplayName}</span>
                         <Chevron open={false} className="rotate-90 text-ink-faint" />
@@ -905,7 +938,7 @@ export function RoutineEditor({
                             ? "auto"
                             : (draft.thinkingLevel ?? "Project default")}
                         </span>
-                        {draft.thinkingLevel !== null && (
+                        {draft.thinkingLevel !== null && !readOnly && (
                           <button
                             type="button"
                             onClick={() => set({ thinkingLevel: null })}
@@ -920,7 +953,7 @@ export function RoutineEditor({
                         <Switch
                           on={thinkingAuto}
                           label="auto"
-                          disabled={busy === "save"}
+                          disabled={readOnly || busy === "save"}
                           onChange={(next) =>
                             set({
                               thinkingLevel: next ? "auto" : efforts[Math.max(0, efforts.length - 2)]!,
@@ -937,13 +970,15 @@ export function RoutineEditor({
                     ) : draft.thinkingLevel !== null ? (
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-mono text-xs text-ink-mid">{draft.thinkingLevel}</span>
-                        <button
-                          type="button"
-                          onClick={() => set({ thinkingLevel: null })}
-                          className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
-                        >
-                          default
-                        </button>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => set({ thinkingLevel: null })}
+                            className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
+                          >
+                            default
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <span className="truncate text-xs text-ink-faint">
@@ -959,7 +994,7 @@ export function RoutineEditor({
                         value={thinkingAuto ? null : draft.thinkingLevel}
                         auto={thinkingAuto}
                         autoPreviewIndex={thinkingPreviewIndex}
-                        disabled={busy === "save"}
+                        disabled={readOnly || busy === "save"}
                         onChange={(level) => set({ thinkingLevel: level })}
                       />
                     </div>
@@ -972,6 +1007,7 @@ export function RoutineEditor({
                     <ChoiceCapsule<RoutineMode>
                       label="Mode"
                       value={draft.mode}
+                      disabled={readOnly}
                       options={[
                         { value: "build", label: "Build" },
                         { value: "plan", label: "Plan" },
@@ -988,15 +1024,20 @@ export function RoutineEditor({
                   <StudioOptionRow icon={<IconFleet />} label="Destination project">
                     <select
                       value={draft.projectCwd}
+                      disabled={readOnly}
                       aria-label="Destination project"
                       onChange={(e) => handleProjectChange(e.target.value)}
                       className={cn(FIELD, "min-w-0 max-w-44")}
                     >
-                      {localProjects.length === 0 && <option value="">No projects on this machine</option>}
-                      {draft.projectCwd !== "" && !localProjects.some((g) => g.project.path === draft.projectCwd) && (
+                      {hostProjects.length === 0 && (
+                        <option value="">
+                          {isRemote ? `No projects on ${hostLabel}` : "No projects on this machine"}
+                        </option>
+                      )}
+                      {draft.projectCwd !== "" && !hostProjects.some((g) => g.project.path === draft.projectCwd) && (
                         <option value={draft.projectCwd}>{draft.projectCwd}</option>
                       )}
-                      {localProjects.map((g) => (
+                      {hostProjects.map((g) => (
                         <option key={g.project.path} value={g.project.path}>
                           {g.project.name}
                         </option>
@@ -1008,6 +1049,7 @@ export function RoutineEditor({
                     <ChoiceCapsule<RoutineWorkspace>
                       label="Workspace"
                       value={draft.workspace}
+                      disabled={readOnly}
                       options={[
                         { value: "worktree", label: "New worktree" },
                         { value: "checkout", label: "Project checkout" },
@@ -1034,6 +1076,7 @@ export function RoutineEditor({
                         type="number"
                         min={0}
                         step="0.01"
+                        disabled={readOnly}
                         value={draft.warnUsd}
                         placeholder={formatUsd(defaults.warn)}
                         onChange={(e) => set({ warnUsd: e.target.value })}
@@ -1046,6 +1089,7 @@ export function RoutineEditor({
                         type="number"
                         min={0}
                         step="0.01"
+                        disabled={readOnly}
                         value={draft.maxUsd}
                         placeholder={formatUsd(defaults.max)}
                         onChange={(e) => set({ maxUsd: e.target.value })}
@@ -1076,6 +1120,7 @@ export function RoutineEditor({
                     <ChoiceCapsule<"limited" | "unlimited">
                       label="Run timeout (minutes)"
                       value={timeoutUnlimited ? "unlimited" : "limited"}
+                      disabled={readOnly}
                       options={[
                         { value: "limited", label: "Limit" },
                         { value: "unlimited", label: "Unlimited" },
@@ -1089,6 +1134,7 @@ export function RoutineEditor({
                         min={1}
                         max={ROUTINE_TIMEOUT_MAX_MINUTES}
                         step={1}
+                        disabled={readOnly}
                         aria-label="Run timeout (minutes)"
                         value={draft.timeoutMinutes}
                         placeholder={String(ROUTINE_DEFAULT_TIMEOUT_MINUTES)}
@@ -1115,10 +1161,12 @@ export function RoutineEditor({
                 <div>
                   <h4 className="text-sm font-semibold text-ink">Notifications</h4>
                   <p className="mt-0.5 text-xs text-ink-dim">
-                    OS desktop banners posted on this machine for this routine&apos;s runs.
+                    {isRemote
+                      ? `OS desktop banners posted on ${hostLabel} for this routine's runs.`
+                      : "OS desktop banners posted on this machine for this routine's runs."}
                   </p>
                 </div>
-                {desktopNotifications === false && (
+                {!isRemote && desktopNotifications === false && (
                   <div
                     data-routine-notifications-disabled-note
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-copper-dim bg-copper-wash/40 px-2.5 py-2 text-xs text-copper"
@@ -1134,7 +1182,7 @@ export function RoutineEditor({
                     <input
                       type="checkbox"
                       checked={draft.notifications.onStart}
-                      disabled={busy === "save"}
+                      disabled={readOnly || busy === "save"}
                       onChange={(e) => setNotifications({ onStart: e.target.checked })}
                       className="accent-[var(--color-signal)]"
                     />
@@ -1144,7 +1192,7 @@ export function RoutineEditor({
                     <input
                       type="checkbox"
                       checked={draft.notifications.onApproval}
-                      disabled={busy === "save"}
+                      disabled={readOnly || busy === "save"}
                       onChange={(e) => setNotifications({ onApproval: e.target.checked })}
                       className="accent-[var(--color-signal)]"
                     />
@@ -1155,7 +1203,7 @@ export function RoutineEditor({
                       <input
                         type="checkbox"
                         checked={draft.notifications.onComplete}
-                        disabled={busy === "save"}
+                        disabled={readOnly || busy === "save"}
                         onChange={(e) => setNotifications({ onComplete: e.target.checked })}
                         className="accent-[var(--color-signal)]"
                       />
@@ -1171,7 +1219,7 @@ export function RoutineEditor({
                         <input
                           type="checkbox"
                           checked={draft.notifications.agentMessage}
-                          disabled={busy === "save" || !draft.notifications.onComplete}
+                          disabled={readOnly || busy === "save" || !draft.notifications.onComplete}
                           onChange={(e) => setNotifications({ agentMessage: e.target.checked })}
                           className="accent-[var(--color-signal)]"
                         />
@@ -1186,7 +1234,7 @@ export function RoutineEditor({
                     <input
                       type="checkbox"
                       checked={draft.notifications.onFail}
-                      disabled={busy === "save"}
+                      disabled={readOnly || busy === "save"}
                       onChange={(e) => setNotifications({ onFail: e.target.checked })}
                       className="accent-[var(--color-signal)]"
                     />
@@ -1196,7 +1244,22 @@ export function RoutineEditor({
               </section>
 
               {/* Card 2c — Scheduled artifact refresh (ADR-0101) */}
-              {artifactLibraryEnabled && (
+              {isRemote ? (
+                routine?.artifact != null && (
+                  <section
+                    className="studio-card space-y-1.5 rounded-xl p-3.5"
+                    data-routine-artifact-remote-preserved
+                  >
+                    <h4 className="text-sm font-semibold text-ink">Artifact refresh</h4>
+                    <p className="text-xs leading-relaxed text-ink-dim">
+                      {`Artifact refresh binding configured on ${hostLabel} — preserved on save.`}
+                    </p>
+                    <p className="font-mono text-[11px] text-ink-faint">
+                      {`${routine.artifact.artifactId} · ${routine.artifact.datasetIds.length} dataset${routine.artifact.datasetIds.length === 1 ? "" : "s"}${routine.artifact.autoApply ? " · auto-apply" : ""}`}
+                    </p>
+                  </section>
+                )
+              ) : artifactLibraryEnabled && (
                 <section className="studio-card space-y-2.5 rounded-xl p-3.5" data-routine-artifact-refresh>
                   <div>
                     <h4 className="text-sm font-semibold text-ink">Artifact refresh</h4>
@@ -1297,7 +1360,7 @@ export function RoutineEditor({
                         <Label>{phase === "pre" ? "Run shell before starting" : "Run shell after the run ends"}</Label>
                         <Button
                           size="xs"
-                          disabled={busy !== null || draft.projectCwd === "" || value.trim() === ""}
+                          disabled={readOnly || busy !== null || draft.projectCwd === "" || value.trim() === ""}
                           onClick={() => testScriptFor(phase)}
                         >
                           Test
@@ -1305,6 +1368,7 @@ export function RoutineEditor({
                       </div>
                       <textarea
                         value={value}
+                        disabled={readOnly}
                         rows={3}
                         spellCheck={false}
                         aria-label={phase === "pre" ? "Run shell before starting" : "Run shell after the run ends"}
@@ -1352,7 +1416,7 @@ export function RoutineEditor({
                           View run history
                         </Button>
                       )}
-                      <Button size="xs" variant="ghost" tone="rose" onClick={() => setConfirmDelete(true)}>
+                      <Button size="xs" variant="ghost" tone="rose" disabled={readOnly} onClick={() => setConfirmDelete(true)}>
                         Delete routine
                       </Button>
                     </div>
@@ -1371,7 +1435,7 @@ export function RoutineEditor({
             catalog={catalog}
             catalogError={catalogError}
             reviewed={routine !== null}
-            disabled={busy === "save"}
+            disabled={readOnly || busy === "save"}
             onChange={(toolPolicy) => {
               setPolicyTouched(true);
               set({ toolPolicy });
@@ -1398,7 +1462,7 @@ export function RoutineEditor({
       {modelPickerOpen && models.length > 0 && (
         <ModelPalette
           variant="routine"
-          instanceId={null}
+          instanceId={instanceId}
           models={models}
           current={draft.model}
           defaultHint={defaultHint}
@@ -1408,7 +1472,12 @@ export function RoutineEditor({
       )}
 
       {confirmDelete && routine !== null && (
-        <DeleteRoutineDialog routine={routine} onClose={() => setConfirmDelete(false)} onDeleted={onDeleted} />
+        <DeleteRoutineDialog
+          routine={routine}
+          instanceId={instanceId}
+          onClose={() => setConfirmDelete(false)}
+          onDeleted={onDeleted}
+        />
       )}
     </div>
   );

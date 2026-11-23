@@ -352,6 +352,7 @@ const backendMock = {
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
   onRoutinesState: vi.fn(),
+  onRemoteRoutinesState: vi.fn(),
   onFocusRoutine: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),

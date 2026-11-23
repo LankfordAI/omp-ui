@@ -120,6 +120,7 @@ export {
 } from "./store/slices/frame-reduction";
 export { canSettle } from "./store/slices/settle";
 export { supportsBulkAction, type BulkAction } from "./store/slices/session-bulk";
+export { hasAnyRoutinesHost } from "./store/slices/routines";
 export {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -441,6 +442,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     rpcCommandSlice.reconcileGoals(state);
     rpcCommandSlice.reconcileAutoresearch(state);
     rpcCommandSlice.reconcileVibe(state);
+    get().reconcileRoutinesInstances(state);
   };
 
 
@@ -559,8 +561,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onWebhooksState((webhooks) => get().replaceWebhooks(webhooks));
-      // Routines (ADR-0100): host-local like webhooks; the view reads on open.
+      // Routines (ADR-0100, amended §8, #1306): local + joined-remote updates.
       backend.onRoutinesState((routines) => get().replaceRoutines(routines));
+      backend.onRemoteRoutinesState((instanceId, routines) =>
+        get().replaceRemoteRoutines(instanceId, routines),
+      );
       backend.onMcpEndpointState((mcpEndpoint) => get().replaceMcpEndpoint(mcpEndpoint));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));

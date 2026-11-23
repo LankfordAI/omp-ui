@@ -1250,13 +1250,16 @@ pre and post **run hooks** (host-authored shell commands that bracket each
 **Routine run** outside the tool policy, #1283), which
 together start one fresh **Routine run** at each fire. It lives in the
 **Routines** view — a full-pane view opened from the sidebar footer, gated
-behind its own **Settings → Routines** page, opt-in, off by default, Host
-Lite reporting false — never on a session record, and like a **Webhook** it is
-never shared or coordinated across hosts. While the gate is off nothing shows
-anywhere in the shell. **Run now** fires once immediately; **Dry run**
-resolves the destination and effective **Tool policy** without starting a
-session. Missed fires fold into one late fire with a notice, never a burst
-(issue #1244, ADR-0100).
+behind **Settings → Routines** on each host, opt-in, off by default, Host
+Lite reporting false — never on a session record. Each host owns and runs its
+own routines independently (never copied or coordinated across hosts), and the
+**Routines** view's top-bar host dropdown (`Routines on [host ▾]`) lets you
+view, edit, toggle, dry-run, test hooks, delete, and **Run now** on this
+computer or any joined remote instance (#1306). While no host has the gate on,
+nothing shows anywhere in the shell. **Run now** fires once immediately;
+**Dry run** resolves the destination and effective **Tool policy** without
+starting a session. Missed fires fold into one late fire with a notice, never a
+burst (issue #1244, ADR-0100).
 _Avoid_: assistant (the transcript role; this feature is Routines), automation,
 bot, cron job, timer, recurring task, scheduled prompt (that sends into one
 session it resumes)

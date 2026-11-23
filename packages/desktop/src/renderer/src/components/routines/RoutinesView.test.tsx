@@ -10,7 +10,7 @@ import type {
   RoutinesState,
 } from "@omp-ui/core/routine";
 import type { CatalogModelOption } from "@omp-ui/core/types";
-import { backendState } from "../../test/fixtures";
+import { backendState, remoteInstance } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -177,7 +177,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
   it("names the serving host in the header", async () => {
     const host = render();
     await settle();
-    expect(host.querySelector("header")?.textContent).toContain("Routines on work-laptop");
+    expect(host.querySelector("header")?.textContent).toContain("work-laptop");
   });
 
   it("lists each routine with its schedule, next run, and last outcome", async () => {
@@ -199,7 +199,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     await settle();
     await act(async () => buttonNamed("Run now").click());
     await settle();
-    expect(runRoutineNow).toHaveBeenCalledWith("a".repeat(22));
+    expect(runRoutineNow).toHaveBeenCalledWith("a".repeat(22), null);
     expect(document.querySelector("[data-routine-action-error]")?.textContent).toBe(
       "Another routine is running — try again in a moment",
     );
@@ -233,7 +233,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     await settle();
     await act(async () => buttonNamed("Dry run").click());
     await settle();
-    expect(dryRunRoutine).toHaveBeenCalledWith({ kind: "saved", id: "a".repeat(22) });
+    expect(dryRunRoutine).toHaveBeenCalledWith({ kind: "saved", id: "a".repeat(22) }, null);
     const panel = document.querySelector("[data-dry-run]")!.parentElement!;
     expect(panel.textContent).toContain("Auto-allowed (2)");
     expect(panel.textContent).toContain("Will pause on Approval card (1)");
@@ -283,7 +283,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(document.body.textContent).toContain("No routines on this host");
     act(() => buttonNamed("New routine").click());
     await settle();
-    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(PROJECT);
+    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(PROJECT, null);
     // Run history tab is hidden for an unsaved routine.
     expect(document.querySelector('[data-routine-tab="history"]')).toBeNull();
     act(() => routineTab("policy").click());
@@ -400,6 +400,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(updateRoutine).toHaveBeenCalledWith(
       "a".repeat(22),
       expect.objectContaining({ model: "openai/gpt-plain", thinkingLevel: null }),
+      null,
     );
 
     // Pick Project default from the palette and verify model returns to null.
@@ -464,6 +465,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     expect(updateRoutine).toHaveBeenCalledWith(
       saved.id,
       expect.objectContaining({ name: "Renamed", scripts: { pre: "git fetch --all", post: "notify-done" } }),
+      null,
     );
   });
 
@@ -646,7 +648,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("1 h 30 min");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }), null);
 
     // Switch to Unlimited -> Flight check shows Unlimited, lane warning appears, saves timeoutMinutes: 0.
     act(() => buttonNamed("Unlimited").click());
@@ -655,7 +657,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(document.body.textContent).toContain("No wall-clock limit");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }), null);
 
     // Switch back to Limit -> resets to default (timeoutMinutes: null).
     act(() => buttonNamed("Limit").click());
@@ -663,7 +665,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(timeoutInput()?.value).toBe("");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: null }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: null }), null);
   });
 
   it("surfaces validation error and disables Save for invalid timeout values", async () => {
@@ -755,6 +757,7 @@ describe("RoutinesView notifications (#1294)", () => {
       expect.objectContaining({
         notifications: { onStart: false, onComplete: true, onFail: true, onApproval: false, agentMessage: true },
       }),
+      null,
     );
   });
 
@@ -813,5 +816,137 @@ describe("RoutinesView notifications (#1294)", () => {
     await settle();
     expect(useStore.getState().routineFocusId).toBeNull();
     expect((document.querySelector('input[aria-label="Name"]') as HTMLInputElement).value).toBe("Evening digest");
+  });
+});
+
+describe("RoutinesView remote hosts (issue #1306)", () => {
+  it("displays remote routines, preserves ADR-0101 artifact bindings read-only on save, and passes remote instanceId to updateRoutine", async () => {
+    const updateRoutine = vi.fn(async (_id, _patch, _inst) => remoteRoutine);
+    const remoteProject = "/remote/proj";
+    const remoteRoutine = routine({
+      id: "r".repeat(22),
+      name: "Remote digest",
+      destination: { projectCwd: remoteProject, workspace: "worktree" },
+      artifact: { artifactId: "art-1", datasetIds: ["ds-1"], autoApply: true },
+    });
+    const remote = remoteInstance({
+      id: "inst-studio",
+      nickname: "studio",
+      url: "https://studio.tailnet:4677",
+      status: "joined",
+      routinesEnabled: true,
+      projects: [
+        {
+          project: {
+            path: remoteProject,
+            name: "Studio Repo",
+            addedAt: "t",
+            lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
+            lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
+            browserClock: false,
+            councilRoster: null,
+            knowledgeHome: null,
+            repositoryKey: null,
+            icon: null,
+          },
+          sessions: [],
+        },
+      ],
+    });
+    useStore.setState({
+      state: backendState({ routinesEnabled: true, remoteInstances: [remote] }),
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: {
+        "inst-studio": routinesState({ machineLabel: "studio", routines: [remoteRoutine] }),
+      },
+      routinesLoadError: {},
+      routinesLoading: {},
+      updateRoutine,
+      loadRoutineToolCatalog,
+      readChatModels,
+    });
+    render();
+    await settle();
+
+    expect(document.body.textContent).toContain("Remote · studio");
+    expect(readChatModels).toHaveBeenCalledWith("inst-studio");
+    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(remoteProject, "inst-studio");
+    const preserved = document.querySelector("[data-routine-artifact-remote-preserved]");
+    expect(preserved?.textContent).toContain("Artifact refresh binding configured on studio — preserved on save.");
+
+    // Edit the name and save: the artifact binding must survive verbatim and route to inst-studio.
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(nameInput, "Remote digest v2");
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenCalledWith(
+      remoteRoutine.id,
+      expect.objectContaining({
+        name: "Remote digest v2",
+        artifact: { artifactId: "art-1", datasetIds: ["ds-1"], autoApply: true },
+      }),
+      "inst-studio",
+    );
+  });
+
+  it("shows read-only cached banner when remote disconnects, unsupported state on unknown channel, and disabled state when routinesEnabled is off", async () => {
+    const reconnectRemoteInstance = vi.fn(async () => {});
+    const cached = routinesState({ machineLabel: "studio", routines: [routine({ name: "Cached job" })] });
+    const offline = remoteInstance({ id: "inst-studio", nickname: "studio", status: "unreachable", routinesEnabled: true });
+    useStore.setState({
+      state: backendState({ routinesEnabled: true, remoteInstances: [offline] }),
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: { "inst-studio": cached },
+      routinesLoadError: {},
+      routinesLoading: {},
+      reconnectRemoteInstance,
+    });
+    render();
+    await settle();
+
+    expect(document.querySelector("[data-routines-disconnected-banner]")?.textContent).toContain(
+      "studio is not connected — viewing cached snapshot",
+    );
+    expect(buttonNamed("Run now").disabled).toBe(true);
+    act(() => buttonNamed("Reconnect").click());
+    expect(reconnectRemoteInstance).toHaveBeenCalledWith("inst-studio");
+
+    // Unsupported (Host Lite / older omp-ui): unknown channel routines:getState.
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          routinesEnabled: true,
+          remoteInstances: [remoteInstance({ id: "inst-lite", nickname: "lite", status: "joined", routinesEnabled: false })],
+        }),
+        routinesInstanceId: "inst-lite",
+        routinesByInstance: {},
+        routinesLoadError: { "inst-lite": "unknown channel routines:getState" },
+      }),
+    );
+    await settle();
+    expect(document.querySelector("[data-routines-unsupported]")?.textContent).toContain("lite does not support Routines");
+
+    // Routines disabled on remote host.
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          routinesEnabled: true,
+          remoteInstances: [remoteInstance({ id: "inst-off", nickname: "gpu-box", status: "joined", routinesEnabled: false })],
+        }),
+        routinesInstanceId: "inst-off",
+        routinesByInstance: { "inst-off": routinesState({ enabled: false, machineLabel: "gpu-box", routines: [] }) },
+        routinesLoadError: {},
+      }),
+    );
+    await settle();
+    expect(document.querySelector("[data-routines-disabled]")?.textContent).toContain("Routines are off on gpu-box");
   });
 });

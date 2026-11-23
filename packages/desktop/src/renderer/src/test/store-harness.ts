@@ -428,6 +428,7 @@ const mockBackend = {
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
   onRoutinesState: vi.fn(),
+  onRemoteRoutinesState: vi.fn(),
   getRoutinesState: vi.fn(async (): Promise<RoutinesState> => {
     throw new Error("getRoutinesState not mocked");
   }),

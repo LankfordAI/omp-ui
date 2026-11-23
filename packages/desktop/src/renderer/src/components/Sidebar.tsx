@@ -19,7 +19,7 @@ import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-sec
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useShallow } from "zustand/react/shallow";
-import { canSettle, deriveSidebarSessionState, findRecord, supportsBulkAction, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, supportsBulkAction, useStore } from "../store";
 import { AttentionStack } from "./AttentionStack";
 import { SessionRow } from "./SessionRow";
 import { useSplitSlot } from "./split-slot";
@@ -724,19 +724,20 @@ export function Sidebar() {
   // (ignoring the search, like the count always did): working mirrors the
   // Working section's placement rule — in-flight work, not blocked on the
   // user, not pinned, not parked in Snoozed — everything else is ready.
-  // Routine runs (ADR-0100, #1304) are attention-only on every host: they
-  // never count as live coding sessions; local ones feed the Routines chip.
+  // Routine runs (ADR-0100, #1304, #1306) are attention-only on every host:
+  // they never count as live coding sessions, and approval-waiting runs on
+  // both local and joined remote hosts feed the Routines footer chip.
   const { totalLive, workingLive, routinesWaiting } = useMemo(() => {
     let live = 0;
     let working = 0;
     let waiting = 0;
     if (state !== null) {
       const snoozeOn = state.snoozedSectionEnabled === true;
-      const count = (sessions: readonly SessionSummary[], local: boolean) => {
+      const count = (sessions: readonly SessionSummary[]) => {
         for (const s of sessions) {
           if (s.live !== "live") continue;
           if (isRoutineRun(s)) {
-            if (local && s.awaitingHumanAnswer === true) waiting += 1;
+            if (s.awaitingHumanAnswer === true) waiting += 1;
             continue;
           }
           live += 1;
@@ -747,11 +748,11 @@ export function Sidebar() {
           if (inFlight && !needsUser && !parked) working += 1;
         }
       };
-      for (const group of state.projects) count(group.sessions, true);
-      count(state.chats, true);
+      for (const group of state.projects) count(group.sessions);
+      count(state.chats);
       for (const instance of state.remoteInstances) {
         if (instance.status === "self") continue;
-        for (const group of instance.projects) count(group.sessions, false);
+        for (const group of instance.projects) count(group.sessions);
       }
     }
     return { totalLive: live, workingLive: working, routinesWaiting: waiting };
@@ -1131,7 +1132,7 @@ export function Sidebar() {
             <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
           </IconButton>
         )}
-        {state?.routinesEnabled === true && (
+        {hasAnyRoutinesHost(state) && (
           <IconButton
             label="Routines"
             pressed={routinesOpen}

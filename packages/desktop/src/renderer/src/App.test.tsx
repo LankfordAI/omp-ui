@@ -761,3 +761,62 @@ describe("Routines desktop sidebar takeover & TitleBar (issue #1284)", () => {
     expect(document.body.querySelector("[data-routines-view-mock]")).not.toBeNull();
   });
 });
+
+describe("Routines top-bar host dropdown (issue #1306)", () => {
+  it("renders plain text with zero remote instances and a host dropdown menu when remote instances exist", () => {
+    compact = false;
+    const selectRoutinesHost = vi.fn((id: string | null) => useStore.setState({ routinesInstanceId: id }));
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        remoteInstances: [],
+      }),
+      routinesOpen: true,
+      routinesInstanceId: null,
+      routinesState: {
+        enabled: true,
+        machineLabel: "fw16",
+        routines: [],
+        runs: [],
+        activeRunTabId: null,
+        defaultWarnCostUsd: 2,
+        defaultMaxCostUsd: 5,
+      },
+      selectRoutinesHost,
+    });
+    renderApp();
+    expect(document.body.querySelector("[data-routines-host-plain]")?.textContent).toBe("Routines on fw16");
+    expect(document.body.querySelector("[data-routines-host-trigger]")).toBeNull();
+
+    // Add a remote instance: trigger button appears and opens the host menu.
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          routinesEnabled: true,
+          remoteInstances: [
+            {
+              id: "inst-studio",
+              nickname: "studio",
+              url: "https://studio.tailnet:4677",
+              status: "joined",
+              error: null,
+              version: "0.38.1",
+              projects: [],
+              modelFavorites: [],
+              routinesEnabled: true,
+            },
+          ],
+        }),
+      }),
+    );
+    const trigger = document.body.querySelector<HTMLButtonElement>("[data-routines-host-trigger]");
+    expect(trigger).not.toBeNull();
+    expect(trigger!.textContent).toContain("fw16");
+    act(() => trigger!.click());
+    const remoteOption = document.body.querySelector<HTMLButtonElement>('[data-routines-host-option="inst-studio"]');
+    expect(remoteOption).not.toBeNull();
+    act(() => remoteOption!.click());
+    expect(selectRoutinesHost).toHaveBeenCalledWith("inst-studio");
+    expect(document.body.querySelector("[data-routines-host-trigger]")?.textContent).toContain("studio");
+  });
+});
