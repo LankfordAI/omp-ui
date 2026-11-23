@@ -275,7 +275,7 @@ export function ToolPolicyEditor({
         {/* Sources directory rail (vertical on >=40rem, horizontal pill strip below) */}
         <aside
           aria-label={t("routines.policy.sources")}
-          className="flex shrink-0 flex-col border-b border-line-soft bg-sunken/45 @[40rem]:w-52 @[40rem]:border-r @[40rem]:border-b-0"
+          className="flex shrink-0 flex-col border-b border-line-soft bg-sunken/50 @[40rem]:w-52 @[40rem]:border-r @[40rem]:border-b-0"
         >
           <div className="hidden items-center justify-between border-b border-line-soft px-3 py-2 @[40rem]:flex">
             <Label>{t("routines.policy.sources")}</Label>

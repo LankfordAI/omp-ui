@@ -33,7 +33,6 @@ import {
   Chevron,
   Chip,
   ChoiceCapsule,
-  Dot,
   IconBuildMode,
   IconClock,
   IconFleet,
@@ -53,7 +52,6 @@ import {
   OUTCOME_LABEL,
   OUTCOME_TONE,
   buildSchedule,
-  describeSchedule,
   formatUsd,
   formatWhen,
   runsOf,
@@ -173,12 +171,14 @@ export function RoutineEditor({
   onSaved,
   onDeleted,
   onOpenSession,
+  onBackToSessions,
 }: {
   routine: RoutineRecord | null;
   models: readonly CatalogModelOption[];
   onSaved: (routine: RoutineRecord) => void;
   onDeleted: () => void;
   onOpenSession: () => void;
+  onBackToSessions?: () => void;
 }) {
   const t = useT();
   const projects = useStore((s) => s.state?.projects);
@@ -467,17 +467,67 @@ export function RoutineEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-routine-editor>
-      {/* Pinned hero */}
-      <div className="shrink-0 border-b border-line chrome-void px-4 pt-3 sm:px-5">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Single-row frosted header */}
+      <div className="shrink-0 border-b border-line chrome-void backdrop-glass px-4 py-2.5 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onBackToSessions !== undefined && (
+            <Button size="xs" variant="ghost" onClick={onBackToSessions} className="shrink-0">
+              ← {t("routines.backSessions")}
+            </Button>
+          )}
           <input
             type="text"
             value={draft.name}
             placeholder={t("routines.untitled")}
             aria-label={t("routines.field.name")}
             onChange={(e) => set({ name: e.target.value })}
-            className="min-w-44 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-lg font-semibold text-ink transition-colors placeholder:text-ink-faint hover:border-line focus:border-line-strong focus:bg-raised/70 focus:outline-none"
+            className="min-w-48 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-lg font-semibold text-ink transition-colors placeholder:text-ink-faint hover:border-line focus:border-line-strong focus:bg-raised/70 focus:outline-none"
           />
+          <div
+            role="tablist"
+            aria-label={t("routines.title")}
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-line bg-sunken/70 p-0.5"
+          >
+            {(
+              [
+                { id: "config" as const, label: t("routines.tab.config"), badge: null },
+                {
+                  id: "policy" as const,
+                  label: t("routines.tab.policy"),
+                  badge:
+                    catalog !== null
+                      ? `${draft.toolPolicy.allow.length}/${policyStats.total}`
+                      : String(draft.toolPolicy.allow.length),
+                },
+                ...(routine !== null
+                  ? [{ id: "history" as const, label: t("routines.tab.history"), badge: String(runs.length) }]
+                  : []),
+              ] as const
+            ).map((tab) => {
+              const selected = visibleTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  data-routine-tab={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 tab-label transition-colors",
+                    selected ? "bg-raised text-ink shadow-xs edge-lit" : "text-ink-mid hover:text-ink",
+                  )}
+                >
+                  <span>{tab.label}</span>
+                  {tab.badge !== null && (
+                    <span className="rounded bg-sunken/80 px-1.5 py-px font-mono text-[11px] tabular-nums text-ink-faint">
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="mr-1 flex items-center gap-1.5">
               <span className="text-xs text-ink-dim">
@@ -506,26 +556,6 @@ export function RoutineEditor({
           </div>
         </div>
 
-        {/* Summary chips */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-1.5">
-          <Chip tone={draft.enabled ? "signal" : "neutral"}>
-            <Dot tone={draft.enabled ? "signal" : "neutral"} />
-            {draft.enabled ? t("routines.studio.armed") : t("routines.paused")}
-          </Chip>
-          {schedule !== null && <Chip>{describeSchedule(schedule)}</Chip>}
-          {projectName !== "" && (
-            <Chip>
-              {projectName} · {draft.workspace}
-            </Chip>
-          )}
-          <Chip>{modelDisplayName}</Chip>
-          {draft.thinkingLevel !== null && (
-            <Chip tone="iris" mono>
-              {draft.thinkingLevel}
-            </Chip>
-          )}
-        </div>
-
         {/* Inline error / validation alerts */}
         {actionError !== null && (
           <p role="alert" data-routine-action-error className="mt-2 px-1.5 text-xs leading-relaxed text-rose">
@@ -542,253 +572,240 @@ export function RoutineEditor({
             {validationBanner}
           </p>
         )}
-
-        {/* Tab bar */}
-        <div role="tablist" aria-label={t("routines.title")} className="mt-3 flex items-center gap-1">
-          {(
-            [
-              { id: "config" as const, label: t("routines.tab.config"), badge: null },
-              {
-                id: "policy" as const,
-                label: t("routines.tab.policy"),
-                badge:
-                  catalog !== null
-                    ? `${draft.toolPolicy.allow.length}/${policyStats.total}`
-                    : String(draft.toolPolicy.allow.length),
-              },
-              ...(routine !== null
-                ? [{ id: "history" as const, label: t("routines.tab.history"), badge: String(runs.length) }]
-                : []),
-            ] as const
-          ).map((tab) => {
-            const selected = visibleTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                data-routine-tab={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "relative -mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 tab-label transition-colors",
-                  selected
-                    ? "border-signal text-ink"
-                    : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink",
-                )}
-              >
-                <span>{tab.label}</span>
-                {tab.badge !== null && (
-                  <span className="rounded bg-raised px-1.5 py-px font-mono text-[11px] tabular-nums text-ink-faint">
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Dry run preview sits directly below the hero on any tab */}
       {dryRun !== null && (
         <div className="shrink-0 px-4 pt-3 sm:px-5">
-          <div className="mx-auto max-w-6xl">
-            <DryRunPanel
-              result={dryRun}
-              projectName={projectName}
-              modelLabel={draft.model ?? t("routines.projectDefault")}
-              onDismiss={() => setDryRun(null)}
-            />
-          </div>
+          <DryRunPanel
+            result={dryRun}
+            projectName={projectName}
+            modelLabel={draft.model ?? t("routines.projectDefault")}
+            onDismiss={() => setDryRun(null)}
+          />
         </div>
       )}
 
       {/* Tab content */}
       {visibleTab === "config" && (
-        <div className="@container min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <div className="mx-auto flex max-w-6xl flex-col gap-4 @[48rem]:flex-row @[48rem]:items-start">
-            {/* Main column */}
-            <div className="min-w-0 flex-1 space-y-4">
-              {/* Instructions card */}
-              <section className="studio-card rounded-xl p-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-semibold text-ink">{t("routines.field.instructions")}</h4>
-                    <p className="mt-0.5 text-xs text-ink-dim">{t("routines.field.instructionsHint")}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "font-mono text-xs tabular-nums",
-                      draft.instructions.length > ROUTINE_INSTRUCTIONS_MAX ? "text-rose" : "text-ink-faint",
-                    )}
-                  >
-                    {draft.instructions.length.toLocaleString()} / {ROUTINE_INSTRUCTIONS_MAX.toLocaleString()}
-                  </span>
+        <div className="@container min-h-0 flex-1 overflow-y-auto px-4 py-3.5 sm:px-5 @[56rem]:overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col gap-3.5 @[56rem]:grid @[56rem]:grid-cols-[minmax(0,1.45fr)_minmax(21rem,0.95fr)]">
+            {/* Left column — Instructions card with integrated Flight check footer */}
+            <section className="studio-card flex min-h-0 flex-col overflow-hidden rounded-xl">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-3.5 pb-2">
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">{t("routines.field.instructions")}</h4>
+                  <p className="mt-0.5 text-xs text-ink-dim">{t("routines.field.instructionsHint")}</p>
                 </div>
+                <span
+                  className={cn(
+                    "font-mono text-xs tabular-nums",
+                    draft.instructions.length > ROUTINE_INSTRUCTIONS_MAX ? "text-rose" : "text-ink-faint",
+                  )}
+                >
+                  {draft.instructions.length.toLocaleString()} / {ROUTINE_INSTRUCTIONS_MAX.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex min-h-0 flex-1 px-4 pb-3">
                 <textarea
                   value={draft.instructions}
                   aria-label={t("routines.field.instructions")}
-                  rows={6}
                   onChange={(e) => set({ instructions: e.target.value })}
-                  className={cn(FIELD, "mt-3 h-auto w-full resize-y py-2 leading-relaxed")}
+                  className={cn(
+                    FIELD,
+                    "min-h-48 h-auto flex-1 w-full resize-y @[56rem]:min-h-0 @[56rem]:resize-none bg-sunken/65 py-2.5 leading-relaxed",
+                  )}
                 />
-              </section>
-
-              {/* Schedule & execution card */}
-              <section className="@container studio-card space-y-4 rounded-xl p-4">
-                <div>
-                  <h4 className="text-sm font-semibold text-ink">{t("routines.studio.execution")}</h4>
-                  <p className="mt-0.5 text-xs text-ink-dim">{t("routines.field.scheduleHint")}</p>
-                </div>
-
-                <div className="space-y-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <ChoiceCapsule<Repeat>
-                      label={t("routines.field.schedule")}
-                      value={draft.schedule.repeat}
-                      options={[
-                        { value: "daily", label: t("dialog.schedule.daily") },
-                        { value: "weekdays", label: t("dialog.schedule.weekdays") },
-                        { value: "weekly", label: t("dialog.schedule.weekly") },
-                        { value: "cron", label: t("dialog.schedule.cron") },
-                      ]}
-                      onChange={(repeat) => setSchedule({ repeat })}
-                      optionClassName="tab-label px-2"
-                    />
-                    {draft.schedule.repeat !== "cron" && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {draft.schedule.repeat === "weekly" && (
-                          <select
-                            value={draft.schedule.weekday}
-                            aria-label={t("routines.field.weekday")}
-                            onChange={(e) => setSchedule({ weekday: Number(e.target.value) })}
-                            className={FIELD}
-                          >
-                            {[0, 1, 2, 3, 4, 5, 6].map((day) => (
-                              <option key={day} value={day}>
-                                {weekdayName(day)}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <input
-                          type="time"
-                          value={draft.schedule.time}
-                          aria-label={t("routines.field.time")}
-                          onChange={(e) => setSchedule({ time: e.target.value })}
-                          className={FIELD}
+              </div>
+              {hooksSet && (
+                <p
+                  role="note"
+                  className="border-t border-copper-dim bg-copper-wash px-4 py-2 text-xs leading-relaxed text-copper"
+                >
+                  {t("routines.hooks.warning")}
+                </p>
+              )}
+              <div
+                aria-label={t("routines.studio.flightCheck")}
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-sunken/45 px-4 py-2.5 text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono tabular-nums text-ink">
+                    {catalog !== null
+                      ? t("routines.studio.policyRatio", {
+                          allow: policyStats.allowed,
+                          total: policyStats.total,
+                        })
+                      : t("routines.studio.policyCountOnly", { allow: draft.toolPolicy.allow.length })}
+                  </span>
+                  <div aria-hidden className="flex h-1.5 w-20 overflow-hidden rounded-full bg-raised">
+                    {policyStats.total > 0 && (
+                      <>
+                        <span
+                          className="bg-signal"
+                          style={{ width: `${(policyStats.allowed / policyStats.total) * 100}%` }}
                         />
-                      </div>
+                        <span
+                          className="bg-ink-faint/35"
+                          style={{ width: `${(policyStats.ask / policyStats.total) * 100}%` }}
+                        />
+                        <span
+                          className="bg-rose"
+                          style={{ width: `${(policyStats.denied / policyStats.total) * 100}%` }}
+                        />
+                      </>
                     )}
                   </div>
-                  {draft.schedule.repeat === "cron" && (
-                    <input
-                      type="text"
-                      value={draft.schedule.expr}
-                      spellCheck={false}
-                      aria-label={t("routines.field.cron")}
-                      placeholder="30 8 * * 1-5 · @daily"
-                      onChange={(e) => setSchedule({ expr: e.target.value })}
-                      className={cn(FIELD, "w-full font-mono")}
-                    />
-                  )}
-                  <p data-next-run className={cn("text-xs", nextRunMs === null ? "text-rose" : "text-ink-dim")}>
-                    {schedule === null
-                      ? draft.schedule.repeat === "cron"
-                        ? t("routines.error.cron")
-                        : t("routines.error.time")
-                      : nextRunMs === null
-                        ? t("routines.never")
-                        : t("routines.nextRun", { when: formatWhen(nextRunMs), zone: timeZone })}
-                  </p>
                 </div>
 
-                <div aria-hidden className="h-px bg-line-soft" />
+                {cliBypass ? (
+                  <Chip tone="copper" title={t("routines.policy.cliBypassWarning")}>
+                    {t("routines.studio.shellBypassShort")}
+                  </Chip>
+                ) : !hooksSet ? (
+                  <Chip tone="signal" title={t("routines.studio.policySafe")}>
+                    {t("routines.studio.policyEnforcedShort")}
+                  </Chip>
+                ) : null}
 
-                <div className="grid grid-cols-1 gap-3 @[42rem]:grid-cols-2">
-                  {/* Model / Thinking / Mode composer-style surface */}
-                  <div className="flex flex-col rounded-lg border border-line bg-raised/70 p-2">
-                    <StudioOptionRow icon={<IconModel />} label={t("routines.field.model")}>
-                      {models.length === 0 ? (
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled
-                            aria-label={t("routines.field.model")}
-                            title={draft.model ?? t("routines.projectDefault")}
-                            className="max-w-44 truncate font-mono text-xs text-ink-dim"
-                          >
-                            {draft.model ?? t("routines.projectDefault")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openSettings("providers")}
-                            className="shrink-0 text-xs text-ink-faint underline decoration-dotted hover:text-ink-mid"
-                          >
-                            {t("composer.model.providerKeys")}
-                          </button>
-                        </div>
-                      ) : (
+                <span className="inline-flex items-center gap-1 text-ink-mid">
+                  <IconLock className="size-3 text-ink-faint" />
+                  {t("routines.studio.privateOverlay")}
+                </span>
+                <span className="inline-flex items-center gap-1 font-mono text-ink-mid">
+                  <IconClock className="size-3 text-ink-faint" />
+                  {t("routines.studio.wallClockLimit")}
+                </span>
+
+                <Button size="xs" variant="ghost" className="ml-auto" onClick={() => setActiveTab("policy")}>
+                  {t("routines.studio.reviewAllTools")} →
+                </Button>
+              </div>
+            </section>
+
+            {/* Right column — Scrollable Configuration stack */}
+            <div className="flex min-h-0 flex-col gap-3 @[56rem]:overflow-y-auto @[56rem]:pr-0.5">
+              {/* Card 1 — Schedule */}
+              <section className="studio-card space-y-2.5 rounded-xl p-3.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label>{t("routines.field.schedule")}</Label>
+                  <span className="truncate font-mono text-[11px] text-ink-faint">{timeZone}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ChoiceCapsule<Repeat>
+                    label={t("routines.field.schedule")}
+                    value={draft.schedule.repeat}
+                    options={[
+                      { value: "daily", label: t("dialog.schedule.daily") },
+                      { value: "weekdays", label: t("dialog.schedule.weekdays") },
+                      { value: "weekly", label: t("dialog.schedule.weekly") },
+                      { value: "cron", label: t("dialog.schedule.cron") },
+                    ]}
+                    onChange={(repeat) => setSchedule({ repeat })}
+                    optionClassName="tab-label px-2"
+                  />
+                  {draft.schedule.repeat !== "cron" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {draft.schedule.repeat === "weekly" && (
+                        <select
+                          value={draft.schedule.weekday}
+                          aria-label={t("routines.field.weekday")}
+                          onChange={(e) => setSchedule({ weekday: Number(e.target.value) })}
+                          className={FIELD}
+                        >
+                          {[0, 1, 2, 3, 4, 5, 6].map((day) => (
+                            <option key={day} value={day}>
+                              {weekdayName(day)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <input
+                        type="time"
+                        value={draft.schedule.time}
+                        aria-label={t("routines.field.time")}
+                        onChange={(e) => setSchedule({ time: e.target.value })}
+                        className={FIELD}
+                      />
+                    </div>
+                  )}
+                </div>
+                {draft.schedule.repeat === "cron" && (
+                  <input
+                    type="text"
+                    value={draft.schedule.expr}
+                    spellCheck={false}
+                    aria-label={t("routines.field.cron")}
+                    placeholder="30 8 * * 1-5 · @daily"
+                    onChange={(e) => setSchedule({ expr: e.target.value })}
+                    className={cn(FIELD, "w-full font-mono")}
+                  />
+                )}
+                <p data-next-run className={cn("text-xs", nextRunMs === null ? "text-rose" : "text-ink-dim")}>
+                  {schedule === null
+                    ? draft.schedule.repeat === "cron"
+                      ? t("routines.error.cron")
+                      : t("routines.error.time")
+                    : nextRunMs === null
+                      ? t("routines.never")
+                      : t("routines.nextRun", { when: formatWhen(nextRunMs), zone: timeZone })}
+                </p>
+              </section>
+
+              {/* Card 2 — Execution & Spend */}
+              <section className="studio-card space-y-2.5 rounded-xl p-3.5">
+                <Label>{t("routines.studio.execution")}</Label>
+                <div className="flex flex-col">
+                  <StudioOptionRow icon={<IconModel />} label={t("routines.field.model")}>
+                    {models.length === 0 ? (
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <button
                           type="button"
+                          disabled
                           aria-label={t("routines.field.model")}
-                          title={draft.model ?? defaultHint}
-                          onClick={() => setModelPickerOpen(true)}
-                          className={cn(CAPSULE_SEGMENT, "max-w-52 text-xs font-medium text-ink")}
+                          title={draft.model ?? t("routines.projectDefault")}
+                          className="max-w-44 truncate font-mono text-xs text-ink-dim"
                         >
-                          <span className="min-w-0 truncate">{modelDisplayName}</span>
-                          <Chevron open={false} className="rotate-90 text-ink-faint" />
+                          {draft.model ?? t("routines.projectDefault")}
                         </button>
-                      )}
-                    </StudioOptionRow>
+                        <button
+                          type="button"
+                          onClick={() => openSettings("providers")}
+                          className="shrink-0 text-xs text-ink-faint underline decoration-dotted hover:text-ink-mid"
+                        >
+                          {t("composer.model.providerKeys")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={t("routines.field.model")}
+                        title={draft.model ?? defaultHint}
+                        onClick={() => setModelPickerOpen(true)}
+                        className={cn(CAPSULE_SEGMENT, "max-w-52 text-xs font-medium text-ink")}
+                      >
+                        <span className="min-w-0 truncate">{modelDisplayName}</span>
+                        <Chevron open={false} className="rotate-90 text-ink-faint" />
+                      </button>
+                    )}
+                  </StudioOptionRow>
 
-                    <StudioOptionRow
-                      icon={<IconThinking />}
-                      label={t("routines.field.thinking")}
-                      iconStyle={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
-                    >
-                      {efforts.length > 0 ? (
-                        <>
-                          <span
-                            className="mr-auto min-w-0 truncate font-mono text-xs transition-colors duration-300 motion-reduce:transition-none"
-                            style={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
-                          >
-                            {thinkingAuto
-                              ? t("composer.thinking.auto")
-                              : (draft.thinkingLevel ?? t("routines.projectDefault"))}
-                          </span>
-                          {draft.thinkingLevel !== null && (
-                            <button
-                              type="button"
-                              onClick={() => set({ thinkingLevel: null })}
-                              className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
-                            >
-                              {t("routines.thinking.useDefault")}
-                            </button>
-                          )}
-                          <span aria-hidden className="shrink-0 text-xs text-ink-dim">
-                            {t("composer.thinking.auto")}
-                          </span>
-                          <Switch
-                            on={thinkingAuto}
-                            label={t("composer.thinking.auto")}
-                            disabled={busy === "save"}
-                            onChange={(next) =>
-                              set({
-                                thinkingLevel: next ? "auto" : efforts[Math.max(0, efforts.length - 2)]!,
-                              })
-                            }
-                          />
-                        </>
-                      ) : effectiveModel !== null ? (
-                        <span className="truncate text-xs text-ink-faint">
-                          {draft.model === null
-                            ? t("routines.thinking.notSupportedDefault")
-                            : t("routines.thinking.notSupported")}
+                  <StudioOptionRow
+                    icon={<IconThinking />}
+                    label={t("routines.field.thinking")}
+                    iconStyle={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
+                  >
+                    {efforts.length > 0 ? (
+                      <>
+                        <span
+                          className="mr-auto min-w-0 truncate font-mono text-xs transition-colors duration-300 motion-reduce:transition-none"
+                          style={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
+                        >
+                          {thinkingAuto
+                            ? t("composer.thinking.auto")
+                            : (draft.thinkingLevel ?? t("routines.projectDefault"))}
                         </span>
-                      ) : draft.thinkingLevel !== null ? (
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-mono text-xs text-ink-mid">{draft.thinkingLevel}</span>
+                        {draft.thinkingLevel !== null && (
                           <button
                             type="button"
                             onClick={() => set({ thinkingLevel: null })}
@@ -796,122 +813,157 @@ export function RoutineEditor({
                           >
                             {t("routines.thinking.useDefault")}
                           </button>
-                        </div>
-                      ) : (
-                        <span className="truncate text-xs text-ink-faint">
-                          {t("routines.thinking.followsProjectDefault")}
-                        </span>
-                      )}
-                    </StudioOptionRow>
-
-                    {efforts.length > 0 && (
-                      <div className="pb-1.5 pr-2 pl-[30px]">
-                        <ThinkingSliderControl
-                          efforts={efforts}
-                          value={thinkingAuto ? null : draft.thinkingLevel}
-                          auto={thinkingAuto}
-                          autoPreviewIndex={thinkingPreviewIndex}
-                          disabled={busy === "save"}
-                          onChange={(level) => set({ thinkingLevel: level })}
-                        />
-                      </div>
-                    )}
-
-                    <div aria-hidden className="mx-1.5 my-1.5 h-px bg-line-soft" />
-
-                    <StudioOptionRow
-                      icon={draft.mode === "plan" ? <IconPlanMode /> : <IconBuildMode />}
-                      label={t("routines.field.mode")}
-                    >
-                      <ChoiceCapsule<RoutineMode>
-                        label={t("routines.field.mode")}
-                        value={draft.mode}
-                        options={[
-                          { value: "build", label: t("settings.webhooks.mode.build") },
-                          { value: "plan", label: t("settings.webhooks.mode.plan") },
-                        ]}
-                        onChange={(mode) => set({ mode })}
-                        optionClassName="tab-label px-2"
-                      />
-                    </StudioOptionRow>
-                  </div>
-
-                  {/* Project / Workspace / Spend surface */}
-                  <div className="flex flex-col rounded-lg border border-line bg-raised/70 p-2">
-                    <StudioOptionRow icon={<IconFleet />} label={t("routines.field.project")}>
-                      <select
-                        value={draft.projectCwd}
-                        aria-label={t("routines.field.project")}
-                        onChange={(e) => handleProjectChange(e.target.value)}
-                        className={cn(FIELD, "min-w-0 max-w-44")}
-                      >
-                        {localProjects.length === 0 && <option value="">{t("routines.noProjects")}</option>}
-                        {draft.projectCwd !== "" && !localProjects.some((g) => g.project.path === draft.projectCwd) && (
-                          <option value={draft.projectCwd}>{draft.projectCwd}</option>
                         )}
-                        {localProjects.map((g) => (
-                          <option key={g.project.path} value={g.project.path}>
-                            {g.project.name}
-                          </option>
-                        ))}
-                      </select>
-                    </StudioOptionRow>
+                        <span aria-hidden className="shrink-0 text-xs text-ink-dim">
+                          {t("composer.thinking.auto")}
+                        </span>
+                        <Switch
+                          on={thinkingAuto}
+                          label={t("composer.thinking.auto")}
+                          disabled={busy === "save"}
+                          onChange={(next) =>
+                            set({
+                              thinkingLevel: next ? "auto" : efforts[Math.max(0, efforts.length - 2)]!,
+                            })
+                          }
+                        />
+                      </>
+                    ) : effectiveModel !== null ? (
+                      <span className="truncate text-xs text-ink-faint">
+                        {draft.model === null
+                          ? t("routines.thinking.notSupportedDefault")
+                          : t("routines.thinking.notSupported")}
+                      </span>
+                    ) : draft.thinkingLevel !== null ? (
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-mono text-xs text-ink-mid">{draft.thinkingLevel}</span>
+                        <button
+                          type="button"
+                          onClick={() => set({ thinkingLevel: null })}
+                          className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
+                        >
+                          {t("routines.thinking.useDefault")}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="truncate text-xs text-ink-faint">
+                        {t("routines.thinking.followsProjectDefault")}
+                      </span>
+                    )}
+                  </StudioOptionRow>
 
-                    <StudioOptionRow icon={<IconTune />} label={t("routines.field.workspace")}>
-                      <ChoiceCapsule<RoutineWorkspace>
-                        label={t("routines.field.workspace")}
-                        value={draft.workspace}
-                        options={[
-                          { value: "worktree", label: t("settings.webhooks.workspace.worktree") },
-                          { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
-                        ]}
-                        onChange={(workspace) => set({ workspace })}
-                        optionClassName="tab-label px-2"
+                  {efforts.length > 0 && (
+                    <div className="pb-1.5 pr-2 pl-[30px]">
+                      <ThinkingSliderControl
+                        efforts={efforts}
+                        value={thinkingAuto ? null : draft.thinkingLevel}
+                        auto={thinkingAuto}
+                        autoPreviewIndex={thinkingPreviewIndex}
+                        disabled={busy === "save"}
+                        onChange={(level) => set({ thinkingLevel: level })}
                       />
-                    </StudioOptionRow>
-
-                    <div aria-hidden className="mx-1.5 my-1.5 h-px bg-line-soft" />
-
-                    <div className="space-y-1.5 px-2 py-1">
-                      <div className="flex items-center justify-between gap-2 text-xs text-ink-mid">
-                        <span>{t("routines.field.spend")}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="flex flex-col gap-1 text-xs text-ink-faint">
-                          {t("routines.field.warnUsd")}
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={draft.warnUsd}
-                            placeholder={formatUsd(defaults.warn)}
-                            onChange={(e) => set({ warnUsd: e.target.value })}
-                            className={cn(FIELD, "w-full")}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-ink-faint">
-                          {t("routines.field.maxUsd")}
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={draft.maxUsd}
-                            placeholder={formatUsd(defaults.max)}
-                            onChange={(e) => set({ maxUsd: e.target.value })}
-                            className={cn(FIELD, "w-full")}
-                          />
-                        </label>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-ink-faint">
-                        {t("settings.experimental.routineCostHint")}
-                      </p>
                     </div>
+                  )}
+
+                  <StudioOptionRow
+                    icon={draft.mode === "plan" ? <IconPlanMode /> : <IconBuildMode />}
+                    label={t("routines.field.mode")}
+                  >
+                    <ChoiceCapsule<RoutineMode>
+                      label={t("routines.field.mode")}
+                      value={draft.mode}
+                      options={[
+                        { value: "build", label: t("settings.webhooks.mode.build") },
+                        { value: "plan", label: t("settings.webhooks.mode.plan") },
+                      ]}
+                      onChange={(mode) => set({ mode })}
+                      optionClassName="tab-label px-2"
+                    />
+                  </StudioOptionRow>
+                </div>
+
+                <div aria-hidden className="h-px bg-line-soft" />
+
+                <div className="flex flex-col">
+                  <StudioOptionRow icon={<IconFleet />} label={t("routines.field.project")}>
+                    <select
+                      value={draft.projectCwd}
+                      aria-label={t("routines.field.project")}
+                      onChange={(e) => handleProjectChange(e.target.value)}
+                      className={cn(FIELD, "min-w-0 max-w-44")}
+                    >
+                      {localProjects.length === 0 && <option value="">{t("routines.noProjects")}</option>}
+                      {draft.projectCwd !== "" && !localProjects.some((g) => g.project.path === draft.projectCwd) && (
+                        <option value={draft.projectCwd}>{draft.projectCwd}</option>
+                      )}
+                      {localProjects.map((g) => (
+                        <option key={g.project.path} value={g.project.path}>
+                          {g.project.name}
+                        </option>
+                      ))}
+                    </select>
+                  </StudioOptionRow>
+
+                  <StudioOptionRow icon={<IconTune />} label={t("routines.field.workspace")}>
+                    <ChoiceCapsule<RoutineWorkspace>
+                      label={t("routines.field.workspace")}
+                      value={draft.workspace}
+                      options={[
+                        { value: "worktree", label: t("settings.webhooks.workspace.worktree") },
+                        { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
+                      ]}
+                      onChange={(workspace) => set({ workspace })}
+                      optionClassName="tab-label px-2"
+                    />
+                  </StudioOptionRow>
+                </div>
+
+                <div aria-hidden className="h-px bg-line-soft" />
+
+                <div className="space-y-1.5 px-2 py-0.5">
+                  <div className="flex items-baseline justify-between gap-2 text-xs text-ink-mid">
+                    <span>{t("routines.field.spend")}</span>
+                    <span className="truncate font-mono text-[11px] text-ink-faint">
+                      {t("routines.studio.spendSummary", {
+                        warn: effectiveWarn === 0 ? t("routines.noCap") : formatUsd(effectiveWarn),
+                        max: effectiveMax === 0 ? t("routines.noCap") : formatUsd(effectiveMax),
+                      })}
+                    </span>
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 text-xs text-ink-faint">
+                      {t("routines.field.warnUsd")}
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={draft.warnUsd}
+                        placeholder={formatUsd(defaults.warn)}
+                        onChange={(e) => set({ warnUsd: e.target.value })}
+                        className={cn(FIELD, "w-full")}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-ink-faint">
+                      {t("routines.field.maxUsd")}
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={draft.maxUsd}
+                        placeholder={formatUsd(defaults.max)}
+                        onChange={(e) => set({ maxUsd: e.target.value })}
+                        className={cn(FIELD, "w-full")}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-ink-faint">
+                    {t("settings.experimental.routineCostHint")}
+                  </p>
                 </div>
               </section>
 
-              {/* Run hooks card (#1283) */}
-              <section className="studio-card space-y-3 rounded-xl p-4">
+              {/* Card 3 — Run hooks (#1283) */}
+              <section className="studio-card space-y-2.5 rounded-xl p-3.5">
                 <div>
                   <h4 className="text-sm font-semibold text-ink">{t("routines.hooks.title")}</h4>
                   <p className="mt-0.5 text-xs text-ink-dim">{t("routines.hooks.skipHint")}</p>
@@ -926,9 +978,7 @@ export function RoutineEditor({
                         <Label>{phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}</Label>
                         <Button
                           size="xs"
-                          disabled={
-                            busy !== null || draft.projectCwd === "" || value.trim() === ""
-                          }
+                          disabled={busy !== null || draft.projectCwd === "" || value.trim() === ""}
                           onClick={() => testScriptFor(phase)}
                         >
                           {t("routines.hooks.testButton")}
@@ -940,7 +990,7 @@ export function RoutineEditor({
                         spellCheck={false}
                         aria-label={phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}
                         onChange={(e) => setPhase(e.target.value)}
-                        className={cn(FIELD, "h-auto w-full resize-y py-2 font-mono leading-relaxed")}
+                        className={cn(FIELD, "h-auto w-full resize-y bg-sunken/65 py-2 font-mono leading-relaxed")}
                       />
                       <p className="text-[11px] leading-relaxed text-ink-faint">
                         {phase === "pre" ? t("routines.hooks.preNote") : t("routines.hooks.postNote")}
@@ -963,190 +1013,60 @@ export function RoutineEditor({
                 })}
               </section>
 
-              {/* Narrow-viewport delete footer */}
+              {/* Card 4 — Latest run & Delete */}
               {routine !== null && (
-                <div className="flex items-center justify-end pt-1 @[48rem]:hidden">
-                  <Button size="xs" variant="ghost" tone="rose" onClick={() => setConfirmDelete(true)}>
-                    {t("routines.delete.confirm")}
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Right Flight check rail (>=46rem) */}
-            <aside
-              aria-label={t("routines.studio.flightCheck")}
-              className="hidden w-64 shrink-0 flex-col gap-3 @[48rem]:flex"
-            >
-              <div className="studio-card space-y-3 rounded-xl p-3.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>{t("routines.studio.flightCheck")}</Label>
-                  <Chip tone={draft.enabled ? "signal" : "neutral"}>
-                    {draft.enabled ? t("routines.studio.armed") : t("routines.paused")}
-                  </Chip>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-ink-mid">{t("routines.field.toolPolicy")}</span>
-                    <span className="font-mono tabular-nums text-ink">
-                      {catalog !== null
-                        ? t("routines.studio.policyRatio", {
-                            allow: policyStats.allowed,
-                            total: policyStats.total,
-                          })
-                        : t("routines.studio.policyCountOnly", { allow: draft.toolPolicy.allow.length })}
-                    </span>
-                  </div>
-                  <div
-                    aria-hidden
-                    className="flex h-1.5 overflow-hidden rounded-full bg-raised"
-                  >
-                    {policyStats.total > 0 && (
-                      <>
-                        <span
-                          className="bg-signal"
-                          style={{ width: `${(policyStats.allowed / policyStats.total) * 100}%` }}
-                        />
-                        <span
-                          className="bg-ink-faint/35"
-                          style={{ width: `${(policyStats.ask / policyStats.total) * 100}%` }}
-                        />
-                        <span
-                          className="bg-rose"
-                          style={{ width: `${(policyStats.denied / policyStats.total) * 100}%` }}
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {cliBypass ? (
-                  <p
-                    role="note"
-                    className="rounded-lg border border-copper-dim bg-copper-wash px-2.5 py-2 leading-relaxed text-copper"
-                  >
-                    {t("routines.policy.cliBypassWarning")}
-                  </p>
-                ) : null}
-                {hooksSet ? (
-                  <p
-                    role="note"
-                    className="rounded-lg border border-copper-dim bg-copper-wash px-2.5 py-2 leading-relaxed text-copper"
-                  >
-                    {t("routines.hooks.warning")}
-                  </p>
-                ) : null}
-                {!cliBypass && !hooksSet ? (
-                  <p className="rounded-lg border border-signal-dim/60 bg-signal-wash/50 px-2.5 py-2 leading-relaxed text-signal">
-                    {t("routines.studio.policySafe")}
-                  </p>
-                ) : null}
-
-                <dl className="space-y-1.5 border-t border-line-soft pt-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-ink-faint">{t("routines.field.model")}</dt>
-                    <dd className="min-w-0 truncate font-medium text-ink">{modelDisplayName}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-ink-faint">{t("routines.field.thinking")}</dt>
-                    <dd className="min-w-0 truncate font-mono text-ink-mid">
-                      {draft.thinkingLevel ?? t("routines.projectDefault")}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="inline-flex items-center gap-1 text-ink-faint">
-                      <IconLock className="size-3" />
-                      {t("routines.studio.privacy")}
-                    </dt>
-                    <dd className="text-ink-mid">{t("routines.studio.privateOverlay")}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="inline-flex items-center gap-1 text-ink-faint">
-                      <IconClock className="size-3" />
-                      {t("routines.studio.wallClock")}
-                    </dt>
-                    <dd className="font-mono text-ink-mid">{t("routines.studio.wallClockLimit")}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="shrink-0 text-ink-faint">{t("routines.studio.spendCap")}</dt>
-                    <dd className="min-w-0 truncate text-right font-mono text-ink-mid">
-                      {t("routines.studio.spendSummary", {
-                        warn: effectiveWarn === 0 ? t("routines.noCap") : formatUsd(effectiveWarn),
-                        max: effectiveMax === 0 ? t("routines.noCap") : formatUsd(effectiveMax),
-                      })}
-                    </dd>
-                  </div>
-                </dl>
-
-                <Button
-                  size="xs"
-                  className="w-full justify-center"
-                  onClick={() => setActiveTab("policy")}
-                >
-                  {t("routines.studio.reviewAllTools")}
-                </Button>
-              </div>
-
-              {routine !== null && (
-                <div className="studio-card space-y-2.5 rounded-xl p-3.5 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label>{t("routines.studio.latestRun")}</Label>
-                    {latestRun !== null && (
-                      <span className="tabular-nums text-ink-faint">
-                        {relativeTime(new Date(latestRun.firedAtMs).toISOString())}
-                      </span>
-                    )}
-                  </div>
-                  {latestRun !== null ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <Chip tone={OUTCOME_TONE[latestRun.outcome]}>{t(OUTCOME_LABEL[latestRun.outcome])}</Chip>
-                      <Button size="xs" variant="ghost" onClick={() => setActiveTab("history")}>
-                        {t("routines.studio.viewHistory")}
+                <section className="studio-card rounded-xl px-3.5 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label>{t("routines.studio.latestRun")}</Label>
+                      {latestRun !== null ? (
+                        <>
+                          <Chip tone={OUTCOME_TONE[latestRun.outcome]}>{t(OUTCOME_LABEL[latestRun.outcome])}</Chip>
+                          <span className="tabular-nums text-ink-faint">
+                            {relativeTime(new Date(latestRun.firedAtMs).toISOString())}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-ink-faint">{t("routines.history.empty")}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {latestRun !== null && (
+                        <Button size="xs" variant="ghost" onClick={() => setActiveTab("history")}>
+                          {t("routines.studio.viewHistory")}
+                        </Button>
+                      )}
+                      <Button size="xs" variant="ghost" tone="rose" onClick={() => setConfirmDelete(true)}>
+                        {t("routines.delete.confirm")}
                       </Button>
                     </div>
-                  ) : (
-                    <p className="text-ink-faint">{t("routines.history.empty")}</p>
-                  )}
-                  <div className="border-t border-line-soft pt-2.5">
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      tone="rose"
-                      className="w-full justify-center"
-                      onClick={() => setConfirmDelete(true)}
-                    >
-                      {t("routines.delete.confirm")}
-                    </Button>
                   </div>
-                </div>
+                </section>
               )}
-            </aside>
+            </div>
           </div>
         </div>
       )}
 
       {visibleTab === "policy" && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5">
-          <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col">
-            <ToolPolicyEditor
-              policy={draft.toolPolicy}
-              catalog={catalog}
-              catalogError={catalogError}
-              reviewed={routine !== null}
-              disabled={busy === "save"}
-              onChange={(toolPolicy) => {
-                setPolicyTouched(true);
-                set({ toolPolicy });
-              }}
-            />
-          </div>
+          <ToolPolicyEditor
+            policy={draft.toolPolicy}
+            catalog={catalog}
+            catalogError={catalogError}
+            reviewed={routine !== null}
+            disabled={busy === "save"}
+            onChange={(toolPolicy) => {
+              setPolicyTouched(true);
+              set({ toolPolicy });
+            }}
+          />
         </div>
       )}
 
       {visibleTab === "history" && routine !== null && (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <section className="studio-card mx-auto max-w-4xl space-y-3 rounded-xl p-4">
+          <section className="studio-card mx-auto max-w-5xl space-y-3 rounded-xl p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <h4 className="text-sm font-semibold text-ink">{t("routines.history.title")}</h4>
