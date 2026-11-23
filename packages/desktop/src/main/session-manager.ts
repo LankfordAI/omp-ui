@@ -448,6 +448,8 @@ export interface SessionManagerDependencies {
   routineLifecycle?: (access: RoutineLifecycleAccess) => FrameObserver;
   /** The routine authoring tool's answerer (ADR-0100 amendment); absent = the tool answers as unavailable. */
   routines?: HostBridgeDeps["routines"];
+  /** Notifies MainBackend when a watched lineage dir vanishes so it can drop its disk memo (#1286). */
+  onLineageVanished?: (tabId: string) => void;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -559,6 +561,7 @@ export class SessionManager {
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
       broadcast: () => deps.broadcast(),
+      onLineageVanished: (tabId) => deps.onLineageVanished?.(tabId),
       onSessionObserved: (tabId, sessionId) => {
         const entry = this.live.get(tabId);
         if (entry?.kind !== "rpc-ui") return;
@@ -635,7 +638,7 @@ export class SessionManager {
       readPlanFile: (root, absPath) => readConfinedPlanFile(root, absPath),
       planSnapshot: (tabId, absPath) => this.planSnapshotFor(tabId, absPath),
       planRoot: (tabId) => {
-        const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+        const record = deps.registry.findSession(tabId);
         return record === undefined ? null : path.resolve(deps.getSessionsRoot(), record.lineageDir);
       },
       notify: (tabId, title, message) =>
@@ -647,7 +650,7 @@ export class SessionManager {
       log: (message) => console.warn(`[host-bridge] ${message}`),
       vault: {
         context: (tabId) => {
-          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          const record = deps.registry.findSession(tabId);
           if (record === undefined) return null;
           if (record.chat) {
             return {
@@ -693,7 +696,7 @@ export class SessionManager {
       routines: deps.routines,
       device: {
         run: (tabId, args) => {
-          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          const record = deps.registry.findSession(tabId);
           const cwd = record === undefined ? os.homedir() : record.worktree?.path ?? record.projectCwd;
           return this.devicePanes.runAgentCommand(tabId, cwd, args);
         },
@@ -703,7 +706,7 @@ export class SessionManager {
       // "unavailable" when the switch was turned on after launch.
       issues: new IssueBridge({
         cwd: (tabId) => {
-          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          const record = deps.registry.findSession(tabId);
           return record === undefined ? null : record.worktree?.path ?? record.projectCwd;
         },
         versions: async () => {
@@ -809,7 +812,7 @@ export class SessionManager {
         // Same expression the terminal cwd uses (#695, #1673); read exactly once
         // inside trackStart and pinned on RunState (#1283).
         routineRunDirectory: (tabId) => {
-          const s = deps.registry.sessions.find((x) => x.tabId === tabId);
+          const s = deps.registry.findSession(tabId);
           return s === undefined ? null : s.worktree?.path ?? s.projectCwd;
         },
       }) ?? null;
@@ -869,7 +872,7 @@ export class SessionManager {
 
   /** The browser clock follows the tab's project (see CONTEXT.md "Browser clock"). */
   private browserClockEnabled(tabId: string): boolean {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    const record = this.deps.registry.findSession(tabId);
     if (record === undefined) return false;
     return this.deps.registry.projects.find((p) => p.path === record.projectCwd)?.browserClock === true;
   }

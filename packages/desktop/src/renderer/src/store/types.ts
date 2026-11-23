@@ -319,8 +319,6 @@ export interface RpcTabState {
   subagentMarkers: Map<string, string>;
   subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
-  /** Renderer-observed request/model progress; never local tool execution. */
-  streamCheckpoint?: { at: number; label: string };
   /**
    * Model-stream silence in ms, present only while an assistant response is
    * open AND the silence has exceeded STREAM_STALL_THRESHOLD_MS (issue #228).

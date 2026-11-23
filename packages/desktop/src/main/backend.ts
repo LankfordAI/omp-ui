@@ -49,7 +49,9 @@ import {
   emptyStatsOverview,
   resolveStatsSource,
   StatsCollector,
+  historyDbCandidates,
   readSessionTitles,
+  type SessionLocation,
   type SessionTitlesRead,
   SessionSpendDiskCache,
   type SpendTotals,
@@ -294,12 +296,37 @@ import { readThemeUsageSample } from "./theme-usage";
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
 
+/** Safety sweep clearing the per-record disk memo so external omp gc relocations self-heal (#1286). */
+const STATE_SWEEP_MS = 10 * 60_000;
+/** Re-walk disk spend plans after this window so subagent artifacts stay fresh (#1286). */
+const SPEND_PLAN_TTL_MS = 30_000;
+
+interface DiskMemoEntry {
+  key: string;
+  liveAtFill: boolean;
+  filledAt: number;
+  spendPlanAt: number;
+  loc: SessionLocation;
+  hydratedTitle: string | null;
+  hydratedStatus: SessionSummary["status"];
+  forkParentDir: string | null;
+  diskSpend: SpendTotals | null;
+  hasDiskSpend: boolean;
+}
+
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
-  /** Serializes each complete state build and delivery so an older snapshot can never overtake a newer one. */
-  private broadcastChain: Promise<void> = Promise.resolve();
+  /** Single-flight broadcast loop (#1286): builds never overlap; triggers during a build fold into one trailing pass. */
+  private broadcastRequests = 0;
+  private broadcastInFlight = false;
+  private readonly broadcastWaiters: { order: number; settle: PromiseWithResolvers<void> }[] = [];
   /** Long-poll fleet status waiters (issue #958): each resolves after the next completed broadcast. */
   readonly #broadcastWaiters = new Set<() => void>();
+  /** Per-record disk-derived memo (#1286): cache hits do zero syscalls. */
+  private readonly diskMemo = new Map<string, DiskMemoEntry>();
+  private diskMemoSweepTimer: NodeJS.Timeout | null = null;
+  /** Stat-keyed cache for readSessionTitles over historyDbCandidates + -wal siblings (#1286). */
+  private historyTitlesCache: { key: string; titles: SessionTitlesRead["titles"] } | null = null;
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   /** A neutral cwd keeps the app checkout's dotenv out of global Stats. */
@@ -641,6 +668,7 @@ export class MainBackend {
         getChatsRoot: () => this.chatsRoot,
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
+        onLineageVanished: (tabId) => this.invalidateDiskMemo(tabId),
         attention: this.notifier,
         breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
@@ -1061,6 +1089,10 @@ export class MainBackend {
     // focus-dependent cadence. Never throws; a missing or logged-out gh only logs.
     this.pullRequests.start();
     this.usageTelemetry.start();
+    this.diskMemoSweepTimer = setInterval(() => {
+      this.invalidateDiskMemo();
+    }, STATE_SWEEP_MS);
+    this.diskMemoSweepTimer.unref?.();
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -2842,6 +2874,7 @@ export class MainBackend {
     if (loc.where === "archived") {
       try {
         loc = { where: "active", filePath: await unarchiveSession(this.sessionsRoot, this.archiveRoot, record.lineageDir, record.sessionId) };
+        this.invalidateDiskMemo(tabId);
       } catch (err) {
         return refusal(err instanceof Error ? err.message : String(err));
       }
@@ -3072,6 +3105,11 @@ export class MainBackend {
     this.remoteInstances.start();
   }
 
+  /** Persists any deferred ephemeral registry writes synchronously before app quit (#1286). */
+  flushRegistry(): void {
+    this.registry.flush();
+  }
+
   /**
    * Releases every launch-time resource. Cancellation begins synchronously;
    * the returned promise outwaits the Stats child and every in-flight project
@@ -3082,6 +3120,11 @@ export class MainBackend {
   killAll(): Promise<void> {
     const statsSettled = this.statsCollector.dispose();
     this.usageTelemetry.dispose();
+    if (this.diskMemoSweepTimer !== null) {
+      clearInterval(this.diskMemoSweepTimer);
+      this.diskMemoSweepTimer = null;
+    }
+    this.diskMemo.clear();
     this.desktopPaneStopped = true;
     this.resetDesktopPaneStream();
     this.notifier.dispose();
@@ -3382,20 +3425,54 @@ export class MainBackend {
     }
   }
 
+  /** Drops one record's disk memo (or all records when omitted) (#1286). */
+  invalidateDiskMemo(tabId?: string): void {
+    if (tabId === undefined) this.diskMemo.clear();
+    else this.diskMemo.delete(tabId);
+  }
+
+  /** Stat-cached readSessionTitles keyed on every candidate db + its -wal sibling (#1286). */
+  private readCachedSessionTitles(): SessionTitlesRead["titles"] {
+    const candidates = historyDbCandidates(this.historyEnv);
+    const parts: string[] = [];
+    for (const candidate of candidates) {
+      for (const filePath of [candidate, `${candidate}-wal`]) {
+        try {
+          const st = fs.statSync(filePath);
+          parts.push(`${filePath}:${st.size}:${st.mtimeMs}`);
+        } catch {
+          parts.push(`${filePath}:absent`);
+        }
+      }
+    }
+    const key = parts.join("|");
+    if (this.historyTitlesCache !== null && this.historyTitlesCache.key === key) {
+      return this.historyTitlesCache.titles;
+    }
+    const titles = readSessionTitles(this.historyEnv).titles;
+    this.historyTitlesCache = { key, titles };
+    return titles;
+  }
+
+  private static diskMemoKey(record: OwnedSessionRecord): string {
+    return `${record.lineageDir}|${record.sessionId}|${record.cachedTitle}|${record.cachedModified}`;
+  }
+
   private async buildState(): Promise<BackendState> {
-    // Issue #1034: one read-only pass over omp's history.db title index per
-    // state build (core opens/closes the connection itself; readSessionTitles
-    // never throws — a missing/foreign/corrupt db degrades to { titles:{},
-    // error } and this `.error` is intentionally swallowed: title gap-fill is
-    // best-effort, "New session" remains the floor).
-    const historyTitles = readSessionTitles(this.historyEnv).titles;
+    // Issue #1034 / #1286: read-only pass over omp's history.db title index,
+    // stat-cached on candidate db + -wal siblings so unchanged builds do not
+    // re-open SQLite or scan up to 5,000 rows synchronously.
+    const historyTitles = this.readCachedSessionTitles();
+    const allSessions = this.registry.sessions;
     // CONTEXT.md **Fork**: a fork's header names a file in its source's lineage dir.
-    const tabByLineage = new Map(this.registry.sessions.map((r) => [r.lineageDir, r.tabId] as const));
+    const tabByLineage = new Map(allSessions.map((r) => [r.lineageDir, r.tabId] as const));
     // Group records by project in one pass; the old per-project filter was
     // O(projects × sessions).
     const byProject = new Map<string, OwnedSessionRecord[]>();
     const chatRecords: OwnedSessionRecord[] = [];
-    for (const record of this.registry.sessions) {
+    const liveTabIds = new Set<string>();
+    for (const record of allSessions) {
+      liveTabIds.add(record.tabId);
       if (record.chat) {
         chatRecords.push(record);
         continue;
@@ -3421,8 +3498,10 @@ export class MainBackend {
     const chats = await Promise.all(
       chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage, seenSpendFiles)),
     );
+    for (const tabId of this.diskMemo.keys()) {
+      if (!liveTabIds.has(tabId)) this.diskMemo.delete(tabId);
+    }
     this.spendCache.prune(seenSpendFiles);
-    // Registry order is preserved as-is; the renderer sorts the sidebar by recency.
     return {
       projects: groups,
       chats,
@@ -3511,13 +3590,108 @@ export class MainBackend {
     // Collects active/archived file paths read via spendCache so buildState can prune evicted files.
     seenSpendFiles: Set<string>,
   ): Promise<SessionSummary> {
-    const loc = await resolveSessionLocation(
-      this.sessionsRoot,
-      this.archiveRoot,
-      record.lineageDir,
-      record.sessionId,
-    );
-    const live: LiveState = this.sessions.isLive(record.tabId)
+    const isLive = this.sessions.isLive(record.tabId);
+    const liveSpend = this.sessions.sessionSpendSnapshot(record.tabId);
+    const useLiveSpend = liveSpend?.available === true;
+    const now = Date.now();
+    const lookupKey = MainBackend.diskMemoKey(record);
+    const cached = this.diskMemo.get(record.tabId);
+    const memoHit =
+      cached !== undefined &&
+      cached.key === lookupKey &&
+      cached.liveAtFill === isLive;
+
+    let loc: SessionLocation;
+    let title = record.cachedTitle;
+    let hydratedTitle: string | null = null;
+    let status: SessionSummary["status"] = null;
+    let forkParentDir: string | null = null;
+    let spend: SpendTotals | null = null;
+    if (memoHit) {
+      loc = cached.loc;
+      hydratedTitle = cached.hydratedTitle;
+      status = cached.hydratedStatus;
+      forkParentDir = cached.forkParentDir;
+      if (useLiveSpend) {
+        spend = liveSpend.total;
+      } else if (loc.where === "active" || loc.where === "archived") {
+        seenSpendFiles.add(loc.filePath);
+        if (!cached.hasDiskSpend || now - cached.spendPlanAt > SPEND_PLAN_TTL_MS) {
+          try {
+            spend = await this.spendCache.read(loc);
+            cached.diskSpend = spend;
+            cached.hasDiskSpend = true;
+            cached.spendPlanAt = now;
+          } catch {
+            // Transient spend read failure: drop memo entry rather than caching bad state.
+            this.diskMemo.delete(record.tabId);
+            spend = null;
+          }
+        } else {
+          spend = cached.diskSpend;
+        }
+      }
+    } else {
+      loc = await resolveSessionLocation(
+        this.sessionsRoot,
+        this.archiveRoot,
+        record.lineageDir,
+        record.sessionId,
+      );
+      let hydrateOk = true;
+      if (loc.where === "active") {
+        try {
+          const h = await hydrateSessionFile(loc.filePath);
+          forkParentDir = forkParentLineage(h.parentSession, record.lineageDir);
+          if (h.title?.trim()) hydratedTitle = h.title;
+          status = h.status;
+          const patch: Partial<Pick<OwnedSessionRecord, "sessionId" | "cachedTitle" | "cachedModified">> = {};
+          if (h.id && h.id !== record.sessionId) patch.sessionId = h.id;
+          const headTitle = h.title?.trim() ? h.title : null;
+          if (headTitle !== record.cachedTitle) patch.cachedTitle = headTitle;
+          const modified = h.mtime.toISOString();
+          if (modified !== record.cachedModified) patch.cachedModified = modified;
+          if (Object.keys(patch).length > 0) {
+            record = this.registry.updateSessionEphemeral(record.tabId, patch) ?? record;
+          }
+        } catch {
+          // Vanished mid-hydrate — render from cached fields and do not memoize failure.
+          hydrateOk = false;
+        }
+      }
+      let spendOk = true;
+      let hasDiskSpend = false;
+      let diskSpend: SpendTotals | null = null;
+      if (useLiveSpend) {
+        spend = liveSpend.total;
+      } else if (loc.where === "active" || loc.where === "archived") {
+        seenSpendFiles.add(loc.filePath);
+        try {
+          diskSpend = await this.spendCache.read(loc);
+          spend = diskSpend;
+          hasDiskSpend = true;
+        } catch {
+          spendOk = false;
+          spend = null;
+        }
+      }
+      if (hydrateOk && spendOk) {
+        this.diskMemo.set(record.tabId, {
+          key: MainBackend.diskMemoKey(record),
+          liveAtFill: isLive,
+          filledAt: now,
+          spendPlanAt: now,
+          loc,
+          hydratedTitle,
+          hydratedStatus: status,
+          forkParentDir,
+          diskSpend,
+          hasDiskSpend,
+        });
+      }
+    }
+
+    const live: LiveState = isLive
       ? "live"
       : loc.where === "active"
         ? "dormant"
@@ -3534,30 +3708,10 @@ export class MainBackend {
     const turnRunning = this.sessions.isTurnRunning(record.tabId);
     const turnAwaitingAsyncWork = this.sessions.isTurnAwaitingAsyncWork(record.tabId);
     const awaitingHumanAnswer = this.sessions.pendingAnswer(record.tabId);
-    let title = record.cachedTitle;
-    let status: SessionSummary["status"] = null;
-    let forkSourceTabId: string | null = null;
-    if (loc.where === "active") {
-      try {
-        const h = await hydrateSessionFile(loc.filePath);
-        const parentDir = forkParentLineage(h.parentSession, record.lineageDir);
-        const sourceTabId = parentDir === null ? undefined : tabByLineage.get(parentDir);
-        if (sourceTabId !== undefined && sourceTabId !== record.tabId) forkSourceTabId = sourceTabId;
-        if (h.title?.trim()) title = h.title;
-        status = h.status;
-        const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
-        if (h.id && h.id !== record.sessionId) patch.sessionId = h.id;
-        const headTitle = h.title?.trim() ? h.title : null;
-        if (headTitle !== record.cachedTitle) patch.cachedTitle = headTitle;
-        const modified = h.mtime.toISOString();
-        if (modified !== record.cachedModified) patch.cachedModified = modified;
-        if (Object.keys(patch).length > 0) {
-          record = this.registry.updateSession(record.tabId, patch) ?? record;
-        }
-      } catch {
-        // Vanished mid-hydrate — render from cached fields.
-      }
-    }
+    if (hydratedTitle?.trim()) title = hydratedTitle;
+    const sourceTabId = forkParentDir === null ? undefined : tabByLineage.get(forkParentDir);
+    const forkSourceTabId =
+      sourceTabId !== undefined && sourceTabId !== record.tabId ? sourceTabId : null;
     // Issue #1034 gap-fill: live-file title > cachedTitle > history.db title >
     // "New session" (applied at the return below). Strictly additive — anything
     // already titled keeps its title. Deliberately NOT patched into
@@ -3578,14 +3732,6 @@ export class MainBackend {
     const vibe = this.sessions.vibeSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
     const bridgeAvailability = this.sessions.bridgeAvailability(record.tabId);
-    const liveSpend = this.sessions.sessionSpendSnapshot(record.tabId);
-    let spend: SpendTotals | null = null;
-    if (liveSpend?.available === true) {
-      spend = liveSpend.total;
-    } else if (loc.where === "active" || loc.where === "archived") {
-      seenSpendFiles.add(loc.filePath);
-      spend = await this.spendCache.read(loc);
-    }
     return {
       ...record,
       title: title?.trim() || "New session",
@@ -3613,16 +3759,44 @@ export class MainBackend {
 
   /** Fans state to every sink; the window sink self-guards, so remote clients survive a closed window. */
   private broadcast(): Promise<void> {
-    const task = this.broadcastChain.then(async () => {
-      const state = await this.buildState();
-      this.send(CH.onStateChanged, state);
-      this.fleetWake.observe(state);
-      this.#releaseBroadcastWaiters();
-    });
-    // Keep the queue usable after a failed build without changing the Promise
-    // returned to this caller: `task` still carries its own rejection.
-    this.broadcastChain = task.catch(() => {});
-    return task;
+    const waiter = { order: ++this.broadcastRequests, settle: Promise.withResolvers<void>() };
+    this.broadcastWaiters.push(waiter);
+    if (!this.broadcastInFlight) void this.runBroadcastLoop();
+    return waiter.settle.promise;
+  }
+
+  /** One build in flight. A pass publishes for every request queued before it
+   * began; later requests drive one more pass. Two same-turn calls -> one pass. */
+  private async runBroadcastLoop(): Promise<void> {
+    this.broadcastInFlight = true;
+    try {
+      while (this.broadcastWaiters.length > 0) {
+        // Yield one microtask before capturing the cohort so same-turn
+        // synchronous broadcast() calls coalesce into a single pass.
+        await Promise.resolve();
+        const coversThrough = this.broadcastRequests;
+        let failure: unknown = null;
+        try {
+          const state = await this.buildState();
+          this.send(CH.onStateChanged, state);
+          this.fleetWake.observe(state);
+          this.#releaseBroadcastWaiters();
+        } catch (error) {
+          failure = error;
+        }
+        // Orders are monotonic, so the covered waiters are a contiguous prefix.
+        const covered: { order: number; settle: PromiseWithResolvers<void> }[] = [];
+        while (this.broadcastWaiters.length > 0 && this.broadcastWaiters[0]!.order <= coversThrough) {
+          covered.push(this.broadcastWaiters.shift()!);
+        }
+        for (const w of covered) {
+          if (failure === null) w.settle.resolve();
+          else w.settle.reject(failure);
+        }
+      }
+    } finally {
+      this.broadcastInFlight = false;
+    }
   }
 
   /** Resolves after the next completed state broadcast, or after `timeoutMs`: fleet status and MCP session_status long-polls. */

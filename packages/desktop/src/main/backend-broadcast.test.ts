@@ -239,8 +239,18 @@ describe("settings:setVaultNoteVoice (issue #793)", () => {
   });
 });
 
-describe("ordered backend broadcasts (issue #146)", () => {
-  it("finishes an older state build and delivery before starting the next one", async () => {
+describe("coalesced backend broadcasts (issue #146, #1286)", () => {
+  it("coalesces same-turn triggers into one pass carrying the latest settings", async () => {
+    const first = invoke(CH.toggleFavorite, "model-a");
+    const second = invoke(CH.toggleFavorite, "model-b");
+    await Promise.all([first, second]);
+
+    expect(resolveSessionLocationMock).toHaveBeenCalledTimes(1);
+    expect(broadcastStates()).toHaveLength(1);
+    expect(broadcastStates()[0]?.modelFavorites).toEqual(["model-a", "model-b"]);
+  });
+
+  it("folds triggers arriving mid-build into a single trailing pass carrying all updates", async () => {
     const firstReadStarted = deferred<void>();
     const releaseFirstRead = deferred<{ where: "archived" }>();
     resolveSessionLocationMock.mockImplementationOnce(() => {
@@ -251,25 +261,57 @@ describe("ordered backend broadcasts (issue #146)", () => {
     const first = invoke(CH.toggleFavorite, "model-a");
     await firstReadStarted.promise;
 
+    // Two requests arrive while the first build is suspended in flight:
     const second = invoke(CH.toggleFavorite, "model-b");
+    const third = invoke(CH.toggleFavorite, "model-c");
     expect(resolveSessionLocationMock).toHaveBeenCalledTimes(1);
     expect(broadcastStates()).toEqual([]);
 
     releaseFirstRead.resolve({ where: "archived" });
-    await Promise.all([first, second]);
+    await Promise.all([first, second, third]);
 
-    // Settings are read after the build's session reads, so both builds carry
-    // both favorites; the held first read (archived) tags the older build.
+    // Pass 1 fills the disk memo; pass 2 is one coalesced trailing pass for second & third
+    // (serving the memoized location with zero extra resolveSessionLocation syscalls).
+    expect(resolveSessionLocationMock).toHaveBeenCalledTimes(1);
     const delivered = broadcastStates().map((state) => [
       state.projects[0]?.sessions[0]?.live,
       state.modelFavorites,
     ]);
-    // The default fixture has sessionId: null and the mock reports "missing"
-    // for its second build: a never-started record reads dormant (#1265).
     expect(delivered).toEqual([
-      ["archived", ["model-a", "model-b"]],
-      ["dormant", ["model-a", "model-b"]],
+      ["archived", ["model-a", "model-b", "model-c"]],
+      ["archived", ["model-a", "model-b", "model-c"]],
     ]);
+  });
+
+  it("starts a fresh pass when a caller re-broadcasts inside a resolution continuation", async () => {
+    await invoke(CH.toggleFavorite, "model-a");
+    expect(broadcastStates()).toHaveLength(1);
+
+    // Calling right from the resolved continuation must not be absorbed into the settled pass.
+    await invoke(CH.toggleFavorite, "model-b");
+    expect(broadcastStates()).toHaveLength(2);
+    expect(broadcastStates()[1]?.modelFavorites).toEqual(["model-a", "model-b"]);
+  });
+
+  it("rejects only the failed cohort while a queued later request still gets its own pass", async () => {
+    const firstReadStarted = deferred<void>();
+    const releaseFirstRead = Promise.withResolvers<{ where: "archived" }>();
+    resolveSessionLocationMock.mockImplementationOnce(() => {
+      firstReadStarted.resolve(undefined);
+      return releaseFirstRead.promise;
+    });
+
+    const failed = invoke(CH.toggleFavorite, "model-a");
+    await firstReadStarted.promise;
+
+    // Queued after pass 1 began: belongs to the next cohort.
+    const queued = invoke(CH.setThemeId, "nord");
+    releaseFirstRead.reject(new Error("state read failed"));
+
+    await expect(failed).rejects.toThrow("state read failed");
+    await expect(queued).resolves.toBeUndefined();
+    expect(broadcastStates()).toHaveLength(1);
+    expect(broadcastStates()[0]?.themeId).toBe("nord");
   });
 
   it("keeps the chain usable after returning a failed build to its caller", async () => {

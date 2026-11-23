@@ -98,6 +98,7 @@ export type ObservedTabRuntime = TabRuntime & { lastFrameAt: number };
 /** The per-stall diagnostic notice, or null when this retry is not a stream stall. */
 function stallNotice(
   tab: RpcTabState,
+  runtime: TabRuntime,
   frame: object,
   now: number,
 ): { notice: NoticeItem; count: number } | null {
@@ -107,7 +108,7 @@ function stallNotice(
   if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
     return null;
   const count = tab.stallCount + 1;
-  const checkpoint = tab.streamCheckpoint;
+  const checkpoint = runtime.streamCheckpoint;
   const stage =
     watchdogMatch?.[2]?.toLowerCase() === "first"
       ? "first-event"
@@ -219,8 +220,7 @@ export function reduceAgentEvent(
   const checkpointLabel = modelStreamCheckpointLabel(frame);
 
   if (checkpointLabel !== null) {
-    rpc.streamCheckpoint = { at: now, label: checkpointLabel };
-    hasRpcPatch = true;
+    runtimePatch.streamCheckpoint = { at: now, label: checkpointLabel };
   }
 
   if (tab.status === "running")
@@ -230,7 +230,7 @@ export function reduceAgentEvent(
     });
 
   const retryStall =
-    type === "auto_retry_start" ? stallNotice(tab, frame, now) : null;
+    type === "auto_retry_start" ? stallNotice(tab, runtime, frame, now) : null;
   if (retryStall !== null) {
     rpc.stallCount = retryStall.count;
     hasRpcPatch = true;
@@ -537,6 +537,7 @@ export function reduceAgentEvent(
       if (providerStall) {
         const stall = stallNotice(
           tab,
+          runtime,
           {
             errorMessage: tab.lastTurn?.errorMessage,
             errorId: tab.lastTurn?.errorId,

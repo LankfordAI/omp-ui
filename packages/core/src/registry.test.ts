@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { Registry, SETTINGS, planHandoffDescendants } from "./registry";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as atomicWrite from "./atomic-write";
+import { Registry, SETTINGS, planHandoffDescendants, type EphemeralSessionPatch } from "./registry";
 import { importVsCodeThemeFiles } from "./vscode-theme";
 import type { OwnedSessionRecord } from "./types";
 
@@ -2584,5 +2585,143 @@ describe("routines settings & OwnedSessionRecord.routine (U12, #1263)", () => {
     const reg = Registry.load(file);
     expect(reg.sessions.find((s) => s.tabId === "s-valid")?.routine).toEqual(validRoutine);
     expect(reg.sessions.find((s) => s.tabId === "s-bad")?.routine).toBeNull();
+  });
+});
+
+describe("Registry write path, ephemeral batching, and cached reads (#1286)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("skips disk writes for an equal-value updateSession patch", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-noop", cachedTitle: "Same", cachedModified: "2026-10-01T00:00:00.000Z" }));
+    const writeSpy = vi.spyOn(atomicWrite, "writeTextAtomic");
+
+    const result = reg.updateSession("t-noop", { cachedTitle: "Same", cachedModified: "2026-10-01T00:00:00.000Z" });
+    expect(result?.cachedTitle).toBe("Same");
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it("batches updateSessionEphemeral on a fixed deadline anchored at first dirty without extending it", () => {
+    vi.useFakeTimers();
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-eph", cachedModified: "2026-10-01T00:00:00.000Z" }));
+    const writeSpy = vi.spyOn(atomicWrite, "writeTextAtomic");
+
+    reg.updateSessionEphemeral("t-eph", { cachedModified: "2026-10-01T00:00:01.000Z" });
+    expect(writeSpy).not.toHaveBeenCalled();
+    // In-memory reads reflect the ephemeral update immediately.
+    expect(reg.findSession("t-eph")?.cachedModified).toBe("2026-10-01T00:00:01.000Z");
+    expect(reg.sessions.find((s) => s.tabId === "t-eph")?.cachedModified).toBe("2026-10-01T00:00:01.000Z");
+
+    // Second patch 1500ms later must NOT reset the 2000ms deadline.
+    vi.advanceTimersByTime(1_500);
+    reg.updateSessionEphemeral("t-eph", { cachedModified: "2026-10-01T00:00:02.000Z", cachedTitle: "Updated" });
+    expect(writeSpy).not.toHaveBeenCalled();
+
+    // 500ms later (total 2000ms from first dirty): flushes once with both updates.
+    vi.advanceTimersByTime(500);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const reloaded = Registry.load(file);
+    expect(reloaded.findSession("t-eph")?.cachedModified).toBe("2026-10-01T00:00:02.000Z");
+    expect(reloaded.findSession("t-eph")?.cachedTitle).toBe("Updated");
+  });
+
+  it("flush() lands pending ephemeral writes immediately and cancels the timer", () => {
+    vi.useFakeTimers();
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-flush" }));
+    const writeSpy = vi.spyOn(atomicWrite, "writeTextAtomic");
+
+    reg.updateSessionEphemeral("t-flush", { sessionId: "s-123", cachedTitle: "Flushed" });
+    expect(writeSpy).not.toHaveBeenCalled();
+
+    reg.flush();
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(Registry.load(file).findSession("t-flush")?.sessionId).toBe("s-123");
+
+    // Advancing past the original deadline triggers no redundant write.
+    vi.advanceTimersByTime(5_000);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("sync mutators still write before returning and clear any pending ephemeral timer", () => {
+    vi.useFakeTimers();
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-sync" }));
+    const writeSpy = vi.spyOn(atomicWrite, "writeTextAtomic");
+
+    reg.updateSessionEphemeral("t-sync", { cachedTitle: "Pending" });
+    expect(writeSpy).not.toHaveBeenCalled();
+
+    reg.setSetting("themeId", "nord");
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("themeId")).toBe("nord");
+    expect(reloaded.findSession("t-sync")?.cachedTitle).toBe("Pending");
+
+    vi.advanceTimersByTime(5_000);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects non-allowlisted keys passed to updateSessionEphemeral at runtime", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-guard" }));
+    const illegalPatch = { snoozed: true } as unknown as EphemeralSessionPatch;
+    expect(() => reg.updateSessionEphemeral("t-guard", illegalPatch)).toThrow(/disallowed key "snoozed"/);
+  });
+
+  it("retains dirty state when the deferred timer write fails so a later flush succeeds", () => {
+    vi.useFakeTimers();
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-retry" }));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const writeSpy = vi.spyOn(atomicWrite, "writeTextAtomic");
+    writeSpy.mockImplementationOnce(() => {
+      throw new Error("ENOSPC");
+    });
+
+    reg.updateSessionEphemeral("t-retry", { cachedTitle: "Survives retry" });
+    vi.advanceTimersByTime(2_000);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(Registry.load(file).findSession("t-retry")?.cachedTitle).toBeNull();
+
+    // Still dirty: explicit flush retries and lands on disk.
+    reg.flush();
+    expect(Registry.load(file).findSession("t-retry")?.cachedTitle).toBe("Survives retry");
+  });
+
+  it("caches the frozen sessions view across reads and invalidates on committed changes", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord({ tabId: "t-cache", cachedTitle: "V1" }));
+
+    const first = reg.sessions;
+    const second = reg.sessions;
+    expect(first).toBe(second);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first[0])).toBe(true);
+
+    reg.updateSessionEphemeral("t-cache", { cachedTitle: "V2" });
+    const third = reg.sessions;
+    expect(third).not.toBe(first);
+    expect(first[0]!.cachedTitle).toBe("V1");
+    expect(third[0]!.cachedTitle).toBe("V2");
+    reg.flush();
   });
 });

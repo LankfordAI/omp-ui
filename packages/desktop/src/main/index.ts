@@ -475,6 +475,7 @@ if (!app.requestSingleInstanceLock()) {
     // failure-tolerating write can never block the quit. The final drag
     // inside the debounce window is read fresh here (see whenReady).
     flushWindowState?.();
+    backend?.flushRegistry();
     appQuitting = true;
     breadcrumbs.record("quit", { detail: `forced=${forceQuit}` });
     stopFdWatchdog?.();

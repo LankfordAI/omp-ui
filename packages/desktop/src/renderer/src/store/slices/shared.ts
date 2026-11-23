@@ -94,6 +94,8 @@ export interface TabRuntime {
   transcriptLastFlushAt?: number;
   slashCommandItems: Map<string, string>;
   streamStallTimer?: number;
+  /** Renderer-observed request/model progress; never local tool execution. */
+  streamCheckpoint?: { at: number; label: string };
   compactionUsageGeneration?: number;
   /** The verdict recorded by the last manual compaction this tab settled. */
   compactionOutcome?: CompactionOutcome;
@@ -1471,7 +1473,7 @@ export function createMachinery(
     const streamingOpen =
       tab !== undefined &&
       effectiveItems(tabId).some((i) => i.kind === "assistant" && i.streaming);
-    const checkpoint = tab?.streamCheckpoint;
+    const checkpoint = runtime(tabId).streamCheckpoint;
     if (
       tab === undefined ||
       tab.status !== "running" ||
