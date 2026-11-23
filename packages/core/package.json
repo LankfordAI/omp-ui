@@ -72,6 +72,7 @@
     "./tool-intent-label": "./src/tool-intent-label.ts",
     "./web-search-failures": "./src/web-search-failures.ts",
     "./session-command": "./src/session-command.ts",
+    "./host-controls": "./src/host-controls.ts",
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",
     "./side-commands": "./src/side-commands.ts",

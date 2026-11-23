@@ -49,6 +49,7 @@ import { createSettleSlice } from "./store/slices/settle";
 import { createGpuSlice } from "./store/slices/gpu";
 import { createSessionBulkSlice } from "./store/slices/session-bulk";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
+import { createHostControlsSlice } from "./store/slices/host-controls";
 import {
   createUnreadSlice,
   installUnreadViewListeners,
@@ -214,6 +215,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const sideQuestions = createSideQuestionsSlice(set, get, m);
   const migrate = createMigrateSlice(set, get);
   const subagentControl = createSubagentControlSlice(get, m);
+  const hostControls = createHostControlsSlice(get, m);
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   const settle = createSettleSlice(set, get);
@@ -488,6 +490,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...gpu,
     ...sessionBulk,
     ...subagentControl,
+    ...hostControls,
     ...asyncJobs,
     ...liveAudio,
     state: null,

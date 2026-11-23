@@ -121,6 +121,7 @@ export { Registry, planHandoffDescendants, type EphemeralSessionPatch, type Regi
 export { spawnOmp, spawnOmpLogin, spawnOmpTui, spawnShell, isOmpLoginProgram, ompLoginArgs, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export * from "./session-command";
+export * from "./host-controls";
 export { settledWithin } from "./promise-utils";
 export { writeTextAtomic } from "./atomic-write";
 export {

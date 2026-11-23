@@ -24,6 +24,8 @@ import type {
 } from "@omp-ui/core/fleet";
 import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
 import type { SessionCommand } from "@omp-ui/core/session-command";
+import type { ModelPickerRow } from "@omp-ui/core/host-controls";
+import type { ModelPickerView } from "../lib/host-controls";
 import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
@@ -412,6 +414,19 @@ export interface RpcTabState {
   subagentControlBusy: Record<string, SubagentControlAction>;
   /** The last verb's failure line — omp's own sentence, or the update hint; cleared by the next dispatch. */
   subagentControlError: string | null;
+  /**
+   * omp's model picker as `get_model_picker` served it to this client
+   * (issue #1272): the open dialog's page for its own query. Undefined while
+   * no picker is open — the dialog never mounts, and a stale page never pops.
+   */
+  modelPicker?: ModelPickerView;
+  /**
+   * This process answered one of omp 19.1's host-control verbs with
+   * "Unknown command" (issue #1272): continue / deliver-queue / picker stay
+   * off until the process is replaced — a rejected verb is never retried and
+   * never re-sent as another verb.
+   */
+  hostControlsUnsupported?: boolean;
   /**
    * The session's autoresearch snapshot as the root bridge published it
    * (ADR-0030): mode, goal and last tool activity. Display state only — omp's
@@ -2054,6 +2069,29 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** One subagent verb (issues #684, #713) on omp's native rpc command; the response settles it, never a transcript row. */
   steerSubagent(tabId: string, agentId: string, text: string): Promise<void>;
   killSubagent(tabId: string, agentId: string): Promise<void>;
+  /**
+   * Continue the run (issue #1272, omp 19.1): omp's `.`/`c` — a running turn
+   * is interrupted first, queued input continues the run instead of the
+   * continue directive. False when refused or the host lacks the verb; never
+   * retried with another command.
+   */
+  continueRun(tabId: string): Promise<boolean>;
+  /**
+   * Interrupt-and-deliver-queue (issue #1272, omp 19.1): the TUI's empty
+   * Enter — interrupt a streaming run that has queued input and continue it
+   * with that input. False when refused or unsupported; an `aborted: false`
+   * success is a no-op and still returns true. Never falls back to `abort`
+   * plus `prompt` — that would duplicate the queued work omp already holds.
+   */
+  deliverQueue(tabId: string): Promise<boolean>;
+  /** Opens the host's model picker (issue #1272) and fetches its blank-query page. */
+  openHostModelPicker(tabId: string): void;
+  /** Closes the picker dialog; no further response may paint it again. */
+  closeHostModelPicker(tabId: string): void;
+  /** Re-queries the open picker (omp ranks and filters server-side). */
+  queryModelPicker(tabId: string, query: string): void;
+  /** Picks one picker row through `set_model` (a role row carries its role; an explicit slider level rides). False when refused. */
+  pickModelRow(tabId: string, row: ModelPickerRow, thinkingLevel?: string): Promise<boolean>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;

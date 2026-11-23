@@ -641,6 +641,8 @@ function freshRpcTabState(
     capabilitiesLoad: "idle",
     subagentControlBusy: {},
     subagentControlError: null,
+    modelPicker: undefined,
+    hostControlsUnsupported: undefined,
     advisorReply,
   };
 }

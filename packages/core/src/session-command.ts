@@ -14,6 +14,11 @@ export const SESSION_COMMANDS = {
   abort: { lateAck: true },
   abort_and_prompt: { lateAck: true },
   abort_and_restore_queue: { lateAck: true },
+  // omp 19.1 remote host controls (issue #1272, docs/rpc.md v19.1.0): both are
+  // dispatched in the background behind earlier user input, so their ack can
+  // beat the strict budget — the `handoff` policy, and like it never offChain.
+  abort_and_deliver_queue: { lateAck: true },
+  resume: { lateAck: true },
   remove_queued_message: { lateAck: false },
   promote_queued_message: { lateAck: false },
   compact: { lateAck: true },
@@ -27,6 +32,10 @@ export const SESSION_COMMANDS = {
   set_model: { lateAck: true },
   cycle_model: { lateAck: true },
   get_available_models: { lateAck: true },
+  // omp's alt+p picker served over RPC (issue #1272): a serial-chain read
+  // whose handler may wait on catalog load — the `get_available_models`
+  // policy, so lateness measures process silence, not the strict budget.
+  get_model_picker: { lateAck: true },
   bash: { lateAck: true, offChain: true },
   abort_bash: { lateAck: false },
   predict_word: { lateAck: true, offChain: true },
