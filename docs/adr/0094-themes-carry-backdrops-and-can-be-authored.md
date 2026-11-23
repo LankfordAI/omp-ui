@@ -118,3 +118,7 @@ The backdrop reference, version-1 theme file, editor, agent interface, and asset
 
 This is a byte-budget increase, not an image upscaler or a promise that every 4K image fits. Artwork must still be authored at an appropriate resolution and the complete SVG must fit within 4 MiB.
 
+## Amendment (2026-11-22): Routines studio over backdrops
+
+`RoutinesView` renders on `stage-void` rather than an opaque `bg-void` plane so active theme backdrops remain visible in the studio gutters around floating cards ([#1278](https://github.com/LankfordAI/omp-ui/issues/1278)). Each editor card uses the `studio-card` utility (`var(--color-surface)` at `var(--backdrop-floor-reading, 100%)` with machined hairline borders and zero `backdrop-filter`), preserving §4's WCAG contrast floors and §5's idle GPU guarantee. Without a backdrop, `stage-void` paints `--color-void` and `studio-card` paints solid `--color-surface`.
+

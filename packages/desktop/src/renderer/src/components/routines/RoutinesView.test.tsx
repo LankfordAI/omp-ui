@@ -9,6 +9,7 @@ import type {
   RoutineRunRow,
   RoutinesState,
 } from "@omp-ui/core/routine";
+import type { CatalogModelOption } from "@omp-ui/core/types";
 import { backendState } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -88,7 +89,7 @@ function routinesState(patch: Partial<RoutinesState> = {}): RoutinesState {
 const runRoutineNow = vi.fn();
 const dryRunRoutine = vi.fn();
 const loadRoutineToolCatalog = vi.fn(async () => CATALOG);
-const readChatModels = vi.fn(async () => ({ models: [], discovered: true, error: null }));
+const readChatModels = vi.fn(async () => ({ models: [] as CatalogModelOption[], discovered: true, error: null }));
 let root: Root | null = null;
 
 function render(): HTMLElement {
@@ -110,6 +111,12 @@ function buttonNamed(label: string): HTMLButtonElement {
   const found = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
   if (!found) throw new Error(`no "${label}" button`);
   return found as HTMLButtonElement;
+}
+
+function routineTab(tab: "config" | "policy" | "history"): HTMLButtonElement {
+  const found = document.querySelector<HTMLButtonElement>(`[data-routine-tab="${tab}"]`);
+  if (!found) throw new Error(`no routine tab "${tab}"`);
+  return found;
 }
 
 beforeEach(() => {
@@ -227,6 +234,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
   it("marks a tool added since the review, and warns when a shell is allowed", async () => {
     render();
     await settle();
+    act(() => routineTab("policy").click());
     const sendRow = document.querySelector('[data-tool-row="mcp__gmail_send"]')!;
     expect(sendRow.textContent).toContain("Added later · not allowed");
     expect(document.querySelector('[data-tool-row="read"]')!.textContent).not.toContain("Added later");
@@ -249,6 +257,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     });
     render();
     await settle();
+    act(() => routineTab("history").click());
     const history = document.querySelector("[data-run-history]")!;
     expect(history.textContent).toContain("Previous run still open");
     expect(history.textContent).toContain("Stopped at spend cap");
@@ -265,12 +274,128 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     act(() => buttonNamed("New routine").click());
     await settle();
     expect(loadRoutineToolCatalog).toHaveBeenCalledWith(PROJECT);
+    // Run history tab is hidden for an unsaved routine.
+    expect(document.querySelector('[data-routine-tab="history"]')).toBeNull();
+    act(() => routineTab("policy").click());
     const read = document.querySelector<HTMLInputElement>('[data-tool-row="read"] input[type="checkbox"]')!;
     const send = document.querySelector<HTMLInputElement>('[data-tool-row="mcp__gmail_send"] input[type="checkbox"]')!;
     expect(read.checked).toBe(true);
     expect(send.checked).toBe(false);
     // Nothing reviewed yet: no drift chips on a new routine.
     expect(document.body.textContent).not.toContain("Added later · not allowed");
+  });
+
+  it("shows Dry run preview from any active tab", async () => {
+    const result: RoutineDryRunResult = {
+      routineId: "a".repeat(22),
+      nextFireAtMs: Date.UTC(2026, 10, 23, 8),
+      compiled: {
+        approvalMode: "always-ask",
+        overlayEntries: { read: "allow" },
+        deniedBuiltins: [],
+        addedLater: [],
+        missingFromCatalog: [],
+        cliBypassToolsAllowed: [],
+        cliBypassWarning: false,
+        overlayYamlPreview: "tools:\n",
+        warnings: [],
+      },
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      staleServers: [],
+      enumerationError: null,
+    };
+    dryRunRoutine.mockResolvedValueOnce(result);
+    render();
+    await settle();
+    act(() => routineTab("policy").click());
+    await act(async () => buttonNamed("Dry run").click());
+    await settle();
+    expect(document.querySelector("[data-dry-run]")).not.toBeNull();
+    expect(routineTab("policy").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("opens ModelPalette, picks a reasoning model with catalog-only thinking, and clears incompatible thinking on switch", async () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    readChatModels.mockResolvedValueOnce({
+      models: [
+        {
+          provider: "anthropic",
+          id: "claude-opus",
+          name: "Claude Opus",
+          reasoning: true,
+          thinking: { efforts: ["low", "medium", "high"] },
+        },
+        {
+          provider: "openai",
+          id: "gpt-plain",
+          name: "GPT Plain",
+          reasoning: false,
+        },
+      ],
+      discovered: true,
+      error: null,
+    });
+    const updateRoutine = vi.fn(async (_id: string, patch: unknown) => ({ ...routine(), ...(patch as Partial<RoutineRecord>) }));
+    useStore.setState({ updateRoutine });
+    render();
+    await settle();
+
+    // Unpinned project with draft.model === null hides the thinking slider (no fallback ladder).
+    expect(document.querySelector("[data-thinking-track]")).toBeNull();
+    expect(document.body.textContent).toContain("Follows project default");
+
+    // Open ModelPalette and select Claude Opus (reasoning).
+    const modelBtn = document.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!;
+    act(() => modelBtn.click());
+    const anthropicTab = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.title === "anthropic",
+    )!;
+    act(() => anthropicTab.click());
+    const opusBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent?.includes("Claude Opus"),
+    )!;
+    act(() => opusBtn.click());
+
+    // Catalog-reported efforts appear on ThinkingSliderControl.
+    expect(document.querySelector("[data-thinking-track]")).not.toBeNull();
+    const autoSwitch = document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="auto"]')!;
+    act(() => autoSwitch.click());
+    expect(autoSwitch.getAttribute("aria-checked")).toBe("true");
+
+    // Clicking a specific effort pins it and disables auto.
+    act(() => buttonNamed("high").click());
+    expect(autoSwitch.getAttribute("aria-checked")).toBe("false");
+    expect(buttonNamed("high").getAttribute("aria-pressed")).toBe("true");
+
+    // Switch to a non-reasoning model: slider hides and thinking clears to null.
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!.click());
+    const openaiTab = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.title === "openai",
+    )!;
+    act(() => openaiTab.click());
+    const plainBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent?.includes("GPT Plain"),
+    )!;
+    act(() => plainBtn.click());
+    expect(document.querySelector("[data-thinking-track]")).toBeNull();
+    expect(document.body.textContent).toContain("Not supported by model");
+
+    // Save sends model: "openai/gpt-plain" and thinkingLevel: null.
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenCalledWith(
+      "a".repeat(22),
+      expect.objectContaining({ model: "openai/gpt-plain", thinkingLevel: null }),
+    );
+
+    // Pick Project default from the palette and verify model returns to null.
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!.click());
+    const projDefaultBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent?.includes("Project default"),
+    )!;
+    act(() => projDefaultBtn.click());
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!.textContent).toContain("Project default");
   });
 });
 

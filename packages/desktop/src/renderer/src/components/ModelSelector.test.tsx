@@ -806,3 +806,63 @@ describe("ModelPalette keyboard panes", () => {
     expect(document.activeElement).toBe(paletteInput());
   });
 });
+
+describe("ModelPalette routine variant", () => {
+  const richModels: ModelInfo[] = [
+    {
+      id: "claude-sonnet",
+      name: "Claude Sonnet",
+      provider: "anthropic",
+      reasoning: true,
+      input: ["text", "image"],
+      contextWindow: 200_000,
+      cost: { input: 3, output: 15 },
+    },
+    { id: "gpt-5", name: "GPT-5", provider: "openai", contextWindow: 128_000 },
+  ];
+
+  it("renders Project default row with hint, keeps rich model chips, filters by query, and invokes onPick", () => {
+    const onPick = vi.fn();
+    const onClose = vi.fn();
+    mount(
+      <ModelPalette
+        variant="routine"
+        instanceId={null}
+        models={richModels}
+        current={null}
+        defaultHint="Uses anthropic/claude-sonnet"
+        onPick={onPick}
+        onClose={onClose}
+      />,
+    );
+
+    // Project default appears at the top of Favorites with its hint.
+    const defaultRow = buttonByText("Project default");
+    expect(defaultRow.textContent).toContain("Uses anthropic/claude-sonnet");
+    act(() => defaultRow.click());
+    expect(onPick).toHaveBeenCalledWith(null);
+
+    // Switching to anthropic tab keeps Project default AND shows Vision/Context/Price chips.
+    act(() => buttonByTitle("anthropic").click());
+    expect(buttonByText("Project default")).toBeDefined();
+    const sonnetRow = buttonByText("Claude Sonnet");
+    expect(sonnetRow.textContent).toContain("vision");
+    expect(sonnetRow.textContent).toContain("200K");
+    expect(sonnetRow.textContent).toContain("$3/$15");
+
+    // Querying a model hides Project default when it doesn't match and lets the user pick provider/id.
+    setQuery("sonnet", 6);
+    expect(
+      [...document.body.querySelectorAll("button")].some((b) => b.textContent?.includes("Project default")),
+    ).toBe(true); // Matches defaultHint "Uses anthropic/claude-sonnet"
+
+    setQuery("zzz-no-match", 12);
+    expect(
+      [...document.body.querySelectorAll("button")].some((b) => b.textContent?.includes("Project default")),
+    ).toBe(false);
+
+    setQuery("", 0);
+    act(() => buttonByText("Claude Sonnet").click());
+    expect(onPick).toHaveBeenCalledWith("anthropic/claude-sonnet");
+  });
+});

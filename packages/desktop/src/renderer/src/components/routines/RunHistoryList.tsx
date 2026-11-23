@@ -17,7 +17,7 @@ export function RunHistoryList({ runs, onOpen }: { runs: readonly RoutineRunRow[
   const state = useStore((s) => s.state);
   if (runs.length === 0) return <p className="text-xs text-ink-faint">{t("routines.history.empty")}</p>;
   return (
-    <ul data-run-history className="divide-y divide-line-soft rounded-lg border border-line bg-raised">
+    <ul data-run-history className="divide-y divide-line-soft rounded-lg border border-line-soft bg-raised/60">
       {runs.map((run) => {
         const reachable = run.tabId !== null && !run.pruned && findRecord(state, run.tabId) !== undefined;
         const waiting = run.outcome === "waiting-approval";
@@ -25,7 +25,7 @@ export function RunHistoryList({ runs, onOpen }: { runs: readonly RoutineRunRow[
           <li
             key={run.id}
             data-run-row={run.outcome}
-            className={cn("flex flex-wrap items-center gap-2 px-3 py-2 text-xs", waiting && "bg-copper-wash/40")}
+            className={cn("flex flex-wrap items-center gap-2.5 px-3.5 py-2.5 text-xs", waiting && "bg-copper-wash/40")}
           >
             <div className="min-w-0 flex-1 space-y-0.5">
               <div className="flex flex-wrap items-center gap-1.5">

@@ -55,7 +55,6 @@ export function RoutinesView() {
     if (routines.some((routine) => routine.id === routineFocusId)) pick({ kind: "routine", id: routineFocusId });
     clearRoutineFocus();
     // `pick` is a stable local setter over setState; routines read once per request.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routineFocusId]);
   const selected: RoutineRecord | null =
     selection?.kind === "routine" ? (routines.find((r) => r.id === selection.id) ?? null) : null;
@@ -102,11 +101,22 @@ export function RoutinesView() {
                 key={routine.id}
                 data-routine-row={routine.id}
                 className={cn(
-                  "rounded-md border p-2.5 transition-colors",
-                  active ? "border-line-strong bg-raised" : "border-line-soft hover:bg-hover/50",
+                  "relative overflow-hidden rounded-lg border p-2.5 transition-colors",
+                  active
+                    ? "border-line-strong bg-raised/90 edge-lit"
+                    : "border-line-soft bg-surface/55 hover:border-line hover:bg-hover/55",
                 )}
               >
-                <div className="flex items-start gap-2">
+                {active && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-[3px]",
+                      routine.enabled ? "bg-signal" : "bg-ink-faint/70",
+                    )}
+                  />
+                )}
+                <div className="flex items-start gap-2 pl-1">
                   <button
                     type="button"
                     onClick={() => pick({ kind: "routine", id: routine.id })}
@@ -130,7 +140,7 @@ export function RoutinesView() {
                     }}
                   />
                 </div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 border-t border-line-soft pt-1.5 text-xs">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 border-t border-line-soft pt-1.5 pl-1 text-xs">
                   {last !== undefined ? (
                     <>
                       <Chip tone={OUTCOME_TONE[last.outcome]}>{t(OUTCOME_LABEL[last.outcome])}</Chip>
@@ -151,32 +161,34 @@ export function RoutinesView() {
   const detail = (
     <div className="flex h-full min-h-0 flex-col">
       {compact && (
-        <div className="flex items-center gap-2 border-b border-line px-2 py-1.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-line chrome-void px-2 py-1.5">
           <Button size="xs" variant="ghost" onClick={() => pick(null)}>
             ← {t("routines.backAll")}
           </Button>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {effective === null ? (
-          <Empty title={t("routines.emptyTitle")} hint={t("routines.emptyHint")} />
-        ) : (
-          <div className="mx-auto max-w-3xl">
-            <RoutineEditor
-              routine={editing}
-              models={models}
-              onSaved={(saved) => setSelection({ kind: "routine", id: saved.id })}
-              onDeleted={() => pick(null)}
-              onOpenSession={closeRoutines}
-            />
+          <div className="grid flex-1 place-items-center p-6">
+            <div className="studio-card max-w-md rounded-xl p-6">
+              <Empty title={t("routines.emptyTitle")} hint={t("routines.emptyHint")} />
+            </div>
           </div>
+        ) : (
+          <RoutineEditor
+            routine={editing}
+            models={models}
+            onSaved={(saved) => setSelection({ kind: "routine", id: saved.id })}
+            onDeleted={() => pick(null)}
+            onOpenSession={closeRoutines}
+          />
         )}
       </div>
     </div>
   );
 
   return (
-    <section aria-label={t("routines.title")} data-routines-view className="absolute inset-0 flex flex-col overflow-x-hidden bg-void text-ink">
+    <section aria-label={t("routines.title")} data-routines-view className="absolute inset-0 flex flex-col overflow-x-hidden stage-void text-ink">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line chrome-void px-3">
         <Label className="min-w-0 truncate">
           {state === null ? t("routines.title") : t("routines.headerOn", { machine: state.machineLabel })}
@@ -193,8 +205,8 @@ export function RoutinesView() {
         <div className="min-h-0 flex-1">{drilled && effective !== null ? detail : list}</div>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <div className="w-80 shrink-0 border-r border-line chrome-sunken">{list}</div>
-          <div className="min-w-0 flex-1">{detail}</div>
+          <div className="w-72 shrink-0 border-r border-line chrome-sunken">{list}</div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{detail}</div>
         </div>
       )}
     </section>
