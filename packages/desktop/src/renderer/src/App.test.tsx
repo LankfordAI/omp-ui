@@ -557,6 +557,31 @@ describe("settled sessions leave the canvas (issue #926)", () => {
     // …and the exit card never reaches it.
     expect(document.body.textContent).not.toContain("Agent exited");
   });
+
+  // issue #1296: the settle releases focus instead of hopping to the last
+  // visible survivor, so Welcome shows even with another visible tab open;
+  // the sibling stays mounted, resumable from the sidebar.
+  it("renders Welcome over a still-mounted sibling when the focused tab settles", () => {
+    useStore.setState({
+      state: projectState(),
+      tabs: [
+        { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+        { tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+      ],
+      activeTabId: "rpc",
+    });
+    renderApp();
+
+    act(() => (useStore.getState() as UiStore & LifecycleSlice).teardownProcess("rpc", 0));
+
+    expect(useStore.getState().activeTabId).toBeNull();
+    // Welcome on the canvas even though a visible sibling remains…
+    expect(document.body.textContent).toContain("Add project");
+    // …and the sibling is still mounted, just not painted.
+    const sibling = document.body.querySelector('[data-tab-id="other"]');
+    expect(sibling).not.toBeNull();
+    expect((sibling as HTMLElement).style.display).toBe("none");
+  });
 });
 
 // issue #1157: mod+shift+m asks the store to open the focused tab's model

@@ -312,21 +312,23 @@ export function createLifecycleSlice(
       const liveVoice = dropLiveVoiceBadge(s.liveVoice, tabId);
       // A settled session leaves the canvas: hiding is the app's
       // out-of-sight, still-resumable state (the same transition a
-      // user-closed tab takes via hideTab), so focus lands on the next
-      // visible session or the Welcome screen instead of parking the
-      // user on the exit card. Resurfacing from Settled (openSession)
-      // un-hides with the card ready for resume. Deliberately mirrors
-      // hideTab and does NOT call focusOn: a settle must not eject the
-      // user out of an open Lab/Stats/Fleet view, exactly as closing a
-      // tab underneath one doesn't. (issue #926)
+      // user-closed tab takes via hideTab), and focus releases to the
+      // home screen instead of parking the user on the exit card or
+      // hopping into an unrelated session. Resurfacing from Settled
+      // (openSession) un-hides with the card ready for resume.
+      // Deliberately mirrors hideTab's no-focusOn stance: a settle must
+      // not eject the user out of an open Lab/Stats/Fleet view, exactly
+      // as closing a tab underneath one doesn't. (issues #926, #1296)
       const tabs = s.tabs.map((t) =>
         t.tabId === tabId ? { ...t, hidden: true } : t,
       );
       let activeTabId = s.activeTabId;
       if (activeTabId === tabId) {
-        const visible = tabs.filter((t) => !t.hidden);
-        activeTabId =
-          visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
+        // Releasing rather than hopping: a settle returns to the home
+        // screen, it does not throw the user into whichever session
+        // happens to sit last in the tab list. Hidden tabs stay
+        // mounted and resumable from the sidebar.
+        activeTabId = null;
       }
       return {
         tabs,

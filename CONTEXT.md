@@ -104,7 +104,8 @@ sessions (e.g. after quitting `omp-ui` or rebooting the machine) remain in the
 main list or **Pinned** and resume lazily when opened. Collapsed by default;
 the open/closed choice persists locally, and a non-empty sidebar search shows
 it expanded without changing that choice. A settling session hides its tab on
-the way in; clicking the row resurfaces the tab so its exit card offers resume.
+the way in and releases focus to the Welcome screen (issue #1296); clicking the
+row resurfaces the tab so its exit card offers resume.
 **Settle** is the explicit way in (issue #980): the row's check action, row
 menu, Session HUD title menu, or palette (and the Fleet dispatch row) stops the
 process the way hibernation does, stamps `settledAtMs`, kills the drawer shell,
