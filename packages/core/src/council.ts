@@ -358,8 +358,10 @@ export function councilPlanReviewPrompt(planFilePath: string, notes: CouncilPlan
   const path = inertInline(planFilePath);
   const lead =
     `The user sent the plan at ${path} to the council instead of approving it. ` +
-    `Call the ${COUNCIL_TOOL} tool exactly once now with plan set to ${path}, then follow the ` +
-    "launch instructions it returns. Do not revise the plan before every council member has answered.";
+    `Call the ${COUNCIL_TOOL} tool exactly once now with plan set to ${path}. ` +
+    "Do not launch any council members yourself: the launch instructions arrive as a " +
+    "message on your next turn; follow that message exactly once. " +
+    "Do not revise the plan before every council member has answered.";
   const text = notes.text.trim();
   if (text !== "") return `${lead}\n\nWhen you revise it, also make these changes the user requested:\n\n${text}`;
   if (notes.annotated) return `${lead}\n\nWhen you revise it, also address the annotated passages above.`;

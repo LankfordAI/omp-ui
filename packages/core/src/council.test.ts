@@ -111,6 +111,7 @@ describe("councilPlanReviewPrompt", () => {
   it("names the tool and the plan inertly, and carries the user's notes by precedence", () => {
     const bare = councilPlanReviewPrompt(path, none);
     expect(bare).toContain("omp-ui_council tool exactly once now with plan set to `local://ultrathink-plan.html`");
+    expect(bare).toContain("Do not launch any council members yourself");
     expect(keywordsIn(bare).size).toBe(0);
     expect(councilPlanReviewPrompt(path, { text: " drop X ", annotated: true, attached: true })).toMatch(
       /requested:\n\ndrop X$/,

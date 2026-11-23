@@ -1138,7 +1138,11 @@ item per member — name `council-<member>`, agent `omp-ui-council`, the
 member's model, and the mode's playbook followed by the member's instructions
 and the diff target or request — and hands it to the session model through
 `pi.sendMessage` with `deliverAs: "nextTurn", triggerTurn: true`,
-inert-fenced. If the batch call fails, the model reports omp's error verbatim
+inert-fenced. The tool result forbids the model from launching members itself;
+the launch message opens with an already-running guard so a wave already
+underway is awaited rather than re-launched; and the bridge suppresses a
+same-intent second launch for 60 s, collapsing duplicate device calls into one
+queued message (issue #1285). If the batch call fails, the model reports omp's error verbatim
 and never retries without a member or with a different model. A trial member
 rides the same launch message as a second one-item batch for a second `task`
 call, because omp checks every item before dispatching any and one unavailable
