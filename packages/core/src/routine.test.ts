@@ -10,12 +10,14 @@ import {
   isRoutineRunRow,
   isSessionRoutine,
   parseRoutineAgentCreateArgs,
+  parseRoutineAgentUpdateArgs,
   parseRoutineFocusUri,
   parseRoutineInput,
   parseRoutinePatch,
   parseRoutineTestScriptRequest,
   routineFocusUri,
   routineInputFromAgentCreate,
+  routinePatchFromAgentUpdate,
   routinePrompt,
   routineRunTitle,
   routineToolKeyFromApprovalName,
@@ -211,7 +213,7 @@ describe("scripts hooks (#1283)", () => {
     expect(isRoutineRecord(legacy)).toBe(true);
   });
 
-  it("keeps scripts out of the agent tool and empty in its output", () => {
+  it("accepts scripts on the agent create tool (ADR-0100 amendment 2)", () => {
     const agentArgs = {
       name: "Nightly",
       instructions: "x",
@@ -225,13 +227,20 @@ describe("scripts hooks (#1283)", () => {
       warnUsd: null,
       maxUsd: null,
     };
-    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { pre: "curl evil", post: "" } })).toThrow(
-      /unknown/,
-    );
-    expect(routineInputFromAgentCreate(agentArgs, "2026-11-22T00:00:00.000Z").scripts).toEqual({
-      pre: "",
-      post: "",
+    // Absent defaults to no hooks; a present hook carries through to the input.
+    expect(routineInputFromAgentCreate(parseRoutineAgentCreateArgs(agentArgs), "2026-11-22T00:00:00.000Z").scripts)
+      .toEqual({ pre: "", post: "" });
+    const withHooks = parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { pre: "git pull", post: "echo done\t" } });
+    expect(routineInputFromAgentCreate(withHooks, "2026-11-22T00:00:00.000Z").scripts).toEqual({
+      pre: "git pull",
+      post: "echo done\t",
     });
+    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { pre: "x".repeat(ROUTINE_SCRIPT_MAX + 1) } }))
+      .toThrow(new RegExp(`scripts\\.pre exceeds ${ROUTINE_SCRIPT_MAX}`));
+    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { pre: "echo\rhi" } })).toThrow(/control/);
+    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { enabled: true } })).toThrow(/unknown scripts/);
+    // Host-owned fields stay unexpressible.
+    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, enabled: true })).toThrow(/unknown/);
   });
 
   it("accepts new reason codes and postScript statuses on rows, rejects bogus ones", () => {
@@ -392,6 +401,104 @@ describe("parseRoutineAgentCreateArgs & routineInputFromAgentCreate (ADR-0100 am
     expect(() => parseRoutineAgentCreateArgs({ ...GOOD, mode: "yolo" })).toThrow();
     expect(() => parseRoutineAgentCreateArgs({ ...GOOD, maxUsd: 1e9 })).toThrow();
     expect(parseRoutineAgentCreateArgs({ ...GOOD, model: null, thinkingLevel: null }).model).toBeNull();
+  });
+});
+
+describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 amendment 2)", () => {
+  function currentRecord(): RoutineRecord {
+    return {
+      ...sampleRecord(),
+      enabled: true,
+      spend: { warnUsd: 2, maxUsd: 5 },
+      scripts: { pre: "git pull", post: "echo done" },
+      destination: { projectCwd: "/home/dev/repo", workspace: "checkout" },
+      toolPolicy: {
+        allow: ["read", "grep"],
+        deny: ["bash", "eval"],
+        lastReviewedAt: "2026-11-20T12:00:00.000Z",
+        reviewedCatalog: ["read", "grep", "bash"],
+      },
+    };
+  }
+
+  it("forces enabled:false and carries untouched leaves from the stored record", () => {
+    const current = currentRecord();
+    const args = parseRoutineAgentUpdateArgs({ id: VALID_ID, name: "Renamed" });
+    const patch = routinePatchFromAgentUpdate(current, args, "2026-11-23T00:00:00.000Z");
+    expect(patch).toEqual({ enabled: false, name: "Renamed" });
+    // An omitted maxUsd keeps the stored spend; no scripts/spend/toolPolicy key means untouched.
+    expect(patch.spend).toBeUndefined();
+    expect(patch.scripts).toBeUndefined();
+    expect(patch.toolPolicy).toBeUndefined();
+  });
+
+  it("refuses an id-only call, unknown keys, host-owned fields, and a bad id", () => {
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID })).toThrow(/at least one field/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, enabled: true })).toThrow(/unknown/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, toolPolicy: { allow: [], deny: ["bash"] } })).toThrow(/unknown/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, destination: { projectCwd: "/x", workspace: "checkout" } })).toThrow(/unknown/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: "too-short" })).toThrow(/id/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "yolo" })).toThrow();
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, timeZone: "Mars/Olympus" })).toThrow(/time zone/);
+  });
+
+  it("distinguishes present-with-null from absent on nullable leaves", () => {
+    const parsed = parseRoutineAgentUpdateArgs({ id: VALID_ID, model: null, warnUsd: null });
+    expect(parsed.model).toBeNull();
+    expect(parsed.warnUsd).toBeNull();
+    expect("thinkingLevel" in parsed).toBe(false);
+    expect("maxUsd" in parsed).toBe(false);
+    const current = currentRecord();
+    const patch = routinePatchFromAgentUpdate(current, parsed, "2026-11-23T00:00:00.000Z");
+    // warnUsd resets to inherit while the omitted maxUsd keeps its stored cap.
+    expect(patch.spend).toEqual({ warnUsd: null, maxUsd: 5 });
+    expect(patch.model).toBeNull();
+    expect("thinkingLevel" in patch).toBe(false);
+  });
+
+  it("merges hook leaves per phase: omitted inherits, empty string clears", () => {
+    const current = currentRecord();
+    const onlyPre = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, scripts: { pre: "" } }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(onlyPre.scripts).toEqual({ pre: "", post: "echo done" });
+    const both = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, scripts: { pre: "fetch", post: "notify" } }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(both.scripts).toEqual({ pre: "fetch", post: "notify" });
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, scripts: { pre: "echo\rhi" } })).toThrow(/control/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, scripts: { post: 1 } })).toThrow(/must be a string/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, scripts: { pre: "x".repeat(ROUTINE_SCRIPT_MAX + 1) } }))
+      .toThrow(new RegExp(`scripts\\.pre exceeds ${ROUTINE_SCRIPT_MAX}`));
+  });
+
+  it("replaces allow but preserves deny verbatim and restamps the review", () => {
+    const current = currentRecord();
+    const patch = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, allow: ["read", "web_search"] }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(patch.toolPolicy).toEqual({
+      allow: ["read", "web_search"],
+      deny: ["bash", "eval"],
+      lastReviewedAt: "2026-11-23T00:00:00.000Z",
+      reviewedCatalog: [],
+    });
+  });
+
+  it("keeps the stored workspace when projectCwd changes", () => {
+    const current = currentRecord();
+    const patch = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, projectCwd: "/home/dev/other" }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(patch.destination).toEqual({ projectCwd: "/home/dev/other", workspace: "checkout" });
   });
 });
 
