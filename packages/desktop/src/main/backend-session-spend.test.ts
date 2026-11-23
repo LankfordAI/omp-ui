@@ -126,6 +126,9 @@ beforeEach(() => {
   resolveSessionLocationMock.mockReset();
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-backend-spend-"));
   agentDir = path.join(base, "agent");
+  const ompBin = path.join(base, "omp");
+  fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+  vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
   vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
   registryFile = path.join(base, "registry.json");
   sessionsRoot = path.join(base, "sessions");
