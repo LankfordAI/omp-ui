@@ -1815,14 +1815,28 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     expect(document.body.textContent).not.toContain("Remote working run");
     expect(footerText()).toContain(`${2} ready`);
     expect(footerText()).not.toContain(`${1} working`);
-    // Local Routines button badge stays host-local (does not count remote waiting runs).
-    expect(button("Routines").querySelector("[data-routines-waiting]")).toBeNull();
+    // Routines button badge counts waiting runs across both local and joined remote hosts (#1306).
+    expect(button("Routines").querySelector("[data-routines-waiting]")?.textContent).toBe("1");
     // Remote waiting routine run surfaces in Needs attention with machine label and approval copy.
     const stack = document.body.querySelector('[role="group"]');
     expect(stack?.textContent).toContain("Remote waiting run");
     expect(stack?.textContent).toContain("on FW-Desktop");
     expect(stack?.textContent).toContain("answer needed");
     expect(stack?.textContent).toContain("Approval required");
+  });
+
+  it("shows the Routines button when local Routines is off but a joined remote has routinesEnabled (#1306)", () => {
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: false,
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-studio", nickname: "studio", status: "joined", routinesEnabled: true }),
+        ],
+      }),
+    });
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label="Routines"]')).not.toBeNull();
   });
 });
 

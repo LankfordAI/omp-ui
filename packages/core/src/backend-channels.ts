@@ -2348,10 +2348,9 @@ export const BACKEND_CHANNELS = {
   clearWebhookDeliveries: { channel: "webhooks:clearDeliveries", ...request<[], void>([]) },
   onWebhooksState: { channel: "webhooks:state", ...event<[state: WebhooksState]>() },
   /**
-   * Routines (ADR-0100). Host-local like webhooks:* — never in
-   * REMOTE_PROXY_CHANNELS, PROJECT_PROXY_CHANNELS, or the tab-routed sets, and
-   * never an agent or MCP endpoint verb. Mutations and runs refuse while the
-   * Experimental gate is off.
+   * Routines (ADR-0100, amended §8, issue #1306). Host-owned, proxied to
+   * joined instances via REMOTE_PROXY_CHANNELS; never an MCP endpoint verb.
+   * Mutations and runs refuse while the target host's Routines gate is off.
    */
   getRoutinesState: { channel: "routines:getState", ...request<[], RoutinesState>([]) },
   createRoutine: { channel: "routines:create", ...request<[input: RoutineInput], RoutineRecord>([routineInputCodec]) },
@@ -2378,6 +2377,11 @@ export const BACKEND_CHANNELS = {
     ...request<[projectCwd: string], RoutineCatalogSnapshot>([str()]),
   },
   onRoutinesState: { channel: "routines:state", ...event<[state: RoutinesState]>() },
+  /** Joined remote host's routines:state relayed into local sinks (issue #1306); never re-relayed by joiners. */
+  onRemoteRoutinesState: {
+    channel: "remote-routines:state",
+    ...event<[instanceId: string, state: RoutinesState]>(),
+  },
   /** OS notification click for a pre-spawn routine failure (#1294): opens Routines and selects the routine. */
   onFocusRoutine: { channel: "routines:focus", ...event<[routineId: string]>() },
   /**

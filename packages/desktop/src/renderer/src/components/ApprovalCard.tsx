@@ -3,7 +3,7 @@ import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
 import { classifyApprovalDetails } from "@omp-ui/core/approval";
 import { routineToolKeyFromApprovalName } from "@omp-ui/core/routine";
 import { useAndroidBack } from "../lib/android-back";
-import { findRecord, useStore } from "../store";
+import { findOwner, useStore } from "../store";
 import { Button, Chip, Label, Switch } from "./ui";
 
 /**
@@ -64,7 +64,9 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // place of it, Always allow (#1276) answers once and appends the tool to
   // the routine's toolPolicy.allow so future fires never prompt again —
   // only the definition changes, never this run's fire-time overlay.
-  const routine = useStore((s) => findRecord(s.state, tabId)?.routine ?? null);
+  const owner = useStore((s) => findOwner(s.state, tabId));
+  const routine = owner?.record.routine ?? null;
+  const routineInstanceId = owner?.instanceId ?? null;
   const grantRoutineTool = useStore((s) => s.grantRoutineTool);
   const reportError = useStore((s) => s.reportError);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
@@ -210,7 +212,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
             title={`${prompt.toolName} · ${routine.name}`}
             onClick={() => {
               answerApprovalPrompt(tabId, "once");
-              void grantRoutineTool(routine.id, grantKey).catch(reportError);
+              void grantRoutineTool(routine.id, grantKey, routineInstanceId).catch(reportError);
             }}
           >
             Always allow

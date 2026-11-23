@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RoutineRecord, RoutinesState } from "@omp-ui/core/routine";
 import { h } from "../../test/store-harness";
+import { remoteInstance } from "../../test/fixtures";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
 
@@ -104,5 +105,64 @@ describe("routines slice grantRoutineTool", () => {
     vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue({ ...routinesStateWith([], []), routines: [] });
     await expect(h.useStore.getState().grantRoutineTool(ID, "grep")).rejects.toThrow(/unknown routine/);
     expect(h.mockBackend.updateRoutine).not.toHaveBeenCalled();
+  });
+});
+
+describe("routines slice multi-host support (issue #1306)", () => {
+  it("opens on the first joined remote when local Routines is off and remote Routines is on", () => {
+    const remote = remoteInstance({ id: "inst-studio", nickname: "studio", status: "joined", routinesEnabled: true });
+    vi.mocked(h.mockBackend.remoteInstanceRequest).mockResolvedValue(routinesStateWith(["read"], []));
+    h.useStore.setState({
+      state: { ...h.backendState, routinesEnabled: false, remoteInstances: [remote] },
+      routinesOpen: false,
+      routinesInstanceId: null,
+    });
+    h.useStore.getState().openRoutines();
+    expect(h.useStore.getState().routinesOpen).toBe(true);
+    expect(h.useStore.getState().routinesInstanceId).toBe("inst-studio");
+  });
+
+  it("stores remote routines per instance, isolates unknown channel errors, and routes grantRoutineTool to the remote host", async () => {
+    const remoteState = { ...routinesStateWith(["read"], ["bash"]), machineLabel: "studio" };
+    h.useStore.getState().replaceRemoteRoutines("inst-studio", remoteState);
+    expect(h.useStore.getState().routinesByInstance["inst-studio"]?.machineLabel).toBe("studio");
+
+    // Error on another host is stored in routinesLoadError without firing reportError.
+    const errorsBefore = h.useStore.getState().errorNotices.length;
+    vi.mocked(h.mockBackend.remoteInstanceRequest).mockRejectedValueOnce(new Error("unknown channel routines:getState"));
+    await h.useStore.getState().refreshRoutines("inst-lite");
+    expect(h.useStore.getState().routinesLoadError["inst-lite"]).toContain("unknown channel routines:getState");
+    expect(h.useStore.getState().errorNotices).toHaveLength(errorsBefore);
+
+    // grantRoutineTool on a remote instance routes routines:update through remoteInstanceRequest.
+    vi.mocked(h.mockBackend.remoteInstanceRequest).mockResolvedValueOnce(routinesStateWith(["read", "bash"], []).routines[0]!);
+    await h.useStore.getState().grantRoutineTool(ID, "bash", "inst-studio");
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-studio",
+      "routines:update",
+      [
+        ID,
+        expect.objectContaining({
+          toolPolicy: expect.objectContaining({ allow: ["read", "bash"], deny: [] }),
+        }),
+      ],
+    );
+    expect(h.mockBackend.updateRoutine).not.toHaveBeenCalled();
+  });
+
+  it("cleans up cached state and falls back when the active remote instance is removed", () => {
+    const remote = remoteInstance({ id: "inst-studio", nickname: "studio", status: "joined", routinesEnabled: true });
+    h.useStore.setState({
+      state: { ...h.backendState, routinesEnabled: true, remoteInstances: [remote] },
+      routinesOpen: true,
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: { "inst-studio": routinesStateWith(["read"], []) },
+      routinesLoadError: { "inst-studio": "err" },
+    });
+    h.useStore.getState().reconcileRoutinesInstances({ ...h.backendState, routinesEnabled: true, remoteInstances: [] });
+    expect(h.useStore.getState().routinesInstanceId).toBeNull();
+    expect(h.useStore.getState().routinesByInstance).toEqual({});
+    expect(h.useStore.getState().routinesLoadError).toEqual({});
+    expect(h.useStore.getState().routinesOpen).toBe(true);
   });
 });

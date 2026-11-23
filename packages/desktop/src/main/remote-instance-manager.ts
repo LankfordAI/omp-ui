@@ -76,6 +76,8 @@ interface Entry {
   projects: ProjectGroup[];
   /** The remote's own favorite model list (issue #440), kept across a loss like projects. */
   modelFavorites: string[];
+  /** Whether Settings → Routines is enabled on the remote host (issue #1306). */
+  routinesEnabled: boolean;
   tabIds: Set<string>;
   /** Consecutive failed connects since the last join; drives the backoff. */
   attempt: number;
@@ -122,6 +124,7 @@ export class RemoteInstanceManager {
         version: e.version,
         projects: e.projects,
         modelFavorites: e.modelFavorites,
+        routinesEnabled: e.routinesEnabled,
       });
     }
     return out;
@@ -252,6 +255,7 @@ export class RemoteInstanceManager {
     if (raced.state !== null) {
       this.#adopt(entry, raced.state.projects);
       entry.modelFavorites = this.#favorites(raced.state.modelFavorites);
+      entry.routinesEnabled = raced.state.routinesEnabled === true;
       entry.attempt = 0;
       this.#set(entry, {});
       return;
@@ -332,6 +336,7 @@ export class RemoteInstanceManager {
       client: null,
       projects: [],
       modelFavorites: [],
+      routinesEnabled: false,
       tabIds: new Set(),
       attempt: 0,
       timer: null,
@@ -480,6 +485,7 @@ export class RemoteInstanceManager {
     // is two directed edges and never a loop.
     this.#adopt(entry, state.projects);
     entry.modelFavorites = this.#favorites(state.modelFavorites);
+    entry.routinesEnabled = state.routinesEnabled === true;
     entry.attempt = 0;
     this.#set(entry, { status: "joined", error: null, version: identity.version });
   }
@@ -495,9 +501,11 @@ export class RemoteInstanceManager {
       const favorites = partial?.modelFavorites;
       const hasProjects = Array.isArray(projects);
       const hasFavorites = Array.isArray(favorites);
+      const hasRoutinesEnabled = typeof partial?.routinesEnabled === "boolean";
       if (hasProjects) this.#adopt(entry, projects as ProjectGroup[]);
       if (hasFavorites) entry.modelFavorites = this.#favorites(favorites);
-      if (hasProjects || hasFavorites) this.#set(entry, {});
+      if (hasRoutinesEnabled) entry.routinesEnabled = partial.routinesEnabled === true;
+      if (hasProjects || hasFavorites || hasRoutinesEnabled) this.#set(entry, {});
       return;
     }
     // #498: a host branch:changed is host-scoped (instanceId null). Re-stamp it
@@ -507,6 +515,17 @@ export class RemoteInstanceManager {
       const projectCwd = args[0];
       if (typeof projectCwd === "string")
         this.deps.sendToRenderers(channel, [projectCwd, entry.record.id]);
+      return;
+    }
+    // #1306: a joined host's routines:state arrives on the socket; re-emit as
+    // remote-routines:state(instanceId, state) into local sinks so desktop and
+    // browser clients stay live, while mutual joiners ignore remote-routines:state
+    // (never in REMOTE_TAB_EVENTS) and cannot loop.
+    if (channel === "routines:state") {
+      const state = args[0];
+      if (typeof state === "object" && state !== null && "routines" in state && Array.isArray(state.routines)) {
+        this.deps.send("remote-routines:state", [entry.record.id, state]);
+      }
       return;
     }
     // #991: the member's own terminal events. The dispatcher converts only the
