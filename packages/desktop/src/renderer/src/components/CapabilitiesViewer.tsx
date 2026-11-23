@@ -15,7 +15,6 @@ import type {
 import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyBest } from "../lib/fuzzy";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useCapabilityRosterSource } from "../lib/use-capability-roster-source";
 import { findRecord, sessionCwd, useStore, type CapabilitiesToolFeedbackStatus } from "../store";
 import { Button, Chip, ChoiceCapsule, Empty, IconButton, Modal, Panel, Switch } from "./ui";
@@ -130,7 +129,6 @@ function Row({
    *  a console drawer to spawn omp's TUI in. */
   onAuthenticate?: (entry: McpServerEntry) => void;
 }) {
-  const t = useT();
   const shadowedSource = entry.shadowedBy?.split(":", 1)[0];
   // Exactly the states the project writer rejects: nothing project-local can
   // beat the user denylist or a user-level source's enabled:false.
@@ -138,10 +136,7 @@ function Row({
     projectScoped &&
     entry.state === "disabled" &&
     (entry.disabledBy === "denylist" || entry.scope === "user");
-  const inPlaceTitle = t("mcp.row.inPlace", {
-    state: entry.state === "enabled" ? "false" : "true",
-    path: entry.sourcePath,
-  });
+  const inPlaceTitle = `writes enabled:${entry.state === "enabled" ? "false" : "true"} to ${entry.sourcePath}`;
   return (
     <li
       className={cn(
@@ -154,11 +149,11 @@ function Row({
           <span className="truncate text-xs font-medium text-ink">{entry.name}</span>
           <Chip mono>{entry.transport}</Chip>
           {entry.effective && entry.state === "disabled" && (
-            <Chip tone="rose">{t("mcp.row.disabled", { reason: entry.disabledBy ?? "" })}</Chip>
+            <Chip tone="rose">{`disabled · ${entry.disabledBy ?? ""}`}</Chip>
           )}
           {!entry.effective && shadowedSource !== undefined && (
             <Chip tone="copper" title={entry.shadowedBy}>
-              {t("mcp.row.shadowed", { source: shadowedSource })}
+              {`shadowed by ${shadowedSource}`}
             </Chip>
           )}
           {/* Liveness is the only colored fact here: rose fails, signal
@@ -166,17 +161,17 @@ function Row({
           {entry.effective && failure !== undefined && (
             <Chip tone="rose">
               {failure.kind === "auth"
-                ? t("mcp.row.authFailed")
-                : t("mcp.row.connectFailed")}
+                ? "authentication failed in this session"
+                : "connection failed in this session"}
             </Chip>
           )}
           {entry.effective && failure === undefined && status !== undefined && (
             <Chip tone={status === "connected" ? "signal" : "neutral"}>
               {status === "connected"
-                ? t("viewer.mcp.statusConnected")
+                ? "connected in this session"
                 : status === "pending"
-                  ? t("viewer.mcp.statusPending")
-                  : t("viewer.mcp.statusUnknown")}
+                  ? "connecting in this session"
+                  : "status unknown"}
             </Chip>
           )}
         </div>
@@ -195,17 +190,17 @@ function Row({
       </div>
       {entry.effective && toolsCount !== null && toolsCount > 0 && onInspectTools !== undefined && (
         <Button size="xs" variant="ghost" onClick={() => onInspectTools(entry.name)}>
-          {t("viewer.mcp.registeredTools", { count: toolsCount })}
+          {`${toolsCount} registered tools`}
         </Button>
       )}
       {entry.effective && entry.transport !== "stdio" && onAuthenticate !== undefined && (
         <Button
           size="xs"
           variant="ghost"
-          title={t("mcp.reauth.handoff")}
+          title="hand this session to omp's TUI and run /mcp reauth there — omp refuses OAuth flows over rpc"
           onClick={() => onAuthenticate(entry)}
         >
-          {t("mcp.reauth.button")}
+          authenticate
         </Button>
       )}
       {entry.effective && (
@@ -213,23 +208,23 @@ function Row({
           on={entry.state === "enabled"}
           label={
             entry.state === "enabled"
-              ? t("mcp.row.toggleDisable", { name: entry.name })
-              : t("mcp.row.toggleEnable", { name: entry.name })
+              ? `disable ${entry.name}`
+              : `enable ${entry.name}`
           }
           title={
             projectScoped
               ? pinnedGlobally
-                ? t("mcp.row.pinnedUser")
+                ? "disabled at the user level — enable it globally from Settings → MCP servers"
                 : entry.enabledBy === "allowlist"
                   ? entry.disableReach === "global"
-                    ? t("mcp.row.allowlistGlobal")
-                    : t("mcp.row.allowlistProject")
+                    ? "force-enabled for every project by the user-level allowlist, and its source config is tool-owned — disabling clears that global override, so the server also turns off in other projects"
+                    : "force-enabled for every project by the user-level allowlist — disabling enables it in its own config first, so only this project turns it off"
                   : entry.scope === "project" && entry.writable
                     ? inPlaceTitle
-                    : t("mcp.row.projectOverride")
+                    : "writes a project-only override to .omp/mcp.json"
               : entry.writable
                 ? inPlaceTitle
-                : t("mcp.row.toolOwned")
+                : "tool-owned file — toggled via omp's user-level override lists"
           }
           disabled={pending || pinnedGlobally}
           onChange={(next) => onToggle(entry, next)}
@@ -251,7 +246,6 @@ function RuntimeRow({
   toolsCount: number | null;
   onInspectTools?: (serverName: string) => void;
 }) {
-  const t = useT();
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       <div className="min-w-0 flex-1">
@@ -260,18 +254,18 @@ function RuntimeRow({
           <Chip mono>mcp</Chip>
           <Chip tone={status === "connected" ? "signal" : status === "failed" ? "rose" : "neutral"}>
             {status === "connected"
-              ? t("viewer.mcp.statusConnected")
+              ? "connected in this session"
               : status === "pending"
-                ? t("viewer.mcp.statusPending")
+                ? "connecting in this session"
                 : status === "unknown"
-                  ? t("viewer.mcp.statusUnknown")
-                  : t("mcp.row.connectFailed")}
+                  ? "status unknown"
+                  : "connection failed in this session"}
           </Chip>
         </div>
       </div>
       {toolsCount !== null && toolsCount > 0 && onInspectTools !== undefined && (
         <Button size="xs" variant="ghost" onClick={() => onInspectTools(name)}>
-          {t("viewer.mcp.registeredTools", { count: toolsCount })}
+          {`${toolsCount} registered tools`}
         </Button>
       )}
     </li>
@@ -333,7 +327,6 @@ export function McpServersPanel({
   const mcpStatus = useStore((s) =>
     tabId === undefined ? null : (s.rpc[tabId]?.mcpStatus ?? null),
   );
-  const t = useT();
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -459,17 +452,17 @@ export function McpServersPanel({
     <>
       {load.status === "loading" && (
         <Empty
-          title={t("mcp.panel.loading")}
-          hint={t("mcp.panel.loadingHint")}
+          title="Resolving MCP servers…"
+          hint="Reading omp's config sources."
         />
       )}
       {load.status === "error" && (
         <Empty
-          title={t("mcp.panel.error")}
+          title="Could not resolve MCP servers"
           hint={load.message}
           action={
             <Button size="xs" onClick={() => setReloadKey((k) => k + 1)}>
-              {t("mcp.panel.retry")}
+              retry
             </Button>
           }
         />
@@ -480,8 +473,8 @@ export function McpServersPanel({
             <Panel tone="rose" className="mx-4 my-2 px-3 py-2">
               <p className="mb-1 text-xs font-medium">
                 {result.errors.length === 1
-                  ? t("mcp.panel.configErrorOne")
-                  : t("mcp.panel.configErrorMany", { count: result.errors.length })}
+                  ? "One config file could not be read:"
+                  : `${result.errors.length} config files could not be read:`}
               </p>
               {result.errors.map((e) => (
                 <p key={e.path} className="truncate font-mono text-xs" title={e.path}>
@@ -498,13 +491,13 @@ export function McpServersPanel({
           {filterable && (
             <div className="px-4 py-1">
               <ChoiceCapsule
-                label={t("viewer.mcp.filterLabel")}
+                label="configuration state"
                 value={stateFilter}
                 onChange={setStateFilter}
                 options={[
-                  { value: "all", label: t("viewer.filter.all") },
-                  { value: "enabled", label: t("viewer.filter.enabled") },
-                  { value: "disabled", label: t("viewer.filter.disabled") },
+                  { value: "all", label: "all" },
+                  { value: "enabled", label: "enabled" },
+                  { value: "disabled", label: "disabled" },
                 ]}
               />
             </div>
@@ -513,13 +506,13 @@ export function McpServersPanel({
             <Empty
               title={
                 scopeCwd === null
-                  ? t("mcp.panel.emptyGlobal")
-                  : t("mcp.panel.emptyProject")
+                  ? "No global MCP servers configured."
+                  : "No MCP servers configured for this project."
               }
-              hint={t("mcp.panel.emptyHint")}
+              hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
             />
           ) : configRows !== null && configRows.length === 0 && visibleRuntimeOnly.length === 0 ? (
-            <Empty title={t("viewer.empty.noMatches")} />
+            <Empty title="Nothing in this category matches the search." />
           ) : (
             <>
               <ul className="divide-y divide-line-soft">
@@ -541,7 +534,7 @@ export function McpServersPanel({
               {visibleRuntimeOnly.length > 0 && (
                 <div className="mt-1.5">
                   <p className="px-4 pt-2 pb-1 chrome-label text-ink-faint">
-                    {t("viewer.mcp.runtimeOnly")}
+                    Runtime only — not in the resolved config
                   </p>
                   <ul className="divide-y divide-line-soft border-t border-line-soft">
                     {visibleRuntimeOnly.map((name) => (
@@ -608,14 +601,13 @@ function useCatalogLoad(scopeCwd: string | null, instanceId: string | null, refr
 }
 
 function CatalogError({ load, onRetry }: { load: { status: "error"; message: string }; onRetry: () => void }) {
-  const t = useT();
   return (
     <Empty
-      title={t("viewer.catalog.error")}
+      title="Could not read the configuration at this scope"
       hint={load.message}
       action={
         <Button size="xs" onClick={onRetry}>
-          {t("mcp.panel.retry")}
+          retry
         </Button>
       }
     />
@@ -623,8 +615,7 @@ function CatalogError({ load, onRetry }: { load: { status: "error"; message: str
 }
 
 function CatalogLoading() {
-  const t = useT();
-  return <Empty title={t("viewer.catalog.loading")} hint={t("viewer.catalog.loadingHint")} />;
+  return <Empty title="reading configuration…" hint="Files and settings at this scope — no session involved." />;
 }
 
 /** The scope's skills as config truth: files and settings, not a roster. */
@@ -645,7 +636,6 @@ export function SkillsScopePanel({
   /** Reports (visible, total) rows up so the tab strip can count. */
   onCounts?: (visible: number, total: number | null) => void;
 }) {
-  const t = useT();
   const [load, setLoad, retry] = useCatalogLoad(scopeCwd, instanceId, refreshKey);
   const [pendingRow, setPendingRow] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -697,7 +687,7 @@ export function SkillsScopePanel({
 
   const lockedBy =
     skills !== null && skills.status === "available" && !skills.masterEnabled
-      ? t("viewer.catalog.masterOff")
+      ? "skills.enabled is off at this scope, so no skill loads from any root; the files still list here and switches are paused."
       : null;
   const filterable = refreshKey !== undefined;
 
@@ -723,34 +713,34 @@ export function SkillsScopePanel({
           {filterable && (
             <div className="flex items-center gap-2 px-4 pb-1">
               <ChoiceCapsule
-                label={t("viewer.skills.filterLabel")}
+                label="skill listing"
                 value={stateFilter}
                 onChange={setStateFilter}
                 options={[
-                  { value: "all", label: t("viewer.filter.all") },
-                  { value: "listed", label: t("viewer.skills.filterListed") },
-                  { value: "hidden", label: t("viewer.skills.filterHidden") },
-                  { value: "ignored", label: t("viewer.catalog.filterIgnored") },
+                  { value: "all", label: "all" },
+                  { value: "listed", label: "listed" },
+                  { value: "hidden", label: "hidden" },
+                  { value: "ignored", label: "ignored" },
                 ]}
               />
             </div>
           )}
           <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-            {t("viewer.catalog.coverageSkills")}
+            Files and settings at this scope — what omp can load. The session tab shows what a live session did load.
           </p>
           {skills.note === "bundles-not-listed" && (
             <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-              {t("viewer.catalog.bundles")}
+              omp's bundled skills are embedded in the binary and are not listed here; a live session's roster shows whatever it loaded.
             </p>
           )}
           {skills.truncated && (
             <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-              {t("viewer.catalog.truncated")}
+              This scope holds more skill files than the scan lists — the inventory stops at its cap.
             </p>
           )}
           <details className="px-4 py-1">
             <summary className="cursor-pointer text-xs text-ink-faint">
-              {t("viewer.catalog.roots")}
+              where we looked
             </summary>
             <ul className="mt-1 space-y-0.5">
               {skills.roots.map((root) => (
@@ -758,15 +748,15 @@ export function SkillsScopePanel({
                   <span className="truncate font-mono text-xs text-ink-dim" title={root.path}>
                     {root.path}
                   </span>
-                  {!root.exists && <Chip>{t("viewer.catalog.rootMissing")}</Chip>}
-                  {!root.gateEnabled && <Chip tone="copper">{t("viewer.catalog.rootGate")}</Chip>}
+                  {!root.exists && <Chip>not present</Chip>}
+                  {!root.gateEnabled && <Chip tone="copper">root disabled</Chip>}
                 </li>
               ))}
             </ul>
           </details>
           {rows !== null && rows.length === 0 && (
             <Empty
-              title={skills.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+              title={skills.items.length === 0 ? "No entries in this category." : "Nothing in this category matches the search."}
             />
           )}
           {rows !== null && rows.length > 0 && (
@@ -784,7 +774,7 @@ export function SkillsScopePanel({
             </ul>
           )}
           <p className="px-4 pt-2 text-xs text-ink-faint">
-            {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
+            {scopeCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}
           </p>
         </div>
       )}
@@ -808,7 +798,6 @@ function SkillCatalogRow({
     mutation: CatalogMutation,
   ) => void;
 }) {
-  const t = useT();
   const rowKey = `${skill.origin}:${skill.filePath}`;
   const gateOff = !skill.gateEnabled && skill.gateKey !== null;
   const shadowSource = skill.shadowedBy?.split(":", 1)[0];
@@ -818,15 +807,15 @@ function SkillCatalogRow({
         <span className="truncate text-xs font-medium text-ink">{skill.name}</span>
         <Chip mono>{skill.origin}</Chip>
         <Chip mono>{skill.scope}</Chip>
-        {skill.hidden === true && <Chip>{t("viewer.skills.hidden")}</Chip>}
-        {skill.ignored && <Chip tone="copper">{t("viewer.catalog.ignored")}</Chip>}
-        {skill.disabledInFile && <Chip>{t("viewer.catalog.disabledInFile")}</Chip>}
+        {skill.hidden === true && <Chip>hidden</Chip>}
+        {skill.ignored && <Chip tone="copper">ignored</Chip>}
+        {skill.disabledInFile && <Chip>disabled in file</Chip>}
         {gateOff && (
-          <Chip title={skill.gateKey ?? undefined}>{t("viewer.catalog.rootGate")}</Chip>
+          <Chip title={skill.gateKey ?? undefined}>root disabled</Chip>
         )}
         {shadowSource !== undefined && (
           <Chip tone="copper" title={skill.shadowedBy ?? undefined}>
-            {t("mcp.row.shadowed", { source: shadowSource })}
+            {`shadowed by ${shadowSource}`}
           </Chip>
         )}
       </div>
@@ -834,7 +823,7 @@ function SkillCatalogRow({
         <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">{skill.description}</p>
       )}
       <details className="mt-1">
-        <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
+        <summary className="cursor-pointer text-xs text-ink-faint">details</summary>
         <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={skill.filePath}>
           {skill.filePath}
         </p>
@@ -843,13 +832,10 @@ function SkillCatalogRow({
         {gateOff ? (
           <Switch
             on={false}
-            label={t("viewer.catalog.gateEnable", { name: skill.name })}
+            label={`Enable the root behind ${skill.name}`}
             title={
               lockedBy ??
-              t("viewer.catalog.gateOffTitle", {
-                key: skill.gateKey ?? "",
-                scope: scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker"),
-              })
+              `${skill.gateKey ?? ""} is off at the ${scopeCwd === null ? "Global" : "Project"} level; this switch turns it on so the root's skills load again`
             }
             disabled={pending || lockedBy !== null}
             onChange={(next) =>
@@ -861,14 +847,14 @@ function SkillCatalogRow({
             on={skill.ignored}
             label={
               skill.ignored
-                ? t("viewer.catalog.unignore", { name: skill.name })
-                : t("viewer.catalog.ignore", { name: skill.name })
+                ? `Un-ignore ${skill.name}`
+                : `Ignore ${skill.name}`
             }
             title={
               lockedBy ??
               (scopeCwd === null
-                ? t("viewer.catalog.ignoreGlobal")
-                : t("viewer.catalog.ignoreProject"))
+                ? "rewrites skills.ignoredSkills in omp's global settings from its current value"
+                : "writes skills.ignoredSkills to this project's .omp/config.yml")
             }
             disabled={pending || lockedBy !== null}
             onChange={(next) => onMutate(rowKey, { kind: "skill-ignore", name: skill.name, ignored: next })}
@@ -894,7 +880,6 @@ export function ToolsScopePanel({
   refreshKey?: number;
   onCounts?: (visible: number, total: number | null) => void;
 }) {
-  const t = useT();
   const [load, setLoad, retry] = useCatalogLoad(scopeCwd, instanceId, refreshKey);
   const [pendingTool, setPendingTool] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -946,11 +931,11 @@ export function ToolsScopePanel({
             </p>
           )}
           <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-            {t("viewer.catalog.coverageTools")}
+            Tool enable settings at this scope; they apply to sessions started afterwards. Per-session switches live in the session's capabilities view.
           </p>
           {rows !== null && rows.length === 0 && (
             <Empty
-              title={tools.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+              title={tools.items.length === 0 ? "No entries in this category." : "Nothing in this category matches the search."}
             />
           )}
           {rows !== null && rows.length > 0 && (
@@ -961,7 +946,7 @@ export function ToolsScopePanel({
                     <div className="flex items-center gap-2">
                       <span className="truncate text-xs font-medium text-ink">{row.tool}</span>
                       <Chip mono>{row.key}</Chip>
-                      {row.enabled === null && <Chip>{t("viewer.state.unknown")}</Chip>}
+                      {row.enabled === null && <Chip>unknown</Chip>}
                       {layerBadge(row.layer)}
                     </div>
                   </div>
@@ -969,15 +954,15 @@ export function ToolsScopePanel({
                     on={row.enabled === true}
                     label={
                       row.enabled === true
-                        ? t("viewer.tools.disable", { name: row.tool })
-                        : t("viewer.tools.enable", { name: row.tool })
+                        ? `Disable ${row.tool}`
+                        : `Enable ${row.tool}`
                     }
                     title={
                       row.enabled === null
-                        ? t("viewer.catalog.toolUnknown")
+                        ? "omp publishes this key without a boolean state — nothing to toggle here"
                         : scopeCwd === null
-                          ? t("viewer.catalog.toolGlobal")
-                          : t("viewer.catalog.toolProject")
+                          ? "writes the setting to omp's global layer via omp config set"
+                          : "writes the setting to this project's .omp/config.yml in place"
                     }
                     disabled={pendingTool === row.tool || row.enabled === null}
                     onChange={(next) => toggle(row.tool, next)}
@@ -987,7 +972,7 @@ export function ToolsScopePanel({
             </ul>
           )}
           <p className="px-4 pt-2 text-xs text-ink-faint">
-            {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
+            {scopeCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}
           </p>
         </div>
       )}
@@ -996,49 +981,48 @@ export function ToolsScopePanel({
 }
 
 function SkillRow({ skill }: { skill: CapabilitySkill }) {
-  const t = useT();
   return (
     <li className="px-4 py-2.5">
       <div className="flex items-center gap-2">
         <span className="truncate text-xs font-medium text-ink">{skill.name}</span>
-        <Chip>{t("viewer.skills.loaded")}</Chip>
-        {skill.hidden === true && <Chip>{t("viewer.skills.hidden")}</Chip>}
+        <Chip>loaded</Chip>
+        {skill.hidden === true && <Chip>hidden</Chip>}
         {skill.source !== null && <Chip mono>{skill.source}</Chip>}
       </div>
       {skill.description.length > 0 && (
         <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">
           {skill.description}
           {skill.descriptionTruncated && (
-            <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
+            <span className="text-ink-faint"> (truncated)</span>
           )}
         </p>
       )}
       <details className="mt-1">
-        <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
+        <summary className="cursor-pointer text-xs text-ink-faint">details</summary>
         <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={skill.filePath}>
           {skill.filePath}
         </p>
         {skill.hidden === null && (
-          <p className="text-xs text-ink-faint">{t("viewer.skills.hiddenUnknown")}</p>
+          <p className="text-xs text-ink-faint">hidden metadata: unknown</p>
         )}
       </details>
     </li>
   );
 }
 
-const TOOL_SOURCE_KEYS: Record<CapabilityTool["source"], MessageKey> = {
-  builtin: "viewer.tools.originBuiltin",
-  extension: "viewer.tools.originExtension",
-  mcp: "viewer.tools.originMcp",
-  sdk: "viewer.tools.originSdk",
-  unknown: "viewer.tools.originUnknown",
+const TOOL_SOURCE_LABELS: Record<CapabilityTool["source"], string> = {
+  builtin: "builtin",
+  extension: "extension",
+  mcp: "mcp",
+  sdk: "sdk",
+  unknown: "unknown",
 };
 
-/** Unavailable-section reasons, mapped to their explanation keys. */
-const REASON_KEYS: Record<CapabilityReason, MessageKey> = {
-  "missing-api": "viewer.reason.missingApi",
-  "read-failed": "viewer.reason.readFailed",
-  "payload-too-large": "viewer.reason.payloadTooLarge",
+/** Unavailable-section reasons, mapped to their explanations. */
+const REASON_LABELS: Record<CapabilityReason, string> = {
+  "missing-api": "This OMP build exposes no skill inventory for the session.",
+  "read-failed": "The session failed to read its skill inventory.",
+  "payload-too-large": "The inventory is too large to publish over the bridge — nothing is listed rather than a partial roster.",
 };
 
 /**
@@ -1046,21 +1030,21 @@ const REASON_KEYS: Record<CapabilityReason, MessageKey> = {
  * Every branch says what OMP reported about the named tool and where to look
  * for the truth; none of them claims the session is back the way it was.
  */
-const TOOL_ERROR_KEYS: Record<CapabilitiesToolFeedbackStatus, MessageKey> = {
-  busy: "viewer.tools.errorBusy",
-  stale: "viewer.tools.errorStale",
-  unsupported: "viewer.tools.errorUnsupported",
-  "unknown-tool": "viewer.tools.errorUnknownTool",
-  "mode-required": "viewer.tools.errorModeRequired",
-  expired: "viewer.tools.errorExpired",
-  "apply-failed": "viewer.tools.errorApplyFailed",
-  "not-applied": "viewer.tools.errorNotApplied",
-  "missing-session": "viewer.tools.errorMissingSession",
-  "not-live": "viewer.tools.errorNotLive",
-  terminal: "viewer.tools.errorTerminal",
-  "bridge-unavailable": "viewer.tools.errorBridgeUnavailable",
-  starting: "viewer.tools.errorStarting",
-  unconfirmed: "viewer.tools.errorUnconfirmed",
+const TOOL_ERROR_FORMATTERS: Record<CapabilitiesToolFeedbackStatus, (name: string, state: string) => string> = {
+  busy: (name) => `OMP was busy, so it refused the change to ${name}.`,
+  stale: (name) => `This tab is no longer the session the change to ${name} was issued against — the roster on screen is the current one.`,
+  unsupported: (name) => `This session's bridge exposes no tool control, so ${name} cannot be changed from here.`,
+  "unknown-tool": (name) => `OMP has no tool named ${name} in this session.`,
+  "mode-required": (name) => `OMP needs ${name} enabled for the session's current mode.`,
+  expired: (name) => `The change to ${name} expired before OMP reported back.`,
+  "apply-failed": (name) => `OMP could not apply the change to ${name}.`,
+  "not-applied": (name, state) => `The roster did not confirm ${name} as ${state} after the change.`,
+  "missing-session": (name) => `${name}: the session this viewer was pinned to no longer exists.`,
+  "not-live": (name) => `${name}: the pinned session is dormant, so there is no live session to change.`,
+  terminal: (name) => `${name}: this tab runs an omp TUI, which exposes no tool control over rpc.`,
+  "bridge-unavailable": (name) => `${name}: this session's bridge exposes no tool control.`,
+  starting: (name) => `${name}: the session is still starting — try again once it is live.`,
+  unconfirmed: () => "Could not confirm the change. Refresh to check the current tool state.",
 };
 
 function ToolRow({
@@ -1081,11 +1065,10 @@ function ToolRow({
   /** True when `disabledReason` belongs to THIS row, so it belongs on it. */
   ownReason: boolean;
 }) {
-  const t = useT();
   const access: string[] = [];
-  if (tool.direct === null) access.push(t("viewer.tools.direct"));
-  if (tool.xdev === null) access.push(t("viewer.tools.xdev"));
-  if (tool.evalBridge === null) access.push(t("viewer.tools.eval"));
+  if (tool.direct === null) access.push("Direct");
+  if (tool.xdev === null) access.push("xd://");
+  if (tool.evalBridge === null) access.push("Eval");
   // An unobserved membership gets no switch at all: an off-looking control
   // would report "not enabled", which the roster never said.
   const togglable = tool.enabled !== null;
@@ -1097,33 +1080,33 @@ function ToolRow({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="break-all text-xs font-medium text-ink">{tool.name}</span>
-          <Chip mono>{t(TOOL_SOURCE_KEYS[tool.source])}</Chip>
+          <Chip mono>{TOOL_SOURCE_LABELS[tool.source]}</Chip>
           <Chip>
             {tool.enabled === true
-              ? t("viewer.tools.enabled")
+              ? "enabled"
               : tool.enabled === false
-                ? t("viewer.tools.notEnabled")
-                : t("viewer.state.unknown")}
+                ? "not enabled"
+                : "unknown"}
           </Chip>
           {/* Access paths: shown when true, absent when false — never a
               "disabled" label for a tool that is reachable via xd:// or the
               eval bridge instead of the model. Null is its own chip. */}
-          {tool.direct === true && <Chip>{t("viewer.tools.direct")}</Chip>}
+          {tool.direct === true && <Chip>Direct</Chip>}
           {tool.direct === null && (
-            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}>
-              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}
+            <Chip title={`${"Direct"}: unknown`}>
+              {`${"Direct"}: unknown`}
             </Chip>
           )}
-          {tool.xdev === true && <Chip>{t("viewer.tools.xdev")}</Chip>}
+          {tool.xdev === true && <Chip>xd://</Chip>}
           {tool.xdev === null && (
-            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}>
-              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}
+            <Chip title={`${"xd://"}: unknown`}>
+              {`${"xd://"}: unknown`}
             </Chip>
           )}
-          {tool.evalBridge === true && <Chip>{t("viewer.tools.eval")}</Chip>}
+          {tool.evalBridge === true && <Chip>Eval</Chip>}
           {tool.evalBridge === null && (
-            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}>
-              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}
+            <Chip title={`${"Eval"}: unknown`}>
+              {`${"Eval"}: unknown`}
             </Chip>
           )}
           {tool.mcpServerName !== null && <Chip mono>{tool.mcpServerName}</Chip>}
@@ -1132,7 +1115,7 @@ function ToolRow({
           <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">
             {tool.description}
             {tool.descriptionTruncated && (
-              <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
+              <span className="text-ink-faint"> (truncated)</span>
             )}
           </p>
         )}
@@ -1142,7 +1125,7 @@ function ToolRow({
           </p>
         )}
         <details className="mt-1">
-          <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
+          <summary className="cursor-pointer text-xs text-ink-faint">details</summary>
           {tool.sourcePath !== null && (
             <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={tool.sourcePath}>
               {tool.sourcePath}
@@ -1156,7 +1139,7 @@ function ToolRow({
           )}
           {access.length > 0 && (
             <p className="text-xs text-ink-faint">
-              {t("viewer.tools.notReported", { fields: access.join(", ") })}
+              {`access facts not reported: ${access.join(", ")}`}
             </p>
           )}
         </details>
@@ -1167,10 +1150,10 @@ function ToolRow({
             on={tool.enabled === true}
             label={
               pending
-                ? t("viewer.tools.applying")
+                ? "Applying…"
                 : tool.enabled === true
-                  ? t("viewer.tools.disable", { name: tool.name })
-                  : t("viewer.tools.enable", { name: tool.name })
+                  ? `Disable ${tool.name}`
+                  : `Enable ${tool.name}`
             }
             title={disabledReason ?? undefined}
             disabled={pending || disabledReason !== null}
@@ -1212,7 +1195,6 @@ export function CapabilitiesViewer({
   const live = record?.live === "live";
   const native = record?.mode === "rpc-ui";
   const worktree = record?.worktree ?? null;
-  const t = useT();
 
   const [active, setActive] = useState<CapabilitySectionId>(section);
   const [query, setQuery] = useState("");
@@ -1369,9 +1351,9 @@ export function CapabilitiesViewer({
   const toolLocks: string[] = [];
   if (roster !== null) {
     if (roster.toolControl !== "available")
-      toolLocks.push(t("viewer.tools.lockUnsupported"));
-    if (loadStatus === "error") toolLocks.push(t("viewer.tools.lockStale"));
-    if (runtimeBusy) toolLocks.push(t("viewer.tools.lockBusy"));
+      toolLocks.push("This bridge publishes no tool control, so the roster cannot be changed here.");
+    if (loadStatus === "error") toolLocks.push("The last refresh failed, so this roster may be out of date — changes are paused until a fresh one arrives.");
+    if (runtimeBusy) toolLocks.push("This session is mid-turn or has queued messages — tool changes wait until it settles.");
   }
   const tabToolLock = toolLocks.length > 0 ? toolLocks.join(" ") : null;
 
@@ -1427,21 +1409,18 @@ export function CapabilitiesViewer({
   const toolLiveRegion = (): React.ReactNode => {
     if (toolFeedback !== null) {
       const wanted = toolFeedback.enabled
-        ? t("viewer.tools.enabled")
-        : t("viewer.tools.notEnabled");
+        ? "enabled"
+        : "not enabled";
       return (
         <>
           <p className="text-xs leading-relaxed text-rose">
-            {t(TOOL_ERROR_KEYS[toolFeedback.status], {
-              name: toolFeedback.name,
-              state: wanted,
-            })}
+            {TOOL_ERROR_FORMATTERS[toolFeedback.status](toolFeedback.name, wanted)}
           </p>
           {toolFeedback.status !== "unsupported" &&
             toolFeedback.status !== "mode-required" &&
             toolFeedback.status !== "unknown-tool" && (
               <p className="mt-0.5 text-xs text-ink-faint">
-                {t("viewer.tools.retryHint")}
+                Click the switch again to retry.
               </p>
             )}
         </>
@@ -1450,7 +1429,7 @@ export function CapabilitiesViewer({
     if (toolPending !== null) {
       return (
         <p className="text-xs text-ink-mid">
-          {t("viewer.tools.applyingNamed", { name: toolPending.name })}
+          {`Applying ${toolPending.name} to this session…`}
         </p>
       );
     }
@@ -1458,12 +1437,9 @@ export function CapabilitiesViewer({
     if (record !== null && record.status === "applied") {
       return (
         <p className="text-xs text-ink-mid">
-          {t("viewer.tools.applied", {
-            name: record.name,
-            state: record.enabled
-              ? t("viewer.tools.enabled")
-              : t("viewer.tools.notEnabled"),
-          })}
+          {`${record.name} is now ${record.enabled
+              ? "enabled"
+              : "not enabled"} in this session.`}
         </p>
       );
     }
@@ -1471,9 +1447,9 @@ export function CapabilitiesViewer({
   };
 
   const TABS: { id: CapabilitySectionId; label: string }[] = [
-    { id: "mcp", label: t("viewer.tab.mcp") },
-    { id: "skills", label: t("viewer.tab.skills") },
-    { id: "tools", label: t("viewer.tab.tools") },
+    { id: "mcp", label: "MCP servers" },
+    { id: "skills", label: "Skills" },
+    { id: "tools", label: "Tools" },
   ];
   const onTabListKeyDown = (event: React.KeyboardEvent): void => {
     const index = TABS.findIndex((tab) => tab.id === active);
@@ -1492,36 +1468,36 @@ export function CapabilitiesViewer({
 
   /** What the live sections show when there is no roster to show. */
   const liveUnavailable = (): React.ReactNode => {
-    if (drifted) return <Empty title={t("viewer.state.detached")} />;
-    if (missingSession) return <Empty title={t("viewer.state.missingSession")} />;
+    if (drifted) return <Empty title="The session moved to a different working tree — its live rosters are detached from this viewer." />;
+    if (missingSession) return <Empty title="The session this viewer was pinned to no longer exists." />;
     switch (loadStatus) {
       case "idle":
       case "loading":
-        return <Empty title={t("viewer.state.loading")} hint={t("viewer.state.loadingHint")} />;
+        return <Empty title="reading session…" hint="The capabilities bridge publishes the roster shortly after boot." />;
       case "starting":
-        return <Empty title={t("viewer.state.starting")} />;
+        return <Empty title="The session is still starting — the roster arrives once it is live." />;
       case "bridge-unavailable":
-        return <Empty title={t("viewer.state.bridgeUnavailable")} hint={t("viewer.state.bridgeUnavailableHint")} />;
+        return <Empty title="Skills and Tools require a live native session." hint="An older OMP build or a failed bridge generation publishes no roster." />;
       case "terminal":
-        return <Empty title={t("viewer.state.terminal")} />;
+        return <Empty title="This tab runs an omp TUI — terminal sessions publish no capability roster over rpc." />;
       case "not-live":
-        return <Empty title={t("viewer.state.notLive")} />;
+        return <Empty title="The pinned session is dormant — no live roster to read." />;
       case "missing-session":
-        return <Empty title={t("viewer.state.missingSession")} />;
+        return <Empty title="The session this viewer was pinned to no longer exists." />;
       case "error":
         return (
           <Empty
-            title={t("viewer.state.error")}
+            title="The last capabilities refresh failed."
             action={
               <Button size="xs" onClick={refresh}>
-                {t("viewer.actions.retry")}
+                retry
               </Button>
             }
           />
         );
       default:
         // "available" with no snapshot yet is the same read-in-flight state.
-        return <Empty title={t("viewer.state.loading")} hint={t("viewer.state.loadingHint")} />;
+        return <Empty title="reading session…" hint="The capabilities bridge publishes the roster shortly after boot." />;
     }
   };
 
@@ -1542,32 +1518,32 @@ export function CapabilitiesViewer({
     <Modal onClose={closeCapabilitiesViewer} width="w-[42rem]" labelledBy="capabilities-viewer-title">
       <header className="border-b border-line px-4 py-3.5">
         <p className="mb-1 chrome-label text-ink-faint">
-          {scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker")}
+          {scopeCwd === null ? "Global" : "Project"}
         </p>
         <h2 id="capabilities-viewer-title" className="text-base font-semibold text-ink">
-          {t("viewer.header.title")}
+          Capabilities
         </h2>
         {record !== undefined && record.title.length > 0 && (
-          <p className="mt-0.5 truncate text-xs text-ink-mid">{t("viewer.header.session", { title: record.title })}</p>
+          <p className="mt-0.5 truncate text-xs text-ink-mid">{`Session: ${record.title}`}</p>
         )}
         <p title={scopeCwd ?? undefined} className="mt-1 truncate font-mono text-xs text-ink-dim">
-          {scopeCwd ?? t("viewer.header.globalPath")}
+          {scopeCwd ?? "Global MCP configuration"}
         </p>
         {/* Names the directory the rows were resolved from, so a checkout's
             own tracked provider files (.cursor/mcp.json, opencode.json, …)
             differing from the project's is explainable, not mysterious. */}
         {worktree !== null && (
           <p className="mt-0.5 truncate font-mono text-xs text-ink-faint" title={record?.projectCwd}>
-            ⎇ {worktree.branch}{t("mcp.header.worktree", { cwd: record?.projectCwd ?? "" })}
+            ⎇ {worktree.branch}{` — resolved in this session's checkout, written through it to ${record?.projectCwd ?? ""}`}
           </p>
         )}
         <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
-          {t(tabId === undefined ? "viewer.header.coverageCatalog" : "viewer.header.coverage")}
+          {tabId === undefined ? "Skills and Tools show the files and settings at this scope — what omp can load, not what any session loaded. The session's capabilities view shows a live roster instead." : "Skills and Tools describe the loaded roster of the selected live native session — not a machine-wide catalog. Skill files that are disabled or filtered from loading are not listed; loaded skills marked hidden are."}
         </p>
       </header>
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-2">
-        <div role="tablist" aria-label={t("viewer.header.title")} onKeyDown={onTabListKeyDown} className="flex gap-1">
+        <div role="tablist" aria-label="Capabilities" onKeyDown={onTabListKeyDown} className="flex gap-1">
           {TABS.map((tab) => {
             const selected = tab.id === active;
             const count = sectionCount(tab.id);
@@ -1599,29 +1575,29 @@ export function CapabilitiesViewer({
           <input
             data-modal-initial-focus
             type="search"
-            aria-label={t("viewer.search.label")}
-            placeholder={t("viewer.search.label")}
+            aria-label="Search this category"
+            placeholder="Search this category"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="h-6 w-44 rounded-md border border-line bg-raised px-2 text-xs text-ink placeholder:text-ink-faint"
           />
-          <Button size="xs" variant="ghost" title={t("viewer.actions.refreshTitle")} onClick={refresh}>
-            {t("viewer.actions.refresh")}
+          <Button size="xs" variant="ghost" title="re-read config and ask the session for a fresh snapshot — live snapshots refresh ~every 2 seconds by themselves" onClick={refresh}>
+            refresh
           </Button>
         </div>
       </div>
 
       {drifted && (
         <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
-          <p className="text-xs leading-relaxed text-ink-mid">{t("viewer.banner.detached", { cwd: scopeCwd ?? t("viewer.header.globalPath") })}</p>
+          <p className="text-xs leading-relaxed text-ink-mid">{`The pinned session has moved to a different working tree — its live facts and session commands are detached from these ${scopeCwd ?? "Global MCP configuration"} rows. Close and reopen the viewer to follow it.`}</p>
         </Panel>
       )}
       {loadStatus === "error" && roster !== null && (
         <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
           <p className="flex items-center gap-2 text-xs text-ink-mid">
-            {t("viewer.banner.lastKnown")}
+            last known snapshot — the latest refresh failed
             <Button size="xs" onClick={refresh}>
-              {t("viewer.actions.retry")}
+              retry
             </Button>
           </p>
         </Panel>
@@ -1660,37 +1636,34 @@ export function CapabilitiesViewer({
           <>
             {roster === null && liveUnavailable()}
             {roster !== null && roster.skills.status === "unavailable" && (
-              <Empty title={t(REASON_KEYS[roster.skills.reason])} hint={t("viewer.skills.unavailableHint")} />
+              <Empty title={REASON_LABELS[roster.skills.reason]} hint="Skills describe the live session only; the config on disk is not listed here." />
             )}
             {roster !== null && roster.skills.status === "available" && (
               <div className="py-1.5">
                 <div className="flex items-center gap-2 px-4 pb-1">
                   <ChoiceCapsule
-                    label={t("viewer.skills.filterLabel")}
+                    label="skill listing"
                     value={skillView}
                     onChange={setSkillView}
                     options={[
-                      { value: "all", label: t("viewer.filter.all") },
-                      { value: "listed", label: t("viewer.skills.filterListed") },
-                      { value: "hidden", label: t("viewer.skills.filterHidden") },
-                      { value: "unknown", label: t("viewer.filter.unknown") },
+                      { value: "all", label: "all" },
+                      { value: "listed", label: "listed" },
+                      { value: "hidden", label: "hidden" },
+                      { value: "unknown", label: "unknown" },
                     ]}
                   />
                 </div>
                 <p className="px-4 py-1 text-xs text-ink-faint">
-                  {t("viewer.skills.commands", {
-                    state:
-                      roster.skillCommandsEnabled === true
-                        ? t("viewer.skills.stateEnabled")
+                  {`skill slash commands ${roster.skillCommandsEnabled === true
+                        ? "enabled"
                         : roster.skillCommandsEnabled === false
-                          ? t("viewer.skills.stateDisabled")
-                          : t("viewer.state.unknown"),
-                  })}
+                          ? "disabled"
+                          : "unknown"} in session`}
                 </p>
-                <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">{t("viewer.skills.coverage")}</p>
+                <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">Loaded means the session roster includes it — not that any turn invoked it.</p>
                 {skillRows !== null && skillRows.length === 0 && (
                   <Empty
-                    title={roster.skills.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+                    title={roster.skills.items.length === 0 ? "No entries in this category." : "Nothing in this category matches the search."}
                   />
                 )}
                 {skillRows !== null && skillRows.length > 0 && (
@@ -1732,42 +1705,42 @@ export function CapabilitiesViewer({
             )}
             {roster === null && liveUnavailable()}
             {roster !== null && roster.tools.status === "unavailable" && (
-              <Empty title={t(REASON_KEYS[roster.tools.reason])} hint={t("viewer.tools.unavailableHint")} />
+              <Empty title={REASON_LABELS[roster.tools.reason]} hint="Tools describe the live session only; unloaded servers list nothing here." />
             )}
             {roster !== null && roster.tools.status === "available" && (
               <div className="py-1.5">
                 <div className="flex flex-wrap items-center gap-2 px-4 pb-1.5">
                   <span ref={statusFilterRef}>
                     <ChoiceCapsule
-                      label={t("viewer.tools.statusFilter")}
+                      label="enabled state"
                       value={toolStatus}
                       onChange={setToolStatus}
                       options={[
-                        { value: "all", label: t("viewer.filter.all") },
-                        { value: "enabled", label: t("viewer.tools.enabled") },
-                        { value: "disabled", label: t("viewer.tools.notEnabled") },
-                        { value: "unknown", label: t("viewer.filter.unknown") },
+                        { value: "all", label: "all" },
+                        { value: "enabled", label: "enabled" },
+                        { value: "disabled", label: "not enabled" },
+                        { value: "unknown", label: "unknown" },
                       ]}
                     />
                   </span>
                   <select
-                    aria-label={t("viewer.tools.originFilter")}
+                    aria-label="origin"
                     value={toolOrigin}
                     onChange={(e) => setToolOrigin(e.target.value as "all" | CapabilityTool["source"])}
                     className="h-6 rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
                   >
-                    <option value="all">{t("viewer.tools.originAll")}</option>
-                    <option value="builtin">{t("viewer.tools.originBuiltin")}</option>
-                    <option value="extension">{t("viewer.tools.originExtension")}</option>
-                    <option value="mcp">{t("viewer.tools.originMcp")}</option>
-                    <option value="sdk">{t("viewer.tools.originSdk")}</option>
-                    <option value="unknown">{t("viewer.tools.originUnknown")}</option>
+                    <option value="all">all origins</option>
+                    <option value="builtin">builtin</option>
+                    <option value="extension">extension</option>
+                    <option value="mcp">mcp</option>
+                    <option value="sdk">sdk</option>
+                    <option value="unknown">unknown</option>
                   </select>
                   {toolServer !== null && (
                     <span className="flex items-center gap-1">
                       <Chip mono title={toolServer}>{toolServer}</Chip>
                       <IconButton
-                        label={t("viewer.tools.clearServer", { server: toolServer })}
+                        label={`clear ${toolServer} filter`}
                         onClick={() => setToolServer(null)}
                       >
                         ×
@@ -1776,21 +1749,21 @@ export function CapabilitiesViewer({
                   )}
                 </div>
                 <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-                  {t("viewer.tools.scope")}
+                  Changes apply to this live session only. Restarting or switching sessions resets tool selection. OMP settings changes and MCP reload may change it again.
                 </p>
                 <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-                  {t("viewer.tools.registeredVsAbsent")}
+                  Every row here is registered in this session; enabled means the model may call it directly. A tool absent from this list was never registered — that is OMP's registry, not a setting here.
                 </p>
                 {(sessionTools ?? []).some(
                   (tool) => tool.source === "mcp" || tool.mcpServerName !== null,
                 ) && (
                   <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
-                    {t("viewer.tools.mcpNote")}
+                    Reloading MCP can re-enable its tools. Use MCP servers to change server configuration.
                   </p>
                 )}
                 {toolRows !== null && toolRows.length === 0 && (
                   <Empty
-                    title={roster.tools.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+                    title={roster.tools.items.length === 0 ? "No entries in this category." : "Nothing in this category matches the search."}
                   />
                 )}
                 {toolRows !== null && toolRows.length > 0 && (
@@ -1800,13 +1773,13 @@ export function CapabilitiesViewer({
                       // while planning, so this row's lock is its own story.
                       const ownReason =
                         planModeOn && tool.name === "write"
-                          ? t("viewer.tools.planWriteLock")
+                          ? "Required to write plan artifacts while Plan mode is on."
                           : null;
                       const disabledReason =
                         ownReason ??
                         tabToolLock ??
                         (toolPending !== null && toolPending.name !== tool.name
-                          ? t("viewer.tools.lockPending")
+                          ? "Another tool change for this session is still in flight."
                           : null);
                       return (
                         <ToolRow
@@ -1831,10 +1804,10 @@ export function CapabilitiesViewer({
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-xs text-ink-faint">
             {scopeCwd === null
-              ? t("mcp.footer.global")
-              : t("mcp.footer.project")}{" "}
-            {live ? t("mcp.footer.reload") : ""}{" "}
-            {t("mcp.footer.oauth")}
+              ? "Changes apply to new sessions in every project."
+              : "Changes apply to new sessions in this project."}{" "}
+            {live ? "Reload applies them to this session now." : ""}{" "}
+            OAuth servers authenticate through omp's TUI: omp refuses reauth over rpc.
           </p>
           {live && tabId !== undefined && (
             <Button
@@ -1842,10 +1815,10 @@ export function CapabilitiesViewer({
               variant="ghost"
               tone="copper"
               disabled={reloading || (native && busy)}
-              title={native && busy ? t("mcp.reload.titleBusy") : t("mcp.reload.title")}
+              title={native && busy ? "wait for the current turn to finish" : "run /mcp reload in this session so it picks up the current MCP config"}
               onClick={reload}
             >
-              {reloading ? t("mcp.reload.loading") : t("mcp.reload.label")}
+              {reloading ? "reloading…" : "reload MCP in this session"}
             </Button>
           )}
         </footer>

@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceInventory, DeviceSystemImage } from "@omp-ui/core/device-pane";
-import { applyLocale, resolveLocale } from "../../lib/i18n";
 import { DevicePicker } from "./DevicePicker";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,7 +37,6 @@ function change(element: HTMLInputElement | HTMLSelectElement, value: string) {
   act(() => { element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? "change" : "input", { bubbles: true })); });
 }
 beforeEach(() => {
-  applyLocale(resolveLocale("en"));
   onAction.mockClear();
   onClose.mockClear();
   HTMLElement.prototype.scrollIntoView = vi.fn();

@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { repositoryMembers, type CheckoutEntry } from "../lib/repository-members";
 import { useDismissal } from "../lib/use-dismissal";
 import { findInstance, findOwner, useStore } from "../store";
@@ -25,7 +24,6 @@ export function MachineChip({
   onPick: (member: CheckoutEntry) => void;
   layout?: "inline" | "sheet";
 }) {
-  const t = useT();
   const state = useStore((s) => s.state);
   const owner = useMemo(() => findOwner(state, tabId), [state, tabId]);
   const instanceId = owner?.instanceId ?? null;
@@ -49,7 +47,7 @@ export function MachineChip({
   if (members.length < 2) return null;
 
   const nicknames = new Map((state?.remoteInstances ?? []).map((i) => [i.id, i.nickname]));
-  const local = t("quickopen.host.local");
+  const local = "This computer";
 
   return (
     <span ref={rootRef} className={cn("relative flex min-w-0", layout === "sheet" && "w-full flex-wrap [&_button]:min-h-11")}>
@@ -58,8 +56,8 @@ export function MachineChip({
         type="button"
         disabled={disabled}
         aria-expanded={open}
-        aria-label={t("composer.machine.label")}
-        title={t("composer.machine.title")}
+        aria-label="Machine"
+        title="Run this session on another machine with the same repository"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:text-ink-dim"
       >
@@ -75,7 +73,7 @@ export function MachineChip({
       {open && (
         <div
           role="menu"
-          aria-label={t("composer.machine.label")}
+          aria-label="Machine"
           className={cn(
             "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
             layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-60",
@@ -94,7 +92,7 @@ export function MachineChip({
                 role="menuitemradio"
                 aria-checked={current}
                 disabled={unreachable}
-                title={unreachable ? t("composer.machine.unreachable") : m.projectCwd}
+                title={unreachable ? "Not connected" : m.projectCwd}
                 onClick={() => {
                   setOpen(false);
                   if (!current) onPick(m);

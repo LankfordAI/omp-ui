@@ -7,7 +7,6 @@ import {
   presetCron,
   type PromptSchedule,
 } from "@omp-ui/core/scheduled-prompt";
-import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { formatSnoozeUntil, fromDateTimeLocal, toDateTimeLocal } from "../lib/snooze-until";
 import { findRecord, useStore } from "../store";
 import { FIELD } from "./settings/rows";
@@ -16,12 +15,12 @@ import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
 type Repeat = "once" | "daily" | "weekdays" | "weekly" | "cron";
 
 const REPEAT_LABEL = {
-  once: "dialog.schedule.once",
-  daily: "dialog.schedule.daily",
-  weekdays: "dialog.schedule.weekdays",
-  weekly: "dialog.schedule.weekly",
-  cron: "dialog.schedule.cron",
-} as const satisfies Record<Repeat, MessageKey>;
+  once: "Once",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  weekly: "Weekly",
+  cron: "Cron",
+} as const satisfies Record<Repeat, string>;
 
 /** Sunday-first, the cron day numbering. */
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -36,7 +35,6 @@ function pad(n: number): string {
  * zone. The owning host keeps and fires it; reopening edits it.
  */
 export function ScheduleDialog({ tabId }: { tabId: string }) {
-  const t = useT();
   const existing = useStore((s) => findRecord(s.state, tabId)?.scheduledPrompt ?? null);
   const close = useStore((s) => s.closeScheduleDialog);
   const setScheduledPrompt = useStore((s) => s.setScheduledPrompt);
@@ -75,13 +73,13 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
   const trimmed = text.trim();
   const error =
     trimmed === ""
-      ? t("dialog.schedule.emptyPrompt")
+      ? "Write the prompt to send."
       : text.length > SCHEDULED_PROMPT_TEXT_MAX
-        ? t("dialog.schedule.tooLong", { max: SCHEDULED_PROMPT_TEXT_MAX })
+        ? `The prompt is over ${SCHEDULED_PROMPT_TEXT_MAX} characters.`
         : schedule === null
-          ? t(repeat === "cron" ? "dialog.schedule.badCron" : "dialog.schedule.badTime")
+          ? repeat === "cron" ? "Not a five-field cron expression." : "Pick a valid time."
           : nextRun === null
-            ? t("dialog.schedule.never")
+            ? "This schedule never runs after now."
             : null;
 
   const save = async (): Promise<void> => {
@@ -90,12 +88,12 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
   };
   const weekdayName = (day: number): string =>
     // 2026-11-01 is a Sunday.
-    new Intl.DateTimeFormat(localeTag(), { weekday: "short" }).format(new Date(2026, 10, 1 + day));
+    new Intl.DateTimeFormat("en", { weekday: "short" }).format(new Date(2026, 10, 1 + day));
 
   return (
     <ConfirmDialog
-      kicker={t("dialog.schedule.kicker")}
-      title={t(existing === null ? "dialog.schedule.title" : "dialog.schedule.editTitle")}
+      kicker="Scheduled prompt"
+      title={existing === null ? "Schedule a prompt" : "Edit the scheduled prompt"}
       tone="iris"
       onClose={close}
       width="w-[30rem]"
@@ -111,40 +109,40 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
                 close();
               }}
             >
-              {t("dialog.schedule.remove")}
+              Remove schedule
             </Button>
           )}
           <Button variant="ghost" onClick={close}>
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           <Button variant="solid" tone="iris" disabled={error !== null} onClick={() => void save()}>
-            {t("dialog.schedule.save")}
+            Schedule
           </Button>
         </>
       }
     >
       <div data-schedule-dialog className="flex flex-col gap-3 text-xs text-ink-mid">
         <label className="flex flex-col gap-1.5">
-          {t("dialog.schedule.prompt")}
+          Prompt
           <textarea
             autoFocus
             rows={4}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={t("dialog.schedule.promptPlaceholder")}
+            placeholder="e.g. Audit dependencies and open issues for anything outdated"
             className={`${FIELD} resize-y`}
           />
         </label>
         <ChoiceCapsule
-          label={t("dialog.schedule.repeat")}
+          label="Repeat"
           value={repeat}
           onChange={setRepeat}
           tone="iris"
-          options={(Object.keys(REPEAT_LABEL) as Repeat[]).map((value) => ({ value, label: t(REPEAT_LABEL[value]) }))}
+          options={(Object.keys(REPEAT_LABEL) as Repeat[]).map((value) => ({ value, label: REPEAT_LABEL[value] }))}
         />
         {repeat === "once" && (
           <label className="flex flex-col gap-1.5">
-            {t("dialog.schedule.at")}
+            At
             <input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} className={FIELD} />
           </label>
         )}
@@ -152,7 +150,7 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
           <div className="flex gap-2">
             {repeat === "weekly" && (
               <label className="flex flex-1 flex-col gap-1.5">
-                {t("dialog.schedule.weekday")}
+                Day
                 <select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))} className={FIELD}>
                   {WEEKDAYS.map((day) => (
                     <option key={day} value={day}>
@@ -163,14 +161,14 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
               </label>
             )}
             <label className="flex flex-1 flex-col gap-1.5">
-              {t("dialog.schedule.time")}
+              Time
               <input type="time" value={time} onChange={(event) => setTime(event.target.value)} className={FIELD} />
             </label>
           </div>
         )}
         {repeat === "cron" && (
           <label className="flex flex-col gap-1.5">
-            {t("dialog.schedule.cronLabel")}
+            Cron expression (minute hour day month weekday)
             <input
               value={expr}
               onChange={(event) => setExpr(event.target.value)}
@@ -180,9 +178,9 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
           </label>
         )}
         <p className="text-xs text-ink-dim">
-          {error ?? t("dialog.schedule.next", { when: formatSnoozeUntil(nextRun!, new Date(now), localeTag()), zone: timeZone })}
+          {error ?? `Next run ${formatSnoozeUntil(nextRun!, new Date(now))} (${timeZone})`}
         </p>
-        <p className="text-xs text-ink-faint">{t("dialog.schedule.hint")}</p>
+        <p className="text-xs text-ink-faint">Runs in Build mode. A run still in progress skips that time; times missed while omp-ui is closed run once at the next start.</p>
       </div>
     </ConfirmDialog>
   );

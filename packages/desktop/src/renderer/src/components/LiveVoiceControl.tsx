@@ -1,5 +1,4 @@
 import { cn } from "../lib/cn";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import type { Tone } from "../lib/tone";
 import { useStore } from "../store";
@@ -26,13 +25,13 @@ const PHASE_TONE: Record<LiveDisplayPhase, Tone> = {
   error: "rose",
 };
 
-const PHASE_KEY: Record<LiveDisplayPhase, MessageKey> = {
-  connecting: "composer.live.phaseConnecting",
-  listening: "composer.live.phaseListening",
-  working: "composer.live.phaseWorking",
-  speaking: "composer.live.phaseSpeaking",
-  ready: "composer.live.phaseReady",
-  error: "composer.live.phaseError",
+const PHASE_LABEL: Record<LiveDisplayPhase, (holdLabel: string) => string> = {
+  connecting: () => "connecting…",
+  listening: () => "listening",
+  working: () => "working",
+  speaking: () => "speaking",
+  ready: (holdLabel) => `hold ${holdLabel} to talk`,
+  error: () => "error",
 };
 
 export function LiveVoiceControl({
@@ -49,7 +48,6 @@ export function LiveVoiceControl({
   startDisabled?: boolean;
   className?: string;
 }) {
-  const t = useT();
   const holdLabel = useKeybindingLabel("holdToTalk");
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   // The badge map mirrors the runtime's park flags; the parked capsule reads
@@ -69,8 +67,8 @@ export function LiveVoiceControl({
     <button
       type="button"
       disabled={disabled}
-      aria-label={t("composer.live.holdToTalk")}
-      title={t("composer.live.holdToTalkHint", { key: holdLabel })}
+      aria-label="hold to talk"
+      title={`Hold to talk, or hold ${holdLabel} anywhere outside a text field. The microphone is closed whenever you are not holding.`}
       aria-pressed={talking}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -102,23 +100,23 @@ export function LiveVoiceControl({
     return (
       <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
         <span className="flex min-w-0 flex-col">
-          <span className="text-xs">{t("composer.live.start")}</span>
+          <span className="text-xs">start live voice</span>
           <span className="font-mono text-xs">
             {active
               ? display !== null
-                ? t(PHASE_KEY[display], { key: holdLabel })
-                : t("composer.live.phasePending")
+                ? PHASE_LABEL[display](holdLabel)
+                : "…"
               : parked
-                ? t("composer.live.parked")
-                : t("composer.live.off")}
+                ? "voice · parked"
+                : "off"}
           </span>
         </span>
         {active && talkButton}
         <Switch
           on={active || parked}
           disabled={disabled || (!(active || parked) && startDisabled)}
-          label={t("composer.live.start")}
-          title={active || parked ? t("composer.live.stop") : t("composer.live.start")}
+          label="start live voice"
+          title={active || parked ? "stop live voice" : "start live voice"}
           onChange={(next) => void (next ? startLiveVoice(tabId) : stopLiveVoice(tabId))}
         />
       </div>
@@ -133,18 +131,18 @@ export function LiveVoiceControl({
       return (
         <Capsule
           tone="neutral"
-          title={t("composer.live.parkedHint")}
+          title="The call is closed for now and reopens when you return to this session. Click to turn live voice off."
           className={cn("h-7", className)}
         >
           <button
             type="button"
             disabled={disabled}
             onClick={() => void stopLiveVoice(tabId)}
-            aria-label={t("composer.live.stop")}
+            aria-label="stop live voice"
             className={cn(CAPSULE_SEGMENT, "text-sm")}
           >
             <Dot tone="neutral" />
-            {t("composer.live.parked")}
+            voice · parked
           </button>
         </Capsule>
       );
@@ -152,21 +150,21 @@ export function LiveVoiceControl({
     return (
       <Capsule
         tone={live?.error != null ? "rose" : "neutral"}
-        title={t("composer.live.start")}
+        title="start live voice"
         className={cn("h-7", className)}
       >
         <button
           type="button"
           disabled={disabled || startDisabled}
           onClick={() => void startLiveVoice(tabId)}
-          aria-label={t("composer.live.start")}
+          aria-label="start live voice"
           className={cn(CAPSULE_SEGMENT, "text-sm")}
         >
           {/* Round-5 judge, Iconography 1: the idle pill leads with the set's
               mic glyph at the shared stroke — a neutral dot read as a stray
               bullet, and an error still re-tints the whole capsule rose. */}
           <IconMic className="size-3 shrink-0" />
-          {t("composer.live.idlePill")}
+          Voice
         </button>
       </Capsule>
     );
@@ -174,17 +172,17 @@ export function LiveVoiceControl({
 
   const phaseTone = display !== null ? PHASE_TONE[display] : "copper";
   return (
-    <Capsule tone={phaseTone} title={t("composer.live.stop")} className={cn("h-7", className)}>
+    <Capsule tone={phaseTone} title="stop live voice" className={cn("h-7", className)}>
       <button
         type="button"
         disabled={disabled}
         onClick={() => void stopLiveVoice(tabId)}
-        aria-label={t("composer.live.stop")}
-        title={t("composer.live.stop")}
+        aria-label="stop live voice"
+        title="stop live voice"
         className={cn(CAPSULE_SEGMENT, "text-sm")}
       >
         <Dot tone={phaseTone} pulse={display === "listening" || display === "working"} />
-        {display !== null ? t(PHASE_KEY[display], { key: holdLabel }) : t("composer.live.phasePending")}
+        {display !== null ? PHASE_LABEL[display](holdLabel) : "…"}
       </button>
       {talkButton}
       {levels !== null && (

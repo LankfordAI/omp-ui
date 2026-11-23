@@ -23,7 +23,6 @@ import {
   sideCommandTitle,
 } from "@omp-ui/core/side-commands";
 import { field } from "../../lib/fields";
-import { t } from "../../lib/i18n";
 import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../../lib/native-btw";
 import { randomId } from "../../lib/random-id";
 import {
@@ -81,16 +80,13 @@ function sideCommandFailureText(
 ): string {
   switch (reason) {
     case "too-long":
-      return t("rail.btw.tooLong", { limit: BTW_QUESTION_CHAR_LIMIT });
+      return `That side question is too long (limit ${BTW_QUESTION_CHAR_LIMIT} characters).`;
     case "empty":
-      return t("rail.btw.sideCommandEmpty", { command: title });
+      return `${title} expanded to an empty question.`;
     case "not-side":
-      return t("rail.btw.sideCommandGone", { command: title });
+      return `${title} is no longer a side command. Send it again to run it as a prompt.`;
     case "render-failed":
-      return t("rail.btw.sideCommandFailed", {
-        command: title,
-        message: message ?? "",
-      });
+      return `${title} could not be expanded: ${message ?? ""}`;
   }
 }
 
@@ -143,7 +139,7 @@ export function createSideQuestionsSlice(
     if (text.length > BTW_QUESTION_CHAR_LIMIT) {
       refuseSideQuestion(
         tabId,
-        t("rail.btw.tooLong", { limit: BTW_QUESTION_CHAR_LIMIT }),
+        `That side question is too long (limit ${BTW_QUESTION_CHAR_LIMIT} characters).`,
         get,
         m,
       );
@@ -159,7 +155,7 @@ export function createSideQuestionsSlice(
     // One at a time, no queue: refused locally for instant feedback; omp
     // enforces the same rule as the truth (its refusal surfaces as sendFailed).
     if (get().rpc[tabId]?.sideQuestions?.active != null) {
-      refuseSideQuestion(tabId, t("rail.btw.busy"), get, m);
+      refuseSideQuestion(tabId, "A side question is still running — wait for it or cancel it.", get, m);
       return false;
     }
     const resp = await m.runCommand(
@@ -172,7 +168,7 @@ export function createSideQuestionsSlice(
       QUIET,
     );
     if (resp === null) {
-      refuseSideQuestion(tabId, t("rail.btw.sendFailed"), get, m);
+      refuseSideQuestion(tabId, "The side question could not be sent to the session.", get, m);
       return false;
     }
     // The response record may be absent or malformed — then do nothing local;
@@ -200,7 +196,7 @@ export function createSideQuestionsSlice(
   const cancelSideQuestion = async (tabId: string): Promise<void> => {
     const resp = await m.runCommand(tabId, { type: "btw_cancel" }, QUIET);
     if (resp === null) {
-      refuseSideQuestion(tabId, t("rail.btw.sendFailed"), get, m);
+      refuseSideQuestion(tabId, "The side question could not be sent to the session.", get, m);
       return;
     }
     // The turn finished before the cancel landed: omp says nothing was
@@ -216,7 +212,7 @@ export function createSideQuestionsSlice(
       return;
     const resp = await m.runCommand(tabId, { type: "get_btw_history" }, QUIET);
     if (resp === null) {
-      refuseSideQuestion(tabId, t("rail.btw.sendFailed"), get, m);
+      refuseSideQuestion(tabId, "The side question could not be sent to the session.", get, m);
       return;
     }
     const records = field(respData(resp), "records");
@@ -264,7 +260,7 @@ export function createSideQuestionsSlice(
     ) {
       refuseSideQuestion(
         tabId,
-        t("rail.btw.needsNewerOmp", { version: NATIVE_BTW_MIN_OMP }),
+        `this omp has no side questions — update omp to ${NATIVE_BTW_MIN_OMP} or later`,
         get,
         m,
       );
@@ -287,7 +283,7 @@ export function createSideQuestionsSlice(
     if (args.length > BTW_QUESTION_CHAR_LIMIT) {
       refuseSideQuestion(
         tabId,
-        t("rail.btw.tooLong", { limit: BTW_QUESTION_CHAR_LIMIT }),
+        `That side question is too long (limit ${BTW_QUESTION_CHAR_LIMIT} characters).`,
         get,
         m,
       );
@@ -298,7 +294,7 @@ export function createSideQuestionsSlice(
     )
       return;
     if (get().rpc[tabId]?.sideQuestions?.active != null) {
-      refuseSideQuestion(tabId, t("rail.btw.busy"), get, m);
+      refuseSideQuestion(tabId, "A side question is still running — wait for it or cancel it.", get, m);
       return;
     }
     const requestId = randomId();
@@ -314,7 +310,7 @@ export function createSideQuestionsSlice(
     );
     // The result rides the bridge's status frame, which omp sends before this ack.
     if (resp === null && requests.delete(requestId)) {
-      refuseSideQuestion(tabId, t("rail.btw.sendFailed"), get, m);
+      refuseSideQuestion(tabId, "The side question could not be sent to the session.", get, m);
     }
   };
 

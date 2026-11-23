@@ -578,7 +578,6 @@ export class MainBackend {
     this.notifier = new DesktopNotifier({
       win,
       isEnabled: () => this.registry.getSetting("desktopNotifications"),
-      localeId: () => this.registry.getSetting("localeId"),
       isViewedByDesktop: (tabId) => this.sessions.isViewedInDesktop(tabId),
       titleOf: (tabId) => {
         const record = this.registry.sessions.find((s) => s.tabId === tabId);
@@ -3558,7 +3557,6 @@ export class MainBackend {
       audioInputDevice: this.registry.getSetting("audioInputDevice"),
       audioOutputDevice: this.registry.getSetting("audioOutputDevice"),
       glassChrome: this.registry.getSetting("glassChrome"),
-      localeId: this.registry.getSetting("localeId"),
       keybindings: this.registry.getSetting("keybindings"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       appUpdateTrain: this.registry.getSetting("appUpdateTrain"),

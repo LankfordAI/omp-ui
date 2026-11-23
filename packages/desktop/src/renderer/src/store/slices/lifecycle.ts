@@ -39,7 +39,6 @@ import type { DraftSessionReference } from "../../lib/session-references";
 import type { ArtifactReference, ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
-import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
 import {
@@ -77,6 +76,15 @@ const SPAWN_SETTLE_MS = 30_000;
  * reap lands (issue #844): a compliant planner ends its verdict turn in
  * seconds; one that re-investigates is capped (#840 follow-up). */
 export const HANDOFF_SOURCE_GRACE_MS = 120_000;
+
+type CarryAuthAction = Extract<LifecycleConfirmation, { kind: "carry-auth" }>["action"];
+
+const CARRY_AUTH_NOTICE: Record<CarryAuthAction, (target: string) => string> = {
+  "to-instance": (target) => `Sign-ins carried to ${target}.`,
+  "from-instance": (target) => `Sign-ins carried from ${target}.`,
+  "save-file": () => "Credential bundle saved.",
+  "import-file": (target) => `Credentials imported from ${target}.`,
+};
 
 export type LifecycleSlice = Pick<
   UiStore,
@@ -399,11 +407,9 @@ export function createLifecycleSlice(
       // The notice must not pause cleanup: successful members are erased
       // immediately below, and the failed records stay mounted and retryable.
       get().reportError(
-        t("session.error.deletePartial", {
-          failures: result.failed
+        `Some sessions could not be deleted:\n${result.failed
             .map((failure) => `${failure.tabId}: ${failure.message}`)
-            .join("\n"),
-        }),
+            .join("\n")}`,
       );
     }
     if (result.deleted.length === 0) return false;
@@ -613,7 +619,7 @@ export function createLifecycleSlice(
       // A failed reap leaves the source live and suppressed: exactly one
       // visible warning on the implementation tab, no retry, no re-seed,
       // and voice never carries over (issue #840).
-      m.appendItem(freshId, noticeItem(t("notice.planHandoff.stopFailed"), "warn"));
+      m.appendItem(freshId, noticeItem("implementation started, but the planning agent could not be stopped — settle it manually", "warn"));
       return;
     }
     // The confirmed source exit is the realtime terminal boundary. Voice
@@ -744,7 +750,7 @@ export function createLifecycleSlice(
         freshOwner.record.projectCwd !== spawnProjectCwd ||
         (finishGuard !== undefined && freshOwner.record.worktree !== null)))
     ) {
-      m.appendItem(freshId, noticeItem(t("finish.resolution.failed"), "warn"));
+      m.appendItem(freshId, noticeItem("The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually.", "warn"));
       return false;
     }
     let accepted = false;
@@ -753,7 +759,7 @@ export function createLifecycleSlice(
     } catch (err) {
       get().reportError(err);
     }
-    if (!accepted) m.appendItem(freshId, noticeItem(t("finish.resolution.failed"), "warn"));
+    if (!accepted) m.appendItem(freshId, noticeItem("The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually.", "warn"));
     return accepted;
   };
 
@@ -764,7 +770,7 @@ export function createLifecycleSlice(
   ): Promise<boolean> => {
     const original = findOwner(get().state, tabId);
     if (!original?.record.worktree || trigger.cwd !== original.record.projectCwd) {
-      get().reportError(t("finish.resolution.stale"));
+      get().reportError("The session or its worktree changed before the resolution request could be sent. Reopen Finish worktree and try again.");
       return false;
     }
     const { record, instanceId } = original;
@@ -781,7 +787,7 @@ export function createLifecycleSlice(
     const safe = (): boolean => {
       const resolution = worktreeMergeResolutionState(get(), tabId);
       if (!unchanged() || resolution?.route !== route) {
-        get().reportError(t("finish.resolution.stale"));
+        get().reportError("The session or its worktree changed before the resolution request could be sent. Reopen Finish worktree and try again.");
         return false;
       }
       if (resolution.blockedReason !== null) {
@@ -808,7 +814,7 @@ export function createLifecycleSlice(
     if (!safe()) return false;
     if (!m.acceptsCommands(tabId) || get().rpc[tabId]?.plan?.enabled === true ||
       (requiredBuildAck && (get().rpc[tabId]?.plan?.enabled !== false || get().rpc[tabId]?.plan === priorPlan))) {
-      get().reportError(t("finish.resolution.failed"));
+      get().reportError("The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually.");
       return false;
     }
     try {
@@ -1038,7 +1044,7 @@ export function createLifecycleSlice(
         pending.then(landTab),
         new Promise<never>((_, reject) =>
           window.setTimeout(
-            () => reject(new Error(t("session.error.spawnTimedOut"))),
+            () => reject(new Error("The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder.")),
             SPAWN_SETTLE_MS,
           ),
         ),
@@ -1071,7 +1077,7 @@ export function createLifecycleSlice(
       const rec = findRecord(state, tabId);
       if (rec === undefined) {
         set({ state });
-        throw new Error(t("session.error.chatMissing"));
+        throw new Error("The new chat started but its record never arrived; reopen it from the Chat list.");
       }
       landed = tabId;
       set((s) => ({
@@ -1087,7 +1093,7 @@ export function createLifecycleSlice(
       await Promise.race([
         landing,
         new Promise<never>((_, reject) =>
-          window.setTimeout(() => reject(new Error(t("session.error.spawnTimedOut"))), SPAWN_SETTLE_MS),
+          window.setTimeout(() => reject(new Error("The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder.")), SPAWN_SETTLE_MS),
         ),
       ]);
     } catch (err) {
@@ -1100,15 +1106,15 @@ export function createLifecycleSlice(
   const askAboutSession = async (sourceTabId: string): Promise<void> => {
     const owner = findOwner(get().state, sourceTabId);
     if (owner === undefined || owner.instanceId !== null) {
-      get().reportError(new Error(t("ask.error.remote")));
+      get().reportError(new Error("sessions on another instance can't be asked about here; chats are host-local"));
       return;
     }
     if (owner.record.sessionId === null || owner.record.live === "missing") {
-      get().reportError(new Error(t("ask.error.noTranscript")));
+      get().reportError(new Error("this session has no saved transcript to ask about yet"));
       return;
     }
     await get().newChat({
-      askSource: { tabId: sourceTabId, title: t("ask.chatTitle", { title: owner.record.title }) },
+      askSource: { tabId: sourceTabId, title: `Ask: ${owner.record.title}` },
     });
   };
 
@@ -1181,7 +1187,7 @@ export function createLifecycleSlice(
         new Promise<never>((_, reject) => {
           window.setTimeout(() => {
             timedOut = true;
-            reject(new Error(t("session.error.spawnTimedOut")));
+            reject(new Error("The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder."));
           }, SPAWN_SETTLE_MS);
         }),
       ]);
@@ -1278,7 +1284,7 @@ export function createLifecycleSlice(
       return;
     /** The seed did not go out; `notice` puts the warn on the new tab itself. */
     const notSent = (notice: boolean): void => {
-      if (notice) m.appendItem(tabId, noticeItem(t("dialog.newsession.seedNotSent"), "warn"));
+      if (notice) m.appendItem(tabId, noticeItem("The session is open, but the draft was not sent. Send it there yourself.", "warn"));
       // Nobody is looking at a background tab (issue #982): say so where they are.
       if (background && get().activeTabId !== tabId) set({ backgroundSeedFailedTabId: tabId });
     };
@@ -1339,7 +1345,7 @@ export function createLifecycleSlice(
         prompt: "",
         artifactReferences: [prepared.reference],
         artifactRefreshes: [entry],
-        title: t("artifacts.refreshRunTitle", { title: request.title }),
+        title: `Refresh: ${request.title}`,
       },
       true,
     ).catch((err: unknown) => get().reportError(err));
@@ -1402,7 +1408,7 @@ export function createLifecycleSlice(
     const artifactReferences = draft.artifactReferences ?? get().artifactDrafts[tabId] ?? [];
     const foreignReference = artifactReferences.find(ref => ref.instanceId !== target.instanceId);
     if (foreignReference !== undefined) {
-      get().appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine: foreignReference.machine }), "warn");
+      get().appendNotice(tabId, `Open this artifact on ${foreignReference.machine}; cross-machine references are not supported.`, "warn");
       return null;
     }
     if (get().artifactDrafts[tabId] === undefined && artifactReferences.length > 0 && !get().restoreArtifactReferences(tabId, artifactReferences)) return null;
@@ -1435,7 +1441,7 @@ export function createLifecycleSlice(
     );
     for (const ref of draft.references) {
       if (ref.instanceId !== target.instanceId)
-        m.appendItem(next, noticeItem(t("composer.reference.droppedOnMove", { title: ref.title }), "warn"));
+        m.appendItem(next, noticeItem(`dropped the reference to “${ref.title}”: its transcript is on the session’s old machine`, "warn"));
     }
     for (const image of draft.images) get().queueComposerAttachment(next, image, "");
     for (const document of draft.documents) {
@@ -1446,7 +1452,7 @@ export function createLifecycleSlice(
       // A path-only document names a file on the source machine.
       m.appendItem(
         next,
-        noticeItem(t("composer.machine.droppedDocument", { name: document.name }), "warn"),
+        noticeItem(`${document.name} was left behind: it is a file on the previous machine. Attach it again.`, "warn"),
       );
     }
     // Re-read: a source that materialized meanwhile keeps its transcript.
@@ -1456,7 +1462,7 @@ export function createLifecycleSlice(
     // routed here. Sweep it and say so where the draft landed (ADR-0092).
     if (hadRefreshes || get().artifactRefreshDrafts[next] !== undefined) {
       get().clearArtifactRefreshes(next);
-      m.appendItem(next, noticeItem(t("artifacts.refreshMovedDropped"), "warn"));
+      m.appendItem(next, noticeItem("The pending refresh request belonged to this session's old tab and was dropped. Prepare a new refresh from the library.", "warn"));
     }
     } finally { releaseReferenceMove(); }
     return next;
@@ -1493,7 +1499,7 @@ export function createLifecycleSlice(
     const instance = findInstance(get().state, instanceId);
     if (instance !== undefined && instance.status !== "joined") {
       get().reportError(
-        new Error(t("remoteinstances.error.notJoined", { nickname: instance.nickname })),
+        new Error(`${instance.nickname} is not joined`),
       );
       return;
     }
@@ -1689,8 +1695,8 @@ export function createLifecycleSlice(
       if (!result.ok) throw new Error(result.message);
       get().reportNotice(
         result.message === "cancelled"
-          ? t("notice.carryAuth.cancelled")
-          : t(`notice.carryAuth.${confirmation.action}`, { target }),
+          ? "Cancelled — no file was written."
+          : CARRY_AUTH_NOTICE[confirmation.action](target),
       );
       return;
     }
@@ -1709,16 +1715,13 @@ export function createLifecycleSlice(
       const installed = result.installed.length;
       if (installed > 0) {
         get().reportNotice(
-          t(installed === 1 ? "notice.rolloutKeys.done.one" : "notice.rolloutKeys.done", { count: installed, target }),
+          installed === 1 ? `1 Provider key stored on ${target}. Restart its running sessions to use it.` : `${installed} Provider keys stored on ${target}. Restart its running sessions to use them.`,
         );
       }
       if (result.failed.length > 0) {
         get().reportError(
           new Error(
-            t("notice.rolloutKeys.failed", {
-              target,
-              detail: result.failed.map((f) => `${f.envName}: ${f.reason}`).join("; "),
-            }),
+            `Some keys were not stored on ${target}: ${result.failed.map((f) => `${f.envName}: ${f.reason}`).join("; ")}`,
           ),
         );
       }
@@ -1735,21 +1738,13 @@ export function createLifecycleSlice(
       const written = result.filesWritten.length;
       get().reportNotice(
         written === 0
-          ? t("notice.copyProject.done", { name: confirmation.projectName, target, path: result.path })
-          : t(written === 1 ? "notice.copyProject.doneFiles.one" : "notice.copyProject.doneFiles", {
-              name: confirmation.projectName,
-              target,
-              path: result.path,
-              count: written,
-            }),
+          ? `${confirmation.projectName} is now registered on ${target} at ${result.path}.`
+          : written === 1 ? `${confirmation.projectName} is now registered on ${target} at ${result.path}, with 1 gitignored file.` : `${confirmation.projectName} is now registered on ${target} at ${result.path}, with ${written} gitignored files.`,
       );
       if (result.filesFailed.length > 0) {
         get().reportError(
           new Error(
-            t("notice.copyProject.failed", {
-              target,
-              detail: result.filesFailed.map((f) => `${f.path}: ${f.reason}`).join("; "),
-            }),
+            `Some files were not copied to ${target}: ${result.filesFailed.map((f) => `${f.path}: ${f.reason}`).join("; ")}`,
           ),
         );
       }

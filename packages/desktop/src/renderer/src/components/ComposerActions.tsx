@@ -3,7 +3,6 @@ import type { PromptRoute } from "../lib/rpc-types";
 import type { SubmitRoute } from "./Composer";
 import { cn } from "../lib/cn";
 import { formatHotkey } from "../lib/hotkeys";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { MenuRow } from "./MenuRow";
 import { Button, Chevron, IconButton, Label, ProgressHalo } from "./ui";
@@ -73,26 +72,25 @@ export function ComposerActions({
    */
   contextRing?: { fraction: number; title: string } | null;
 }) {
-  const t = useT();
   const atResetButton = atReset !== null && !running && (
     <Button
       variant="outline"
       tone="copper"
       disabled={!atReset.canHold}
-      title={t("composer.actions.sendAtResetTitle", { when: atReset.when })}
+      title={`omp-ui holds this prompt and sends it when the provider's usage window resets (${atReset.when}), resuming the session if it is not running`}
       onClick={() => onSubmit("at-reset")}
       className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-xs"}
     >
-      {t("composer.actions.sendAtReset", { when: atReset.when })}
+      {`send at reset (${atReset.when})`}
     </Button>
   );
   const label = (verb: "send" | "steer") => {
     const word =
       isSlash
-        ? t("composer.actions.run")
+        ? "run"
         : verb === "send"
-          ? t("composer.actions.send")
-          : t("composer.actions.steer");
+          ? "send"
+          : "steer";
     return layout === "compact" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   };
 
@@ -113,13 +111,13 @@ export function ComposerActions({
     if (!running) return null;
     return (
       <section className="rounded-xl border border-line bg-raised/60 p-3">
-        <Label>{t("composer.actions.whileRunning")}</Label>
+        <Label>while running</Label>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <Button disabled={!canSend} onClick={() => onSubmit("follow_up")} className="min-h-11 justify-center">
-            {t("composer.actions.sheetQueue")}
+            Queue
           </Button>
           <Button disabled={!canSend} onClick={() => onSubmit("interrupt")} className="min-h-11 min-w-0 justify-center px-2">
-            {t("composer.actions.sheetInterrupt")}
+            Interrupt-and-send
           </Button>
         </div>
       </section>
@@ -130,7 +128,7 @@ export function ComposerActions({
     return running ? (
       <>
         <Button tone="copper" variant="solid" disabled={!canSend} onClick={() => onSubmit("steer")} className="h-11 rounded-lg px-4">{label("steer")}</Button>
-        <Button tone="rose" variant="outline" onClick={onAbort} className="h-11 rounded-lg px-3">{t("composer.actions.abort")}</Button>
+        <Button tone="rose" variant="outline" onClick={onAbort} className="h-11 rounded-lg px-3">Abort</Button>
       </>
     ) : (
       <>
@@ -148,7 +146,7 @@ export function ComposerActions({
       <SteerSplit steerLabel={label("steer")} canSend={canSend} onSubmit={onSubmit} />
       {haloed(
         <IconButton
-          label={t("composer.actions.abortLabel")}
+          label="stop the turn — queued messages return to the draft (esc)"
           tone="rose"
           onClick={onAbort}
           // The one destructive control here: readable before hover.
@@ -183,12 +181,12 @@ export function ComposerActions({
             variant="solid"
             tone="copper"
             disabled={!canSend}
-            title={t("composer.actions.skipSendTitle")}
+            title="settle the questions above unanswered and send this message"
             onClick={() => onSubmit("prompt")}
             className="h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs"
           >
             <IconSend />
-            {t("composer.actions.skipSend")}
+            {"skip & send"}
           </Button>,
         )
       ) : (
@@ -196,7 +194,7 @@ export function ComposerActions({
           <Button
             variant="solid"
             disabled={!canSend}
-            title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
+            title={isSlash ? "run this command (enter)" : "send (enter) · shift+enter for a newline"}
             onClick={() => onSubmit("prompt")}
             // Square in the app's 6px radius family (round-4 judge, Iconography 1):
             // the circle was the only circular control among rounded-md buttons.
@@ -225,7 +223,6 @@ function SteerSplit({
   canSend: boolean;
   onSubmit: (route: PromptRoute | "interrupt") => void;
 }) {
-  const t = useT();
   const [routes, setRoutes] = useState(false);
   const splitRoot = useRef<HTMLSpanElement | null>(null);
   const chevron = useRef<HTMLButtonElement | null>(null);
@@ -255,7 +252,7 @@ function SteerSplit({
         size="xs"
         tone="copper"
         disabled={!canSend}
-        title={t("composer.actions.steerTitle")}
+        title="inject this into the running turn (enter)"
         onClick={() => onSubmit("steer")}
         className="rounded-r-none"
       >
@@ -267,8 +264,8 @@ function SteerSplit({
         type="button"
         aria-haspopup="menu"
         aria-expanded={routes}
-        aria-label={t("composer.actions.moreRoutes")}
-        title={t("composer.actions.moreRoutes")}
+        aria-label="more ways to send"
+        title="more ways to send"
         disabled={!canSend}
         onClick={() => setRoutes((o) => !o)}
         className={cn(
@@ -284,19 +281,19 @@ function SteerSplit({
         <div
           ref={menuRef}
           role="menu"
-          aria-label={t("composer.actions.moreRoutes")}
+          aria-label="more ways to send"
           className="animate-rise edge-lit absolute bottom-full right-0 z-20 mb-1 flex w-60 flex-col rounded-md border border-line-strong bg-overlay p-1"
         >
           <MenuRow
-            label={t("composer.actions.queue")}
+            label="queue"
             hint={formatHotkey("mod+enter")}
-            title={t("composer.actions.queueTitle")}
+            title="queue this for after the current turn (mod+enter)"
             onClick={() => pick("follow_up")}
           />
           <MenuRow
-            label={t("composer.actions.interruptSend")}
+            label={"interrupt & send"}
             hint={formatHotkey("mod+shift+enter")}
-            title={t("composer.actions.interruptTitle")}
+            title="abort the current turn, then send this as a fresh prompt (mod+shift+enter)"
             onClick={() => pick("interrupt")}
           />
         </div>

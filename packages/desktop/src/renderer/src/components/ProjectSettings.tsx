@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import type { ProjectRecord } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
-import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
 import { findInstance, useStore } from "../store";
@@ -37,20 +36,20 @@ const EMPTY: ModelInfo[] = [];
 type Field = "main" | "advisor";
 
 /** Typed-input validation for the main pin: `provider/id`, no `:level`. */
-function validateMainPin(value: string): MessageKey | null {
+function validateMainPin(value: string): string | null {
   const role = parseModelRole(value);
   if (role === null || !role.model.includes("/"))
-    return "project.settings.selectorProvider";
+    return "use provider/model-id — omp's selectors name the provider";
   if (role.level !== undefined)
-    return "project.settings.selectorLevel";
+    return "use provider/id — the thinking level follows last-used memory";
   return null;
 }
 
 /** Typed-input validation for the advisor pin: `provider/id`, `:level` kept. */
-function validateAdvisorPin(value: string): MessageKey | null {
+function validateAdvisorPin(value: string): string | null {
   const role = parseModelRole(value);
   if (role === null || !role.model.includes("/"))
-    return "project.settings.selectorProvider";
+    return "use provider/model-id — omp's selectors name the provider";
   return null;
 }
 
@@ -83,7 +82,6 @@ function PinField({
   onCancel(): void;
   onClear(): void;
 }) {
-  const t = useT();
   return (
     <section className="space-y-1.5" data-field={label}>
       <Label>{label}</Label>
@@ -103,10 +101,10 @@ function PinField({
               className="h-9 min-w-0 flex-1 rounded-md border border-line bg-void px-2.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
             <Button size="xs" variant="solid" onClick={onSubmit}>
-              {t("project.settings.set")}
+              Set
             </Button>
             <Button size="xs" variant="ghost" onClick={onCancel}>
-              {t("common.dialog.cancel")}
+              Cancel
             </Button>
           </div>
           {draftError !== null ? (
@@ -114,7 +112,7 @@ function PinField({
               {draftError}
             </p>
           ) : (
-            <p className="text-xs text-ink-faint">{t("project.settings.emptyClears")}</p>
+            <p className="text-xs text-ink-faint">leave empty to clear the pin</p>
           )}
         </div>
       ) : (
@@ -127,11 +125,11 @@ function PinField({
             )}
           </p>
           <Button size="xs" onClick={onBeginChange}>
-            {t("project.settings.change")}
+            Change
           </Button>
           {pin !== null && (
             <Button size="xs" tone="rose" onClick={onClear}>
-              {t("project.settings.clear")}
+              Clear
             </Button>
           )}
         </div>
@@ -154,7 +152,6 @@ export function ProjectModelPins({
   /** The remote instance owning the project (issue #416); null for this host. */
   instanceId?: string | null;
 }) {
-  const t = useT();
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
   const advisorDefaults = useStore((s) => s.advisorDefaults);
@@ -224,7 +221,7 @@ export function ProjectModelPins({
       const problem =
         editing === "main" ? validateMainPin(trimmed) : validateAdvisorPin(trimmed);
       if (problem !== null) {
-        setDraftError(t(problem));
+        setDraftError(problem);
         return;
       }
     }
@@ -243,11 +240,11 @@ export function ProjectModelPins({
     <>
       <div className="space-y-5">
         <PinField
-          label={t("project.settings.defaultModel")}
+          label="Default model"
           pin={mainPin}
           notSet={
             <>
-              {t("project.settings.mainNotSet")}
+              not set — new sessions use the last-used model, then omp's default
             </>
           }
           editing={editing === "main"}
@@ -265,11 +262,11 @@ export function ProjectModelPins({
         />
 
         <PinField
-          label={t("project.settings.defaultAdvisor")}
+          label="Default advisor model"
           pin={advisorPin}
           notSet={
             <>
-              {t("project.settings.advisorNotSet")}{" "}
+              not set — last-used, then omp's{" "}
               <span className="font-mono">modelRoles.advisor</span>
               {project.lastAdvisorModel === null && configuredAdvisor !== null && (
                 <>
@@ -297,12 +294,12 @@ export function ProjectModelPins({
             off, the pin is dormant — say so, never hide it. */}
         {advisorPin !== null && advisorStartsOn === false && (
           <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs leading-snug text-copper">
-            {t("project.settings.advisorStartsOff")}
+            The advisor starts off for new sessions (last-used off / app default) — the pinned model applies whenever the advisor is on.
           </p>
         )}
 
         <p className="text-xs leading-snug text-ink-faint">
-          {t("project.settings.pinsHint")}
+          Pins seed new sessions only. Switching models in a running session updates the last-used memory, never the pin.
         </p>
       </div>
 
@@ -351,16 +348,16 @@ export type ProjectSettingsSectionId =
   | "knowledge"
   | "icon";
 
-const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
-  { id: "mcp", labelKey: "project.settings.mcpServers" },
-  { id: "skills", labelKey: "project.settings.skills" },
-  { id: "tools", labelKey: "project.settings.tools" },
-  { id: "models", labelKey: "project.settings.defaultModels" },
-  { id: "advisors", labelKey: "project.settings.advisors" },
-  { id: "council", labelKey: "project.settings.council" },
-  { id: "browser", labelKey: "project.settings.browser" },
-  { id: "knowledge", labelKey: "project.settings.knowledge" },
-  { id: "icon", labelKey: "project.settings.icon" },
+const SECTIONS: { id: ProjectSettingsSectionId; label: string }[] = [
+  { id: "mcp", label: "MCP servers" },
+  { id: "skills", label: "Skills" },
+  { id: "tools", label: "Tools" },
+  { id: "models", label: "Default models" },
+  { id: "advisors", label: "Advisors" },
+  { id: "council", label: "Council" },
+  { id: "browser", label: "Browser" },
+  { id: "knowledge", label: "Knowledge" },
+  { id: "icon", label: "Icon" },
 ];
 
 /**
@@ -396,7 +393,6 @@ export function ProjectSettings({
   instanceId?: string | null;
   onClose: () => void;
 }) {
-  const t = useT();
   const [active, setActive] = useState<ProjectSettingsSectionId>(initialSection ?? "mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
@@ -427,7 +423,7 @@ export function ProjectSettings({
       <section>
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 chrome-label text-ink-faint">
-            {t("project.settings.title")}
+            Project settings
           </p>
           <h2 id="project-settings-title" className="text-base font-semibold text-ink">
             {project.name}
@@ -439,7 +435,7 @@ export function ProjectSettings({
 
         <div
           role="tablist"
-          aria-label={t("project.settings.title")}
+          aria-label="Project settings"
           onKeyDown={onTabListKeyDown}
           className="flex flex-wrap gap-1 border-b border-line px-4 py-2"
         >
@@ -463,7 +459,7 @@ export function ProjectSettings({
                   selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
                 )}
               >
-                {t(tab.labelKey)}
+                {tab.label}
               </button>
             );
           })}
@@ -479,13 +475,13 @@ export function ProjectSettings({
           {active === "mcp" && (
             <section aria-labelledby="project-settings-mcp" className="pb-3">
               <h3 id="project-settings-mcp" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.mcpServers")}
+                MCP servers
               </h3>
               {/* A project dialog pins no session, so the project root is the
                   scope — no checkout to resolve through. */}
               <McpServersPanel scopeCwd={project.path} instanceId={instanceId} />
               <p className="px-4 pt-2 text-xs text-ink-faint">
-                {t("project.settings.mcpHint")}
+                Changes apply to new sessions in this project.
               </p>
             </section>
           )}
@@ -493,11 +489,11 @@ export function ProjectSettings({
           {active === "skills" && (
             <section aria-labelledby="project-settings-skills" className="pb-3">
               <h3 id="project-settings-skills" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.skills")}
+                Skills
               </h3>
               <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
               <p className="px-4 pt-2 text-xs text-ink-faint">
-                {t("project.settings.skillsHint")}
+                Files and settings at this project's scope — switches write .omp/config.yml here; changes apply to sessions started afterwards.
               </p>
             </section>
           )}
@@ -505,11 +501,11 @@ export function ProjectSettings({
           {active === "tools" && (
             <section aria-labelledby="project-settings-tools" className="pb-3">
               <h3 id="project-settings-tools" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.tools")}
+                Tools
               </h3>
               <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
               <p className="px-4 pt-2 text-xs text-ink-faint">
-                {t("project.settings.toolsHint")}
+                Tool enable settings for this project's scope; they apply to sessions started afterwards.
               </p>
             </section>
           )}
@@ -517,7 +513,7 @@ export function ProjectSettings({
           {active === "models" && (
             <section aria-labelledby="project-settings-models" className="px-4 py-4">
               <h3 id="project-settings-models" className="mb-4 text-sm font-semibold text-ink">
-                {t("project.settings.defaultModels")}
+                Default models
               </h3>
               <ProjectModelPins project={project} instanceId={instanceId} />
             </section>
@@ -526,38 +522,38 @@ export function ProjectSettings({
           {active === "advisors" && (
             <section aria-labelledby="project-settings-advisors" className="pb-3">
               <h3 id="project-settings-advisors" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.advisors")}
+                Advisors
               </h3>
               <AdvisorRosterEditor scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.advisorsHint")}</p>
+              <p className="px-4 pt-2 text-xs text-ink-faint">Edits omp's WATCHDOG.yml. Running sessions pick up changes on restart.</p>
             </section>
           )}
 
           {active === "council" && councilEnabled && (
             <section aria-labelledby="project-settings-council" className="pb-3">
               <h3 id="project-settings-council" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.council")}
+                Council
               </h3>
               <CouncilRosterEditor scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.councilHint")}</p>
+              <p className="px-4 pt-2 text-xs text-ink-faint">Stored in omp-ui's own state, per project. /council asks these members; running sessions pick up changes on restart.</p>
             </section>
           )}
 
           {active === "browser" && (
             <section aria-labelledby="project-settings-browser" className="px-4 py-4">
               <h3 id="project-settings-browser" className="mb-3 text-sm font-semibold text-ink">
-                {t("project.settings.browser")}
+                Browser
               </h3>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-ink">{t("project.settings.browserClock")}</p>
+                  <p className="text-xs font-medium text-ink">Clock</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
-                    {t("project.settings.browserClockHint")}
+                    Shows the date and time above this project's browser pane and stamps it onto every browser screenshot — the camera button, element picks, and screenshots the agent takes.
                   </p>
                 </div>
                 <Switch
                   on={project.browserClock === true}
-                  label={t("project.settings.browserClock")}
+                  label="Clock"
                   onChange={(next) => void setProjectBrowserClock(project.path, next, instanceId)}
                 />
               </div>

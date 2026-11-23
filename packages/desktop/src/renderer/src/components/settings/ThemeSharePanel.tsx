@@ -16,7 +16,6 @@ import {
 import { displayMessage } from "../../backend";
 import { downloadBlob } from "../../lib/artifact-parts";
 import { base64ToBytes } from "../../lib/clipboard-image";
-import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
 import { FIELD } from "./rows";
 
@@ -35,7 +34,6 @@ export function ThemeSharePanel(props: {
   onClose: () => void;
 }): ReactElement {
   const { source } = props;
-  const t = useT();
   const [slug, setSlug] = useState(() => themeSlug(source.label));
   const [tags, setTags] = useState<readonly string[]>([]);
   const [description, setDescription] = useState("");
@@ -57,11 +55,11 @@ export function ThemeSharePanel(props: {
     try {
       file = await props.themeFile(source);
     } catch (err) {
-      setSaveError(t("settings.appearance.exportFailed", { message: displayMessage(err) }));
+      setSaveError(`Could not export: ${displayMessage(err)}`);
       return;
     }
     if (source.backdrop !== undefined && file.backdrop === undefined) {
-      setSaveError(t("settings.appearance.shareBackdropMissing"));
+      setSaveError("This theme's backdrop is not available on this host, so the file would be incomplete.");
       return;
     }
     if (
@@ -69,7 +67,7 @@ export function ThemeSharePanel(props: {
       file.backdrop.mime !== "image/svg+xml" &&
       base64ToBytes(file.backdrop.data).length > REPOSITORY_IMAGE_BYTES_MAX
     ) {
-      setSaveError(t("settings.appearance.shareBackdropTooLarge"));
+      setSaveError("The official repository accepts image backdrops up to 1 MiB; this one is larger.");
       return;
     }
     downloadBlob(`${slug}.json`, "application/json", JSON.stringify(file, null, 2));
@@ -86,19 +84,19 @@ export function ThemeSharePanel(props: {
 
   return (
     <div data-testid="theme-share" className="mt-4 border-t border-line-soft pt-3">
-      <h3 className="text-base font-semibold text-ink">{t("settings.appearance.shareTitle", { name: source.label })}</h3>
+      <h3 className="text-base font-semibold text-ink">{`Share ${source.label}`}</h3>
       <p className="mt-1 text-sm leading-relaxed text-ink-mid">
-        {t("settings.appearance.shareIntro", { repository: OFFICIAL_THEME_REPOSITORY })}
+        {`Themes are shared through the official repository, ${OFFICIAL_THEME_REPOSITORY}. Fill in the details, save both files, and add them in a pull request. Shared themes are released under CC0 1.0.`}
       </p>
       <ol className="mt-2 list-decimal pl-5 text-sm leading-relaxed text-ink-mid">
-        <li>{t("settings.appearance.shareSteps1")}</li>
-        <li>{t("settings.appearance.shareSteps2")}</li>
-        <li>{t("settings.appearance.shareSteps3")}</li>
+        <li>Save both files.</li>
+        <li>Fork the repository and add both files under themes/.</li>
+        <li>Open a pull request; the checks run on their own.</li>
       </ol>
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-ink-mid">
-          {t("settings.appearance.shareSlug")}
+          File name
           <input
             type="text"
             className={FIELD}
@@ -106,17 +104,17 @@ export function ThemeSharePanel(props: {
             maxLength={THEME_SLUG_CHARS_MAX}
             onChange={(event) => setSlug(event.target.value)}
           />
-          {!slugValid && <span className="text-xs text-rose">{t("settings.appearance.shareSlugInvalid")}</span>}
+          {!slugValid && <span className="text-xs text-rose">Use lowercase letters, digits and single hyphens, 64 characters at most.</span>}
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink-mid">
-          {t("settings.appearance.shareAuthor")}
+          GitHub username (optional)
           <input type="text" className={FIELD} value={author} maxLength={39} onChange={(event) => setAuthor(event.target.value)} />
-          {!authorValid && <span className="text-xs text-rose">{t("settings.appearance.shareAuthorInvalid")}</span>}
+          {!authorValid && <span className="text-xs text-rose">That is not a GitHub username.</span>}
         </label>
       </div>
 
       <label className="mt-3 flex flex-col gap-1 text-sm text-ink-mid">
-        {t("settings.appearance.shareDescription")}
+        Description
         <input
           type="text"
           className={FIELD}
@@ -126,8 +124,8 @@ export function ThemeSharePanel(props: {
         />
       </label>
 
-      <div role="group" aria-label={t("settings.appearance.shareTags")} className="mt-3">
-        <p className="text-sm text-ink-mid">{t("settings.appearance.shareTags")}</p>
+      <div role="group" aria-label="Tags (1 to 6)" className="mt-3">
+        <p className="text-sm text-ink-mid">Tags (1 to 6)</p>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {OFFICIAL_THEME_TAGS.map((tag) => {
             const selected = tags.includes(tag);
@@ -148,7 +146,7 @@ export function ThemeSharePanel(props: {
 
       <label className="mt-3 flex items-start gap-2 text-sm text-ink-mid">
         <input type="checkbox" className="mt-0.5" checked={rights} onChange={(event) => setRights(event.target.checked)} />
-        <span>{t("settings.appearance.shareRights")}</span>
+        <span>I made this theme and its backdrop, or have the right to release them, and I release them under CC0 1.0.</span>
       </label>
 
       {saveError !== null && (
@@ -159,16 +157,16 @@ export function ThemeSharePanel(props: {
 
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" onClick={props.onClose}>
-          {t("settings.appearance.shareClose")}
+          Close
         </Button>
         <Button variant="ghost" onClick={() => window.open(GUIDE_URL, "_blank", "noopener,noreferrer")}>
-          {t("settings.appearance.shareOpenGuide")}
+          Open the contribution guide
         </Button>
         <Button disabled={!valid} onClick={saveDetails}>
-          {t("settings.appearance.shareSaveDetails")}
+          Save details file
         </Button>
         <Button variant="solid" disabled={!valid} onClick={() => void saveTheme()}>
-          {t("settings.appearance.shareSaveTheme")}
+          Save theme file
         </Button>
       </div>
     </div>

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
 import { findOwner, findRecord, useStore } from "../store";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -14,7 +13,6 @@ import { Button, Label } from "./ui";
  * pick where to save it; main re-checks the destination after the answer.
  */
 export function ProjectRequestCard({ tabId }: { tabId: string }) {
-  const t = useT();
   const request = useStore((s) => findRecord(s.state, tabId)?.projectRequest ?? null);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const answerProjectRequest = useStore((s) => s.answerProjectRequest);
@@ -65,7 +63,7 @@ export function ProjectRequestCard({ tabId }: { tabId: string }) {
   if (request === null) return null;
   const clone = request.verb === "clone";
   const destination = clone ? `${(parent ?? request.defaultParent ?? "").replace(/\/+$/, "")}/${request.name ?? ""}` : null;
-  const title = clone ? t("dialog.projectRequest.cloneTitle") : t("dialog.projectRequest.registerTitle");
+  const title = clone ? "Clone and add project" : "Add project";
   return (
     <>
       <div
@@ -80,37 +78,37 @@ export function ProjectRequestCard({ tabId }: { tabId: string }) {
           <Label>{title}</Label>
         </div>
         <div className="space-y-1 px-4 pt-2 text-xs leading-snug text-ink-mid">
-          <p className="text-ink-faint">{t("dialog.projectRequest.requestedBy")}</p>
+          <p className="text-ink-faint">Requested by the agent in this session.</p>
           {clone ? (
             <>
               <p data-selectable className="break-all font-mono text-ink">
-                {t("dialog.projectRequest.repository", { url: request.source })}
+                {`Repository: ${request.source}`}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <p data-selectable data-project-request-destination className="min-w-0 break-all font-mono text-ink">
-                  {t("dialog.projectRequest.saveTo", { path: destination ?? "" })}
+                  {`Save to: ${destination ?? ""}`}
                 </p>
                 <Button variant="outline" disabled={busy} onClick={() => setPicking(true)}>
-                  {t("dialog.projectRequest.chooseFolder")}
+                  Choose folder…
                 </Button>
               </div>
             </>
           ) : (
             <>
               <p data-selectable className="break-all font-mono text-ink">
-                {t("dialog.projectRequest.folder", { path: request.source })}
+                {`Folder: ${request.source}`}
               </p>
               <p data-selectable className="break-all font-mono">
                 {request.origin === null
-                  ? t("dialog.projectRequest.originNone")
-                  : t("dialog.projectRequest.origin", { origin: request.origin })}
+                  ? "Origin: none"
+                  : `Origin: ${request.origin}`}
               </p>
             </>
           )}
-          <p className="text-copper">{t("dialog.projectRequest.warning")}</p>
+          <p className="text-copper">Sessions started in this project run its .omp extensions, hooks, tools, and MCP servers with your user account and your provider keys.</p>
           {request.executableConfig.length > 0 && (
             <p data-selectable data-project-request-found className="font-mono">
-              {t("dialog.projectRequest.found", { paths: request.executableConfig.join(", ") })}
+              {`Found: ${request.executableConfig.join(", ")}`}
             </p>
           )}
           {reason !== null && (
@@ -121,10 +119,10 @@ export function ProjectRequestCard({ tabId }: { tabId: string }) {
         </div>
         <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-3">
           <Button variant="ghost" disabled={busy} onClick={() => void answer("deny")}>
-            {t("dialog.projectRequest.deny")}
+            Deny
           </Button>
           <Button variant="solid" tone="signal" disabled={busy} onClick={() => void answer("allow")}>
-            {t("dialog.projectRequest.allow")}
+            Allow
           </Button>
         </div>
       </div>

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type { ThemeGateFailure } from "@omp-ui/core/theme";
 import { AndroidBackOwner } from "../../lib/android-back";
 import type { BackdropAsset } from "../../lib/backdrop";
-import { useT } from "../../lib/i18n";
 import { IS_ELECTRON } from "../../lib/platform";
 import type { Theme } from "../../lib/themes";
 import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "../../lib/window-controls";
@@ -40,7 +39,6 @@ export function ThemePreviewOverlay({
   actions: ReactNode;
   onClose: () => void;
 }) {
-  const t = useT();
   // Pushes onto the shared overlay stack: Escape and Android Back close only
   // this layer (the Settings modal's handler sees it is not top-of-stack),
   // Tab is trapped here, and focus returns to the Preview button.
@@ -73,7 +71,7 @@ export function ThemePreviewOverlay({
           <span className="flex-1" />
           {actions}
           <Button initialFocus title="Esc" onClick={onClose}>
-            {t("settings.appearance.previewClose")}
+            Close
           </Button>
         </header>
         {failures.length > 0 && (

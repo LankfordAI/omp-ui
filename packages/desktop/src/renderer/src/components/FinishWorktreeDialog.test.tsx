@@ -532,7 +532,7 @@ describe("FinishWorktreeDialog", () => {
 
   it("blocks the merge and names the overlapping files when the project checkout is dirty on them (issue #1050)", async () => {
     backendMock.getMergeBackStatus.mockResolvedValue(
-      statusFixture({ destinationDirtyFiles: ["packages/desktop/src/renderer/src/lib/i18n/en.ts", "src/b.ts"] }),
+      statusFixture({ destinationDirtyFiles: ["packages/desktop/src/renderer/src/App.tsx", "src/b.ts"] }),
     );
     await openDialog();
 
@@ -540,7 +540,7 @@ describe("FinishWorktreeDialog", () => {
     expect(document.body.textContent).toContain(
       "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first",
     );
-    expect(document.body.textContent).toContain("packages/desktop/src/renderer/src/lib/i18n/en.ts");
+    expect(document.body.textContent).toContain("packages/desktop/src/renderer/src/App.tsx");
     // The preview no longer claims the doomed merge is safe.
     expect(document.body.textContent).not.toContain("no conflicts predicted");
 

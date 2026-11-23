@@ -4,7 +4,6 @@ import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
 import { SUBAGENT_MODEL_INHERIT } from "@omp-ui/core/subagent-model";
 import { backend, displayMessage } from "../../backend";
 import { findOwner, useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { Button, Label } from "../ui";
 import { layerBadge } from "./rows";
@@ -47,7 +46,6 @@ export function SubagentModelsSection({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   const roster = useStore((s) => s.state?.agentRoster ?? EMPTY_ROSTER);
   const activeTabId = useStore((s) => s.activeTabId);
   const models = useStore((s) =>
@@ -144,9 +142,9 @@ export function SubagentModelsSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.subagentModels")}</Label>
+        <Label>Subagent models</Label>
         {layerBadge(entry.layer)}
-        <span className="ml-auto flex items-center gap-1" role="group" aria-label={t("settings.omp.subagentScope")}>
+        <span className="ml-auto flex items-center gap-1" role="group" aria-label="edit scope">
           {(["global", "project"] as const).map((choice) => (
             <button
               key={choice}
@@ -155,7 +153,7 @@ export function SubagentModelsSection({
               title={
                 choice === "project" && !projectEditable
                   ? projectCwd === null
-                    ? t("settings.omp.noSessionFocused")
+                    ? "No session focused — showing omp's global configuration."
                     : (unsupported?.reason ?? "")
                   : undefined
               }
@@ -167,17 +165,17 @@ export function SubagentModelsSection({
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
               )}
             >
-              {choice === "global" ? t("settings.omp.subagentScopeGlobal") : t("settings.omp.subagentScopeProject")}
+              {choice === "global" ? "Global" : "Project"}
             </button>
           ))}
         </span>
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.subagentModelsHint")}
+        The model each agent spawns with. Global edits rewrite the whole record; project edits write one entry into the project's .omp/config.yml. Session-scoped choices live in the Agents pane and win over both. Changes apply to sessions started afterwards.
       </p>
       {unsupported !== null && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.subagentUnsupported", { reason: unsupported.reason })}
+          {`This project's task.agentModelOverrides can't be edited here: ${unsupported.reason}`}
         </p>
       )}
       {localError !== null && (
@@ -208,14 +206,14 @@ export function SubagentModelsSection({
                 title={
                   typeof effective === "string"
                     ? `${agent}: ${effective}`
-                    : t("settings.omp.subagentRowDefault", { agent })
+                    : `${agent} uses omp's default: its frontmatter model, else the session model`
                 }
                 className="ml-auto max-w-72 truncate rounded-md border border-line bg-raised px-2 py-1 font-mono text-xs text-ink-mid transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-35"
               >
                 {valueLabel(
                   scopedValue,
-                  t("settings.omp.subagentDefault"),
-                  t("composer.model.subagentSessionModel"),
+                  "omp default",
+                  "session model",
                 )}
               </button>
             </div>
@@ -225,10 +223,10 @@ export function SubagentModelsSection({
 
       <div className="mt-1.5 flex items-center gap-2">
         <Button size="xs" disabled={refreshing} onClick={refreshRoster}>
-          {refreshing ? t("settings.omp.subagentRefreshing") : t("settings.omp.subagentRefresh")}
+          {refreshing ? "refreshing…" : "refresh agents"}
         </Button>
         {roster.length === 0 && (
-          <span className="text-sm text-ink-faint">{t("settings.omp.subagentRosterEmpty")}</span>
+          <span className="text-sm text-ink-faint">no agents discovered yet — refresh to enumerate omp's agents</span>
         )}
       </div>
 

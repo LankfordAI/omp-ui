@@ -8,7 +8,7 @@ describe("splitInterviewDraft", () => {
     const draft = splitInterviewDraft(guidedGoalPrompt("speed up startup"));
     expect(draft).not.toBeNull();
     expect(draft!.draft).toBe("speed up startup");
-    expect(draft!.captionKey).toBe("transcript.user.objectiveDraft");
+    expect(draft!.caption).toBe("rough objective");
     expect(draft!.preamble).not.toContain("objective-draft");
     expect(draft!.preamble).toContain("Interview the user");
   });
@@ -17,7 +17,7 @@ describe("splitInterviewDraft", () => {
     const draft = splitInterviewDraft(experimentInterviewPrompt("make tests faster"));
     expect(draft).not.toBeNull();
     expect(draft!.draft).toBe("make tests faster");
-    expect(draft!.captionKey).toBe("transcript.user.roughDescription");
+    expect(draft!.caption).toBe("rough description");
     expect(draft!.preamble).not.toContain("experiment-draft");
     expect(draft!.preamble).toContain("Set up an autoresearch experiment with me.");
   });

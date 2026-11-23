@@ -3,7 +3,6 @@ import type { RoutineRecord } from "@omp-ui/core/routine";
 import type { CatalogModelOption } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
-import { useT } from "../../lib/i18n";
 import { useCompactShell } from "../../lib/responsive";
 import { useStore } from "../../store";
 import { Button, Chip, Empty, IconButton, IconClose, IconPlus, Label, Switch } from "../ui";
@@ -20,7 +19,6 @@ type Selection = { kind: "routine"; id: string } | { kind: "new" } | null;
  * follows the routines:state broadcast.
  */
 export function RoutinesView() {
-  const t = useT();
   const compact = useCompactShell();
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const state = useStore((s) => s.routinesState);
@@ -108,15 +106,15 @@ export function RoutinesView() {
             <span className="mt-0.5 block truncate text-xs text-ink-mid">{describeSchedule(routine.schedule)}</span>
             <span className="mt-0.5 block truncate text-xs text-ink-faint">
               {routine.enabled && routine.nextRunAtMs !== null
-                ? t("routines.next", { when: formatWhen(routine.nextRunAtMs) })
+                ? `Next: ${formatWhen(routine.nextRunAtMs)}`
                 : routine.enabled
-                  ? t("routines.never")
-                  : t("routines.paused")}
+                  ? "Never"
+                  : "Paused"}
             </span>
           </button>
           <Switch
             on={routine.enabled}
-            label={t("routines.enableNamed", { name: routine.name })}
+            label={`Enable ${routine.name}`}
             onChange={(enabled) => {
               updateRoutine(routine.id, { enabled }).catch((err: unknown) => reportError(err));
             }}
@@ -125,11 +123,11 @@ export function RoutinesView() {
         <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 border-t border-line-soft pt-1.5 pl-1 text-xs">
           {last !== undefined ? (
             <>
-              <Chip tone={OUTCOME_TONE[last.outcome]}>{t(OUTCOME_LABEL[last.outcome])}</Chip>
+              <Chip tone={OUTCOME_TONE[last.outcome]}>{OUTCOME_LABEL[last.outcome]}</Chip>
               <span className="truncate text-ink-faint">{relativeTime(new Date(last.firedAtMs).toISOString())}</span>
             </>
           ) : (
-            <span className="text-ink-faint">{t("routines.history.empty")}</span>
+            <span className="text-ink-faint">No runs yet.</span>
           )}
         </div>
       </div>
@@ -137,27 +135,27 @@ export function RoutinesView() {
   });
 
   const hostHeaderLabel =
-    state === null ? t("routines.title") : t("routines.headerOn", { machine: state.machineLabel });
+    state === null ? "Routines" : `Routines on ${state.machineLabel}`;
 
   const compactList = (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
         <p className="min-w-0 truncate text-xs text-ink-faint">
-          {t("routines.enabledCount", { n: enabledCount, total: routines.length })}
+          {`${enabledCount} of ${routines.length} enabled`}
         </p>
         <Button size="xs" variant="solid" onClick={() => pick({ kind: "new" })}>
           <IconPlus className="size-3.5" />
-          {t("routines.new")}
+          New routine
         </Button>
       </div>
       {waitingCount > 0 && (
         <p className="border-b border-line bg-copper-wash/60 px-3 py-2 text-xs font-medium text-copper">
-          {t("routines.waitingBanner", { n: waitingCount })}
+          {`${waitingCount} routine run waiting on an Approval card`}
         </p>
       )}
       <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
         {routines.length === 0 ? (
-          <Empty title={t("routines.emptyTitle")} hint={t("routines.emptyHint")} />
+          <Empty title="No routines on this host" hint="omp-ui ships no built-in routines. Add one to run your own instructions on a schedule." />
         ) : (
           routineRows
         )}
@@ -169,7 +167,7 @@ export function RoutinesView() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line chrome-void px-2 py-1.5">
         <Button size="xs" variant="ghost" onClick={() => pick(null)}>
-          ← {t("routines.backAll")}
+          ← All routines
         </Button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -186,7 +184,7 @@ export function RoutinesView() {
 
   return (
     <section
-      aria-label={t("routines.title")}
+      aria-label="Routines"
       data-routines-view
       className="absolute inset-0 flex flex-col overflow-x-hidden studio-stage text-ink"
     >
@@ -195,10 +193,10 @@ export function RoutinesView() {
           <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line chrome-void px-3">
             <Label className="min-w-0 truncate">{hostHeaderLabel}</Label>
             <Chip tone="iris" className="hidden sm:inline-flex">
-              {t("routines.experimental")}
+              Experimental · host-local
             </Chip>
             <span className="flex-1" />
-            <IconButton label={t("routines.close")} onClick={closeRoutines}>
+            <IconButton label="Close Routines" onClick={closeRoutines}>
               <IconClose />
             </IconButton>
           </header>
@@ -214,11 +212,11 @@ export function RoutinesView() {
               <header className="shrink-0 space-y-2 border-b border-line px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <Button size="xs" variant="ghost" onClick={closeRoutines} className="-ml-1.5">
-                    ← {t("routines.backSessions")}
+                    ← Sessions
                   </Button>
                   <div className="flex items-center gap-1.5">
                     {waitingCount > 0 && <Chip tone="copper">{waitingCount}</Chip>}
-                    <IconButton label={t("routines.close")} onClick={closeRoutines}>
+                    <IconButton label="Close Routines" onClick={closeRoutines}>
                       <IconClose />
                     </IconButton>
                   </div>
@@ -227,29 +225,29 @@ export function RoutinesView() {
                   <div className="min-w-0">
                     <Label className="block truncate">{hostHeaderLabel}</Label>
                     <p className="mt-0.5 truncate text-xs text-ink-faint">
-                      {t("routines.enabledCount", { n: enabledCount, total: routines.length })}
+                      {`${enabledCount} of ${routines.length} enabled`}
                     </p>
                   </div>
                   <Button size="xs" variant="solid" onClick={() => pick({ kind: "new" })} className="shrink-0">
                     <IconPlus className="size-3.5" />
-                    {t("routines.new")}
+                    New routine
                   </Button>
                 </div>
               </header>
               {waitingCount > 0 && (
                 <p className="border-b border-line bg-copper-wash/60 px-3 py-2 text-xs font-medium text-copper">
-                  {t("routines.waitingBanner", { n: waitingCount })}
+                  {`${waitingCount} routine run waiting on an Approval card`}
                 </p>
               )}
               <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
                 {routines.length === 0 ? (
-                  <Empty title={t("routines.emptyTitle")} hint={t("routines.emptyHint")} />
+                  <Empty title="No routines on this host" hint="omp-ui ships no built-in routines. Add one to run your own instructions on a schedule." />
                 ) : (
                   routineRows
                 )}
               </div>
               <div className="shrink-0 border-t border-line px-3 py-2">
-                <Chip tone="iris">{t("routines.experimental")}</Chip>
+                <Chip tone="iris">Experimental · host-local</Chip>
               </div>
             </aside>
           )}
@@ -259,21 +257,21 @@ export function RoutinesView() {
                 {sidebarCollapsed && (
                   <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line chrome-void px-3">
                     <Button size="xs" variant="ghost" onClick={closeRoutines} className="-ml-1.5">
-                      ← {t("routines.backSessions")}
+                      ← Sessions
                     </Button>
                     <Label className="min-w-0 truncate">{hostHeaderLabel}</Label>
                     <span className="flex-1" />
-                    <IconButton label={t("routines.close")} onClick={closeRoutines}>
+                    <IconButton label="Close Routines" onClick={closeRoutines}>
                       <IconClose />
                     </IconButton>
                   </header>
                 )}
                 <div className="grid flex-1 place-items-center p-6">
                   <div className="studio-card flex max-w-md flex-col items-center gap-4 rounded-xl p-6">
-                    <Empty title={t("routines.emptyTitle")} hint={t("routines.emptyHint")} />
+                    <Empty title="No routines on this host" hint="omp-ui ships no built-in routines. Add one to run your own instructions on a schedule." />
                     <Button size="sm" variant="solid" onClick={() => pick({ kind: "new" })}>
                       <IconPlus className="size-3.5" />
-                      {t("routines.new")}
+                      New routine
                     </Button>
                   </div>
                 </div>

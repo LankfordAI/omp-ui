@@ -20,7 +20,6 @@ vi.mock(import("../lib/highlight"), async (importOriginal) => {
   };
 });
 
-import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import type { DiffRow } from "../lib/omp-diff";
 import { useStore } from "../store";
 import { ChangesViewerHost, openChangesViewer, type ChangesViewerCard } from "./ChangesViewer";
@@ -71,8 +70,8 @@ function dialog(): HTMLElement | null {
 function toggleAll(): HTMLButtonElement | undefined {
   return [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) =>
-      b.textContent === t("changes.expandAll") ||
-      b.textContent === t("changes.collapseAll"),
+      b.textContent === "expand all" ||
+      b.textContent === "collapse all",
   );
 }
 
@@ -95,7 +94,6 @@ afterEach(() => {
   if (root !== null) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
-  applyLocale(resolveLocale("en"));
 });
 
 // The dispatcher fires a synchronous window event; act() covers the host's setState.
@@ -109,7 +107,7 @@ describe("ChangesViewer", () => {
     open({ cards: [cardA, cardB] });
     expect(dialog()).not.toBeNull();
     expect(document.body.textContent).toContain(
-      t("changes.header", { files: 2, edits: 2 }),
+      `${2} changed files · ${2} edits`,
     );
     // Summed counts across both cards: +3 −0.
     expect(dialog()!.textContent).toContain("+3");
@@ -133,10 +131,10 @@ describe("ChangesViewer", () => {
     // Multiple cards start collapsed.
     expect(expandedStates()).toEqual(["false", "false"]);
     act(() => toggleAll()!.click());
-    expect(toggleAll()!.textContent).toBe(t("changes.collapseAll"));
+    expect(toggleAll()!.textContent).toBe("collapse all");
     expect(expandedStates()).toEqual(["true", "true"]);
     act(() => toggleAll()!.click());
-    expect(toggleAll()!.textContent).toBe(t("changes.expandAll"));
+    expect(toggleAll()!.textContent).toBe("expand all");
     expect(expandedStates()).toEqual(["false", "false"]);
   });
 
@@ -151,7 +149,7 @@ describe("ChangesViewer", () => {
     open({ cards: [cardA, { ...cardA, key: "item-9" }] });
     // Unique paths count once even though there are two edits.
     expect(document.body.textContent).toContain(
-      t("changes.header", { files: 1, edits: 2 }),
+      `${1} changed files · ${2} edits`,
     );
     expect(document.body.textContent).toContain("a.ts#2");
   });
@@ -161,7 +159,7 @@ describe("ChangesViewer", () => {
     useStore.setState({ focusRailPane });
     mount();
     open({ cards: [cardA, cardB], tabId: "tab-changes" });
-    const working = buttonByText(t("changes.workingTree"))!;
+    const working = buttonByText("working-tree diff")!;
     act(() => working.click());
     expect(focusRailPane).toHaveBeenCalledWith("tab-changes", "diffs");
     expect(dialog()).toBeNull();
@@ -170,6 +168,6 @@ describe("ChangesViewer", () => {
   it("renders no footer button without a tabId", () => {
     mount();
     open({ cards: [cardA] });
-    expect(buttonByText(t("changes.workingTree"))).toBeUndefined();
+    expect(buttonByText("working-tree diff")).toBeUndefined();
   });
 });

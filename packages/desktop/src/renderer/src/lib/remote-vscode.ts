@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RemoteVsCodeTarget } from "@omp-ui/core/types";
 import { backend } from "../backend";
-import type { MessageKey } from "./i18n";
-
-type Translate = (key: MessageKey, params?: Record<string, string | number>) => string;
 
 /**
  * Open in VS Code over Remote-SSH (issue #995, ADR-0083): the member's
@@ -42,20 +39,19 @@ export function useRemoteVsCodeTarget(
 export function remoteVsCodeRow(
   target: RemoteVsCodeTarget | "failed" | null,
   nickname: string,
-  t: Translate,
 ): { show: false } | { show: true; reason: string | null } {
-  if (target === null) return { show: true, reason: t("remotevscode.checking") };
-  if (target === "failed") return { show: true, reason: t("remotevscode.reason.failed") };
+  if (target === null) return { show: true, reason: "checking SSH…" };
+  if (target === "failed") return { show: true, reason: "could not check SSH" };
   if (target.kind === "ready") return { show: true, reason: null };
   const at = target.address ?? nickname;
   switch (target.reason) {
     case "noVsCode":
       return { show: false };
     case "noReport":
-      return { show: true, reason: t("remotevscode.reason.noReport", { at }) };
+      return { show: true, reason: `${at} sent no host report` };
     case "badTarget":
-      return { show: true, reason: t("remotevscode.reason.badTarget", { at }) };
+      return { show: true, reason: `${at} reports an ssh host or user VS Code cannot use` };
     case "sshClosed":
-      return { show: true, reason: t("remotevscode.reason.sshClosed", { at }) };
+      return { show: true, reason: `SSH port 22 did not answer on ${at}` };
   }
 }

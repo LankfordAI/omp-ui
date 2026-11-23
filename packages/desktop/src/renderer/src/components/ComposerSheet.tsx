@@ -1,4 +1,3 @@
-import { useT } from "../lib/i18n";
 import { canOpenLivePeer } from "../lib/live-peer";
 import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
@@ -63,7 +62,6 @@ export function ComposerSheet({
   onPickMachine?: (member: CheckoutEntry) => void;
   branchRequest?: BranchChipExternalRequest | null;
 }) {
-  const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status);
   const queued = useStore((s) => {
     const session = s.rpc[tabId]?.session;
@@ -91,7 +89,7 @@ export function ComposerSheet({
   const queueChip = queueChipView(running, queued);
 
   return (
-    <Sheet open={open} placement="bottom" label={t("composer.options.title")} onClose={onClose}>
+    <Sheet open={open} placement="bottom" label="prompt options" onClose={onClose}>
       <div className="prompt-options space-y-4 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
         <div className="rounded-md border border-line bg-raised/60 p-1">
           <ComposerOptionsContent
@@ -118,14 +116,14 @@ export function ComposerSheet({
             ) : liveGateBlocked ? (
               // Keep the version-blocked control mounted with its upgrade hint.
               // A client without a microphone still hides it: newer omp cannot help.
-              <div className="flex min-h-11 items-center px-2 py-1.5" title={t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP })}>
+              <div className="flex min-h-11 items-center px-2 py-1.5" title={`this omp has no live voice — update omp to ${NATIVE_LIVE_MIN_OMP} or later`}>
                 <LiveVoiceControl tabId={tabId} layout="sheet" disabled startDisabled className="w-full" />
               </div>
             ) : null)}
             sessionExtras={queueChip && (
               <div className="space-y-2 px-2 py-1.5">
                 <div className="flex min-h-11 items-center">
-                  <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>
+                  <Chip mono tone="copper" title={running ? "messages waiting for the current turn to finish" : "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups"}>{running ? `queued: ${queued}` : `parked: ${queued}`}</Chip>
                 </div>
                 {queueListed && (
                   <div className="rounded-md border border-line bg-void/35 p-3">
@@ -137,7 +135,7 @@ export function ComposerSheet({
           />
         </div>
         <Button disabled={unavailable} onClick={onStash} className="min-h-11 w-full justify-center">
-          {stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
+          {stash === "pick" ? "stashed drafts" : "stash draft"}
         </Button>
         <ComposerActions
           layout="sheet"

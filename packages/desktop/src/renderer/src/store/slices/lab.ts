@@ -15,7 +15,6 @@ import {
   NEW_SEGMENT_PROMPT,
 } from "../../lib/experiment-kickoff";
 import { linkedExperiment } from "../../lib/experiment-link";
-import { t } from "../../lib/i18n";
 import { projectKey, splitProjectKey } from "../../lib/project-key";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
 import { bumpNavigationGeneration, findRecord, focusOn } from "./view";
@@ -222,11 +221,11 @@ export function createLabSlice(
   const controllable = (tabId: string): boolean => {
     const record = findRecord(get().state, tabId);
     if (record?.live !== "live") {
-      get().reportError(new Error(t("lab.error.notLive")));
+      get().reportError(new Error("the experiment's session is not running"));
       return false;
     }
     if (record.mode !== "rpc-ui") {
-      get().reportError(new Error(t("lab.error.notNative")));
+      get().reportError(new Error("autoresearch controls need a native session"));
       return false;
     }
     return true;
@@ -327,7 +326,7 @@ export function createLabSlice(
       if (inTab !== undefined) {
         const unavailable = get().rpc[inTab]?.autoresearch?.proposeUnavailable ?? null;
         if (unavailable !== null) {
-          get().reportError(new Error(t("experiment.interview.unavailable", { reason: unavailable })));
+          get().reportError(new Error(`This session's omp-ui bridge could not mount propose_experiment: ${unavailable}. Use the New experiment form instead.`));
           return;
         }
         await get().sendPrompt(inTab, experimentInterviewPrompt(description), "prompt");

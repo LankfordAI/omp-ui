@@ -6,7 +6,6 @@ import {
   type PromptSchedule,
 } from "@omp-ui/core/scheduled-prompt";
 import type { RoutinePostScriptStatus, RoutineRunOutcome, RoutineRunReasonCode, RoutineRunRow } from "@omp-ui/core/routine";
-import { localeTag, t, type MessageKey } from "../../lib/i18n";
 import { formatSnoozeUntil } from "../../lib/snooze-until";
 import type { Tone } from "../ui";
 
@@ -56,31 +55,31 @@ export function buildSchedule(draft: ScheduleDraft): PromptSchedule | null {
 
 export function weekdayName(day: number): string {
   // 2026-11-01 is a Sunday: day 0 lands on it.
-  return new Intl.DateTimeFormat(localeTag(), { weekday: "short" }).format(new Date(2026, 10, 1 + day));
+  return new Intl.DateTimeFormat("en", { weekday: "short" }).format(new Date(2026, 10, 1 + day));
 }
 
 /** The list row's schedule summary: preset words when the cron spells one, else the expression. */
 export function describeSchedule(schedule: PromptSchedule): string {
   if (schedule.kind !== "cron") return "";
   const preset = cronPreset(schedule.expr);
-  if (preset === null) return t("routines.schedule.cron", { expr: schedule.expr });
+  if (preset === null) return `Cron: ${schedule.expr}`;
   const time = `${pad(preset.hour)}:${pad(preset.minute)}`;
-  if (preset.kind === "daily") return t("routines.schedule.daily", { time });
-  if (preset.kind === "weekdays") return t("routines.schedule.weekdays", { time });
-  return t("routines.schedule.weekly", { day: weekdayName(preset.weekday), time });
+  if (preset.kind === "daily") return `Daily at ${time}`;
+  if (preset.kind === "weekdays") return `Weekdays at ${time}`;
+  return `${weekdayName(preset.weekday)} at ${time}`;
 }
 
 export function formatWhen(ms: number): string {
-  return formatSnoozeUntil(ms, new Date(), localeTag());
+  return formatSnoozeUntil(ms, new Date());
 }
 
-export const OUTCOME_LABEL: Record<RoutineRunOutcome, MessageKey> = {
-  running: "routines.outcome.running",
-  "waiting-approval": "routines.outcome.waitingApproval",
-  "on-time": "routines.outcome.onTime",
-  late: "routines.outcome.late",
-  skipped: "routines.outcome.skipped",
-  failed: "routines.outcome.failed",
+export const OUTCOME_LABEL: Record<RoutineRunOutcome, string> = {
+  running: "Running",
+  "waiting-approval": "Waiting on approval",
+  "on-time": "On time",
+  late: "Late",
+  skipped: "Skipped",
+  failed: "Failed",
 };
 
 export const OUTCOME_TONE: Record<RoutineRunOutcome, Tone> = {
@@ -92,26 +91,26 @@ export const OUTCOME_TONE: Record<RoutineRunOutcome, Tone> = {
   failed: "rose",
 };
 
-export const REASON_LABEL: Record<RoutineRunReasonCode, MessageKey> = {
-  overlap: "routines.reason.overlap",
-  "host-lane-busy": "routines.reason.hostLaneBusy",
-  "cost-cap": "routines.reason.costCap",
-  "wall-clock": "routines.reason.wallClock",
-  "usage-limit": "routines.reason.usageLimit",
-  "approval-timeout": "routines.reason.approvalTimeout",
-  "dispatch-failed": "routines.reason.dispatchFailed",
-  "project-missing": "routines.reason.projectMissing",
-  interrupted: "routines.reason.interrupted",
-  error: "routines.reason.error",
-  "pre-script": "routines.reason.preScript",
-  "pre-script-skip": "routines.reason.preScriptSkip",
+export const REASON_LABEL: Record<RoutineRunReasonCode, string> = {
+  overlap: "Previous run still open",
+  "host-lane-busy": "Another routine was running",
+  "cost-cap": "Stopped at spend cap",
+  "wall-clock": "Timed out (wall-clock limit reached)",
+  "usage-limit": "Provider usage limit reached",
+  "approval-timeout": "Approval timed out (auto-denied at 24 h)",
+  "dispatch-failed": "Could not start session",
+  "project-missing": "Destination project unavailable",
+  interrupted: "Interrupted when app quit",
+  error: "Ended with error",
+  "pre-script": "Pre-run script failed",
+  "pre-script-skip": "Pre-run script reported nothing to do",
 };
 
-export const POST_SCRIPT_LABEL: Record<RoutinePostScriptStatus, MessageKey> = {
-  ok: "routines.postScript.ok",
-  failed: "routines.postScript.failed",
-  timeout: "routines.postScript.timeout",
-  interrupted: "routines.postScript.interrupted",
+export const POST_SCRIPT_LABEL: Record<RoutinePostScriptStatus, string> = {
+  ok: "Post hook ok",
+  failed: "Post hook failed",
+  timeout: "Post hook timed out",
+  interrupted: "Post hook skipped",
 };
 
 export const POST_SCRIPT_TONE: Record<RoutinePostScriptStatus, Tone> = {
@@ -132,10 +131,10 @@ export function formatUsd(value: number): string {
 
 /** Formats a resolved routine timeout in minutes (0 = unlimited). */
 export function formatTimeout(minutes: number): string {
-  if (minutes === 0) return t("routines.timeout.unlimited");
-  if (minutes < 60) return t("routines.timeout.minutes", { m: minutes });
+  if (minutes === 0) return "Unlimited";
+  if (minutes < 60) return `${minutes} min`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (m === 0) return t("routines.timeout.hours", { h });
-  return t("routines.timeout.hoursMinutes", { h, m });
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
 }

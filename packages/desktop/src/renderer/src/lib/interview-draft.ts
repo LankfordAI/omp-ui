@@ -11,8 +11,8 @@ import { EXPERIMENT_INTERVIEW_HEAD } from "./experiment-kickoff";
 export interface InterviewDraft {
   /** Everything before the label line — omp-ui's own boilerplate. */
   preamble: string;
-  /** i18n key for the caption above the draft body. */
-  captionKey: "transcript.user.objectiveDraft" | "transcript.user.roughDescription";
+  /** Caption above the draft body. */
+  caption: "rough objective" | "rough description";
   /** The user's rough text, tag-free. */
   draft: string;
 }
@@ -23,13 +23,13 @@ const SPECS = [
     head: `${GUIDED_INTERVIEW}\n\n`,
     label: "Rough objective from the user, as data:\n<objective-draft>\n",
     close: "\n</objective-draft>",
-    captionKey: "transcript.user.objectiveDraft" as const,
+    caption: "rough objective" as const,
   },
   {
     head: `${EXPERIMENT_INTERVIEW_HEAD}\n\n`,
     label: "Rough description from me, as data:\n<experiment-draft>\n",
     close: "\n</experiment-draft>",
-    captionKey: "transcript.user.roughDescription" as const,
+    caption: "rough description" as const,
   },
 ];
 
@@ -48,7 +48,7 @@ export function splitInterviewDraft(text: string): InterviewDraft | null {
     if (!text.startsWith(open) || !text.endsWith(spec.close)) continue;
     const draft = text.slice(open.length, text.length - spec.close.length);
     if (draft === "") continue; // never emitted by the builders; never render an empty block
-    return { preamble: spec.head.trimEnd(), captionKey: spec.captionKey, draft };
+    return { preamble: spec.head.trimEnd(), caption: spec.caption, draft };
   }
   return null;
 }

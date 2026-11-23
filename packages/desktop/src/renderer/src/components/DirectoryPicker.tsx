@@ -3,8 +3,6 @@ import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
-import { useT } from "../lib/i18n";
-import type { MessageKey } from "../lib/i18n/types";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
@@ -59,36 +57,35 @@ export interface DirectoryPickerProps {
 /** Per-mode copy; the `vault` flag in the component only drives the `.obsidian` probe. */
 const PICKER_COPY: Record<
   DirectoryPickerProps["mode"],
-  { placeholder: string; pathLabel: MessageKey; willAdd: MessageKey; add: MessageKey }
+  { placeholder: string; pathLabel: string; willAdd: string; add: string }
 > = {
   project: {
     placeholder: "~/path/to/project",
-    pathLabel: "project.picker.pathLabel",
-    willAdd: "project.picker.willAdd",
-    add: "project.picker.addProject",
+    pathLabel: "project directory path",
+    willAdd: "will add:",
+    add: "Add project",
   },
   vault: {
     placeholder: "~/path/to/vault",
-    pathLabel: "settings.vault.pickerPath",
-    willAdd: "settings.vault.pickerWillAdd",
-    add: "settings.vault.pickerAdd",
+    pathLabel: "vault folder path",
+    willAdd: "Will add:",
+    add: "Add vault",
   },
   folder: {
     placeholder: "~/path/to/folder",
-    pathLabel: "settings.omp.restrictedFoldersPickerPath",
-    willAdd: "settings.omp.restrictedFoldersPickerWillAdd",
-    add: "settings.omp.restrictedFoldersPickerAdd",
+    pathLabel: "restricted folder path",
+    willAdd: "Will restrict:",
+    add: "Restrict folder",
   },
   "clone-parent": {
     placeholder: "~/path/to/folder",
-    pathLabel: "dialog.projectRequest.pickerPath",
-    willAdd: "dialog.projectRequest.pickerWillSave",
-    add: "dialog.projectRequest.pickerChoose",
+    pathLabel: "folder to save the clone in",
+    willAdd: "Will save in:",
+    add: "Save here",
   },
 };
 
 export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }: DirectoryPickerProps) {
-  const t = useT();
   const compact = useCompactShell();
   const vault = mode === "vault";
   const copy = PICKER_COPY[mode];
@@ -289,7 +286,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
           value={query}
           spellCheck={false}
           placeholder={copy.placeholder}
-          aria-label={t(copy.pathLabel)}
+          aria-label={copy.pathLabel}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleInputKey}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
@@ -299,12 +296,12 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
 
       <PaletteList>
         {browseError === "invalid" && (
-          <PaletteEmpty title={t("project.picker.typePath")} hint={t("project.picker.pathHint")} />
+          <PaletteEmpty title="Type a path" hint="Start with ~/ or an absolute /path." />
         )}
-        {browseError === "missing" && <PaletteEmpty title={t("project.picker.missing")} hint={parentPath} />}
-        {browseError === "denied" && <PaletteEmpty title={t("project.picker.denied")} hint={parentPath} />}
+        {browseError === "missing" && <PaletteEmpty title="No such directory" hint={parentPath} />}
+        {browseError === "denied" && <PaletteEmpty title="Permission denied" hint={parentPath} />}
         {browseError === null && rows.length === 0 && (
-          <PaletteEmpty title={t("project.picker.noMatches")} hint={t("project.picker.enterHint")} />
+          <PaletteEmpty title="No matching directories" hint="Enter adds the path shown below." />
         )}
         {rows.map((row, i) => (
           <button
@@ -354,27 +351,27 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
       <div className="border-t border-line px-3.5 py-2">
         <div className="flex items-center gap-3">
           <p className="min-w-0 flex-1 truncate text-xs text-ink-dim">
-            {t(copy.willAdd)}{" "}
+            {copy.willAdd}{" "}
             <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
           </p>
           {vault && obsidianCheck !== null && obsidianCheck.path === resolvedPath && (obsidianCheck.found ? (
-            <Chip tone="signal" mono>{t("settings.vault.obsidianFound")}</Chip>
+            <Chip tone="signal" mono>.obsidian/ found</Chip>
           ) : (
-            <Chip tone="copper">{t("settings.vault.notVaultYet")}</Chip>
+            <Chip tone="copper">not a vault yet</Chip>
           ))}
           <Button variant="solid" disabled={!resolvedPath || browseError !== null} onClick={() => submit(resolvedPath)}>
-            {t(copy.add)}
+            {copy.add}
           </Button>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
           <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
-          <span>{t("project.picker.navigate")}</span>
+          <span>navigate</span>
           <span className="font-mono">{formatHotkey("enter")}</span>
-          <span>{t("project.picker.openAdd")}</span>
+          <span>open/add</span>
           <span className="font-mono">{formatHotkey("tab")}</span>
-          <span>{t("project.picker.open")}</span>
+          <span>open/complete</span>
           <span className="font-mono">{formatHotkey("mod+enter")}</span>
-          <span>{t("project.picker.addTypedPath")}</span>
+          <span>add typed path</span>
         </div>
       </div>
     </Modal>

@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useStore } from "../store";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { useSettleUndoHotkey } from "../lib/use-settle-undo-hotkey";
-import { useT } from "../lib/i18n";
 import { Button, UpdateCard } from "./ui";
 
 /** How long the Undo toast stays; Mod+Z keeps working after it closes. */
@@ -14,7 +13,6 @@ export const SETTLE_TOAST_MS = 8000;
  * Closing it never forfeits the undo — `Mod+Z` still reaches the entry.
  */
 export function SettleToast() {
-  const t = useT();
   useSettleUndoHotkey();
   const undoLabel = useKeybindingLabel("undoSettle");
   const entry = useStore((s) =>
@@ -28,20 +26,20 @@ export function SettleToast() {
   const n = entry.sessions.length;
   return (
     // key: a newer settle restarts the auto-dismiss window.
-    <UpdateCard key={entry.id} dismissLabel={t("update.card.dismiss")} onDismiss={onDismiss} autoDismissMs={SETTLE_TOAST_MS}>
+    <UpdateCard key={entry.id} dismissLabel="dismiss" onDismiss={onDismiss} autoDismissMs={SETTLE_TOAST_MS}>
       <div role="status" className="min-w-0">
         <p className="truncate text-sm font-medium text-ink">
           {entry.cause === "merged"
             ? n === 1
-              ? t("settle.toast.mergedOne", { title: entry.sessions[0]!.title })
-              : t("settle.toast.mergedMany", { n })
+              ? `Pull request merged: settled ${entry.sessions[0]!.title}`
+              : `Pull requests merged: settled ${n} sessions`
             : n === 1
-              ? t("settle.toast.one", { title: entry.sessions[0]!.title })
-              : t("settle.toast.many", { n })}
+              ? `Settled ${entry.sessions[0]!.title}`
+              : `Settled ${n} sessions`}
         </p>
         <div className="mt-2 flex items-center gap-2">
           <Button variant="outline" size="xs" onClick={() => void undoSettle()}>
-            {t("settle.toast.undo")}
+            Undo
           </Button>
           <span className="font-mono text-xs text-ink-faint">{undoLabel}</span>
         </div>

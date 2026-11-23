@@ -14,7 +14,6 @@ import {
   type BtwTurnStatus,
 } from "@omp-ui/core/side-questions";
 import { relativeTime } from "../lib/format";
-import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { supportsBtwInject } from "../lib/btw-inject";
 import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../lib/native-btw";
@@ -45,19 +44,12 @@ const STATUS_TONE: Record<BtwTurnStatus, Tone> = {
   interrupted: "neutral",
 };
 
-const STATUS_LABEL_KEY: Record<
-  BtwTurnStatus,
-  | "rail.btw.statusRunning"
-  | "rail.btw.statusComplete"
-  | "rail.btw.statusCancelled"
-  | "rail.btw.statusError"
-  | "rail.btw.statusInterrupted"
-> = {
-  running: "rail.btw.statusRunning",
-  complete: "rail.btw.statusComplete",
-  cancelled: "rail.btw.statusCancelled",
-  error: "rail.btw.statusError",
-  interrupted: "rail.btw.statusInterrupted",
+const STATUS_LABEL: Record<BtwTurnStatus, string> = {
+  running: "running",
+  complete: "answered",
+  cancelled: "cancelled",
+  error: "error",
+  interrupted: "interrupted",
 };
 
 const ANSWER_CLASS = "text-xs leading-relaxed text-ink-mid";
@@ -100,15 +92,14 @@ function AskBox({
 }
 
 function TurnImages({ images }: { images: readonly BtwImage[] }) {
-  const t = useT();
   const viewerImages = useMemo(
     () =>
       images.map((im, n) => ({
         src: `data:${im.mimeType};base64,${im.data}`,
         mimeType: im.mimeType,
-        label: t("transcript.image.alt", { n: n + 1 }),
+        label: `attached image ${n + 1}`,
       })),
-    [images, t],
+    [images],
   );
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -119,17 +110,13 @@ function TurnImages({ images }: { images: readonly BtwImage[] }) {
           key={i}
           type="button"
           className="block cursor-zoom-in rounded border-0 p-0"
-          title={t("transcript.image.title", {
-            mimeType: image.mimeType,
-            n: i + 1,
-            count: images.length,
-          })}
-          aria-label={t("image.viewer.open", { n: i + 1 })}
+          title={`${image.mimeType} — image ${i + 1} of ${images.length}`}
+          aria-label={`enlarge image ${i + 1}`}
           onClick={() => openImageViewer(viewerImages, i)}
         >
           <img
             src={`data:${image.mimeType};base64,${image.data}`}
-            alt={t("transcript.image.alt", { n: i + 1 })}
+            alt={`attached image ${i + 1}`}
             className="max-h-24 rounded border border-line-strong bg-sunken object-contain"
           />
         </button>
@@ -156,7 +143,6 @@ function InjectBlock({
   parts: BtwInjectParts;
   sendable: boolean;
 }) {
-  const t = useT();
   const mark = useStore((s) =>
     turnKey === undefined ? undefined : s.sideQuestionInjects[tabId]?.[turnKey],
   );
@@ -191,19 +177,19 @@ function InjectBlock({
       {(mark !== undefined || (sendable && text !== "")) && (
         <div className="space-y-0.5">
           {mark === "injected" ? (
-            <span className="text-xs text-signal">{`\u2197 ${t("rail.btw.injected")}`}</span>
+            <span className="text-xs text-signal">{`\u2197 ${"injected into main session"}`}</span>
           ) : mark === "sending" ? (
             <Button size="xs" variant="outline" disabled>
-              {t("rail.btw.injecting")}
+              sending…
             </Button>
           ) : (
             <Button size="xs" variant="outline" onClick={send}>
-              {t("rail.btw.injectAction")}
+              inject into main session
             </Button>
           )}
           {failed && (
             <p role="alert" className="text-xs text-rose">
-              {t("rail.btw.injectFailed")}
+              The steering prompt was not sent — try again.
             </p>
           )}
         </div>
@@ -263,8 +249,7 @@ function TopicCard({
   tabId: string;
   injectGate: boolean;
 }) {
-  const t = useT();
-  const label = t(STATUS_LABEL_KEY[topic.status]);
+  const label = STATUS_LABEL[topic.status];
   return (
     <div className="overflow-hidden rounded-md border border-line bg-raised">
       <button
@@ -281,7 +266,7 @@ function TopicCard({
           </span>
           {topic.turns.length > 1 && (
             <span className="text-xs text-ink-faint">
-              {t("rail.btw.turnCount", { count: topic.turns.length })}
+              {`${topic.turns.length} turns`}
             </span>
           )}
         </span>
@@ -303,7 +288,7 @@ function TopicCard({
                   sendable: index === topic.turns.length - 1 && turn.status === "complete",
                 })}
               {turn.status === "running" && turn.answer === "" && (
-                <p className="text-xs text-ink-faint">{t("rail.btw.thinking")}</p>
+                <p className="text-xs text-ink-faint">answering…</p>
               )}
               {turn.error !== undefined && (
                 <p role="alert" className="text-xs text-rose">
@@ -313,8 +298,8 @@ function TopicCard({
             </div>
           ))}
           <AskBox
-            placeholder={t("rail.btw.followUpPlaceholder")}
-            buttonLabel={t("rail.btw.followUp")}
+            placeholder="Ask a follow-up…"
+            buttonLabel="follow up"
             disabled={followUpDisabled || topic.status === "running"}
             onSubmit={onFollowUp}
           />
@@ -325,7 +310,6 @@ function TopicCard({
 }
 
 export function SideQuestionsPane({ tabId }: { tabId: string }) {
-  const t = useT();
   const snapshot = useStore((s) => s.rpc[tabId]?.sideQuestions) ?? null;
   const native = useStore((s) =>
     supportsNativeBtw(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
@@ -365,13 +349,13 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
       <div className="flex items-start gap-1.5">
         <div className="min-w-0 flex-1">
           <AskBox
-            placeholder={t("rail.btw.askPlaceholder")}
-            buttonLabel={t("rail.btw.ask")}
+            placeholder="Ask a side question…"
+            buttonLabel="Ask"
             disabled={busy || unavailable}
             onSubmit={(question) => void askSideQuestion(tabId, question)}
           />
         </div>
-        <IconButton label={t("rail.btw.refreshLabel")} onClick={() => void refreshSideQuestions(tabId)}>
+        <IconButton label="reload side questions" onClick={() => void refreshSideQuestions(tabId)}>
           <IconRefresh />
         </IconButton>
       </div>
@@ -383,8 +367,8 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
               the generic line. */}
           {snapshot?.unavailableReason ??
             (native
-              ? t("rail.btw.unavailable")
-              : t("rail.btw.needsNewerOmp", { version: NATIVE_BTW_MIN_OMP }))}
+              ? "This omp cannot answer side questions natively."
+              : `this omp has no side questions — update omp to ${NATIVE_BTW_MIN_OMP} or later`)}
         </p>
       )}
       {snapshot?.busy !== undefined && (
@@ -398,11 +382,11 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
           <div className="flex items-start gap-1.5">
             <span className="min-w-0 flex-1 text-xs leading-snug text-ink">{activeTitle ?? active.question}</span>
             <Button size="xs" variant="outline" tone="rose" onClick={() => void cancelSideQuestion(tabId)}>
-              {t("rail.btw.cancel")}
+              cancel
             </Button>
           </div>
           {active.answer === "" ? (
-            <p className="text-xs text-ink-faint">{t("rail.btw.thinking")}</p>
+            <p className="text-xs text-ink-faint">answering…</p>
           ) : (
             renderAnswer(active.answer, {
               tabId,
@@ -418,7 +402,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
       )}
 
       {topics.length === 0 && active === null ? (
-        !unavailable && <Empty title={t("rail.btw.emptyTitle")} hint={t("rail.btw.emptyHint")} />
+        !unavailable && <Empty title="No side questions yet" hint="Ask one above or type /btw followed by your question. Answers never enter the transcript." />
       ) : (
         <div className={cn("space-y-2")}>
           {topics

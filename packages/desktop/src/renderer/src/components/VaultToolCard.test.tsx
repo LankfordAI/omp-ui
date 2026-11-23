@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { obsidianOpenUri } from "@omp-ui/core/vault-shared";
-import { t } from "../lib/i18n";
 import { parseOmpDiff } from "../lib/omp-diff";
 import type { ToolItem } from "../lib/transcript";
 import { backendState, remoteOwnedState } from "../test/fixtures";
@@ -77,7 +76,7 @@ function render(item: ToolItem, tabId?: string): HTMLElement {
 }
 
 function openButton(host: HTMLElement): HTMLButtonElement | undefined {
-  return [...host.querySelectorAll("button")].find((b) => b.textContent === t("transcript.vault.openInObsidian"));
+  return [...host.querySelectorAll("button")].find((b) => b.textContent === "Open in Obsidian");
 }
 
 beforeEach(() => {
@@ -100,12 +99,12 @@ describe("VaultToolCard", () => {
     const text = host.textContent ?? "";
 
     expect(text).toContain("Card Lesson");
-    expect(text).toContain(t("transcript.vault.created"));
+    expect(text).toContain("Created");
     expect(text).toContain(`Notes · ${PATH}`);
     expect(text).toContain(STAMP.join(" · "));
     expect(text).toContain("Cards settle like any other tool.");
-    expect(text).not.toContain(t("transcript.vault.notCreated"));
-    expect(text).toContain(t("transcript.vault.openInObsidian"));
+    expect(text).not.toContain("Not created by omp-ui");
+    expect(text).toContain("Open in Obsidian");
     expect(openButton(host)).toBeDefined();
   });
 
@@ -125,10 +124,10 @@ describe("VaultToolCard", () => {
     );
     const text = host.textContent ?? "";
 
-    expect(text).toContain(t("transcript.vault.appended"));
+    expect(text).toContain("Appended");
     expect(text).toContain("An appended paragraph.");
     expect(text).toContain("Notes · Inbox/Hand Written.md");
-    expect(text).toContain(t("transcript.vault.notCreated"));
+    expect(text).toContain("Not created by omp-ui");
   });
 
   it("an edit of a stamped note renders the diff open without the Not created chip", () => {
@@ -149,9 +148,9 @@ describe("VaultToolCard", () => {
     );
     const text = host.textContent ?? "";
 
-    expect(text).toContain(t("transcript.vault.edited"));
+    expect(text).toContain("Edited");
     expect(text).toContain(`Notes · ${PATH}`);
-    expect(text).not.toContain(t("transcript.vault.notCreated"));
+    expect(text).not.toContain("Not created by omp-ui");
     const leaves = [...host.querySelectorAll("*")].filter((el) => el.children.length === 0);
     expect(leaves.some((el) => el.textContent === "new")).toBe(true);
   });
@@ -161,19 +160,19 @@ describe("VaultToolCard", () => {
       name: "omp-ui_vault_rename",
       vault: { vaultName: "Notes", vaultId: null, path: "omp-ui/proj/Moved.md", action: "rename", createdByOmpUi: true, title: "Moved", movedFrom: PATH },
     }));
-    expect(renamed.textContent ?? "").toContain(t("transcript.vault.renamed"));
+    expect(renamed.textContent ?? "").toContain("Moved");
 
     const deleted = render(tool({
       name: "omp-ui_vault_delete",
       vault: { vaultName: "Notes", vaultId: null, path: PATH, action: "delete", createdByOmpUi: true, title: "Card Lesson", deletedPath: PATH },
     }));
-    expect(deleted.textContent ?? "").toContain(t("transcript.vault.deleted"));
+    expect(deleted.textContent ?? "").toContain("Deleted");
 
     const mergedNew = render(tool({
       name: "omp-ui_vault_refactor",
       vault: { vaultName: "Notes", vaultId: null, path: "omp-ui/proj/Whole.md", action: "refactor", createdByOmpUi: true, title: "Whole", preview: "the consolidated body", deletedSources: [PATH] },
     }));
-    expect(mergedNew.textContent ?? "").toContain(t("transcript.vault.merged"));
+    expect(mergedNew.textContent ?? "").toContain("Merged");
     expect(mergedNew.textContent ?? "").toContain("the consolidated body");
 
     const diff = " 1|old\n-2|gone\n+2|whole";
@@ -182,7 +181,7 @@ describe("VaultToolCard", () => {
       diff: parseOmpDiff(diff),
       vault: { vaultName: "Notes", vaultId: null, path: PATH, action: "refactor", createdByOmpUi: true, title: "Card Lesson", diff, deletedSources: ["omp-ui/proj/Part.md"] },
     }));
-    expect(mergedEdit.textContent ?? "").toContain(t("transcript.vault.merged"));
+    expect(mergedEdit.textContent ?? "").toContain("Merged");
     expect(mergedEdit.textContent ?? "").toContain("whole");
   });
 
@@ -191,8 +190,8 @@ describe("VaultToolCard", () => {
     const text = host.textContent ?? "";
 
     expect(text).toContain("Pending Note");
-    expect(text).toContain(t("transcript.tool.running"));
-    expect(text).not.toContain(t("transcript.vault.openInObsidian"));
+    expect(text).toContain("running");
+    expect(text).not.toContain("Open in Obsidian");
     expect(openButton(host)).toBeUndefined();
   });
 
@@ -201,7 +200,7 @@ describe("VaultToolCard", () => {
     useStore.setState({ state: remoteOwnedState(TAB, INSTANCE) });
     const host = render(created, TAB);
     const button = openButton(host)!;
-    expect(button.title).toBe(t("transcript.vault.copyTitle"));
+    expect(button.title).toBe("Copies the obsidian:// link. Paste it on a machine that has this vault.");
 
     await act(async () => button.click());
 

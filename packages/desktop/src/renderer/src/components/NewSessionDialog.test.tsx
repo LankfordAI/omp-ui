@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetDispatchRequest, FleetHostProject, FleetMachine } from "@omp-ui/core/fleet";
 import type { BackendState, BranchList, SpawnRequest } from "@omp-ui/core/types";
-import { en } from "../lib/i18n/en";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -515,7 +514,7 @@ describe("NewSessionDialog (issue #900)", () => {
     });
     machines = [machine("local", null, [project("/p", "aaa")]), machine("inst-1", "box-a", [project("/remote/p", "bbb")])];
     await render();
-    const notice = en["dialog.newsession.commitsDiffer"];
+    const notice = "Machines are on different commits; each worktree starts from its own checkout.";
     await click(button("Multiple machines"));
     // Auto considers every machine with the repository.
     expect(document.body.textContent).toContain(notice);
@@ -548,7 +547,7 @@ describe("NewSessionDialog (issue #900)", () => {
     // The batch was partial: the dialog stays open and reports the failure.
     expect(useStore.getState().newSessionDialog).not.toBeNull();
     expect(useStore.getState().fleet).toBeNull();
-    const failed = en["dialog.newsession.failed"]
+    const failed = "{machine}: failed — {message}"
       .replace("{machine}", "box-a")
       .replace("{message}", "boom");
     const li = [...document.body.querySelectorAll<HTMLLIElement>("li")].find((row) =>
@@ -564,7 +563,7 @@ describe("NewSessionDialog (issue #900)", () => {
       newSessionDialog: { projectCwd: "/gone", instanceId: null, where: "here", workspace: "checkout" },
     });
     await render();
-    expect(document.body.textContent).toContain(en["dialog.newsession.noProjects"]);
+    expect(document.body.textContent).toContain("No project is registered yet.");
     expect(button("Start session").disabled).toBe(true);
   });
 });
@@ -661,7 +660,7 @@ describe("NewSessionDialog unified project view (issue #903)", () => {
 
     // Keyless repositories never merge: each is its own entry, grouped under the no-key label.
     const groups = [...projectSelect().querySelectorAll("optgroup")];
-    expect(groups.map((g) => g.label)).toEqual([en["dialog.newsession.noRepositoryKey"]]);
+    expect(groups.map((g) => g.label)).toEqual(["No repository key"]);
     expect(optionTexts(projectSelect())).toEqual(["p", "q"]);
 
     // The local keyless project registers on one host only.
@@ -762,7 +761,7 @@ describe("NewSessionDialog start in background (issue #982)", () => {
     const toastRoot = createRoot(host);
     await act(async () => toastRoot.render(<BackgroundSeedToast />));
     expect(host.textContent).toContain("its first prompt was not sent");
-    await click(button(en["dialog.newsession.backgroundOpen"]));
+    await click(button("Open session"));
     expect(useStore.getState().activeTabId).toBe("launch-1");
     expect(useStore.getState().backgroundSeedFailedTabId).toBeNull();
     act(() => toastRoot.unmount());
@@ -773,7 +772,7 @@ describe("NewSessionDialog start in background (issue #982)", () => {
       newSessionDialog: { projectCwd: null, instanceId: null, where: "here", workspace: "worktree" },
     });
     await render();
-    await click(button(en["dialog.newsession.plan"]));
+    await click(button("Plan"));
     const branchField = (): HTMLInputElement => document.body.querySelector<HTMLInputElement>("#newsession-branch")!;
     const first = branchField().value;
     await chord();

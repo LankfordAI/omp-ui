@@ -2,7 +2,6 @@
 // Every preflight refusal stays local; only a ready, advertised bridge runs.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CouncilInitializationStage, CouncilMember, SessionCouncilStatus } from "@omp-ui/core/types";
-import { t } from "../../lib/i18n";
 import { backendState, rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 
@@ -99,24 +98,26 @@ describe("/council in a native tab (ADR-0088)", () => {
     seed(true, [MEMBER]);
     await runLine("/council x");
     expect(getSessionCouncilStatus).toHaveBeenCalledWith(h.TAB);
-    expectRefusal(t("council.command.empty"), "council-settings");
+    expectRefusal("This session process started with no council members. Choose models in Council settings, then relaunch the session; Settings changes do not update this process.", "council-settings");
   });
 
   it("keeps empty-launch warnings with the relaunch guidance and settings action", async () => {
     seed(false, [MEMBER]);
     getSessionCouncilStatus.mockResolvedValue({ status: "empty", configWarnings: ["Member alpha has no model"] });
     await runLine("/council x");
-    expectRefusal(`${t("council.command.empty")}\nMember alpha has no model`, "council-settings");
+    expectRefusal(`${"This session process started with no council members. Choose models in Council settings, then relaunch the session; Settings changes do not update this process."}\nMember alpha has no model`, "council-settings");
   });
 
-  it.each<CouncilInitializationStage>(["resolve", "overlay", "snapshot", "extension"])("reports %s initialization failure instead of suggesting Settings or sending a prompt", async (stage) => {
+  it.each<[CouncilInitializationStage, string]>([
+    ["resolve", "roster resolution"],
+    ["overlay", "model-role overlay creation"],
+    ["snapshot", "launch snapshot creation"],
+    ["extension", "bridge extension creation"],
+  ])("reports %s initialization failure instead of suggesting Settings or sending a prompt", async (stage, stageLabel) => {
     seed(true, [MEMBER]);
     getSessionCouncilStatus.mockResolvedValue({ status: "unavailable", failure: { stage, message: "permission denied" } });
     await runLine("/council x");
-    expectRefusal(t("council.command.unavailable", {
-      stage: t(`council.command.stage.${stage}`),
-      cause: "permission denied",
-    }));
+    expectRefusal(`Council initialization failed during ${stageLabel}: permission denied`);
   });
 
   it("refuses while starting, then uses readiness without a Settings veto", async () => {
@@ -125,29 +126,29 @@ describe("/council in a native tab (ADR-0088)", () => {
       .mockResolvedValueOnce({ status: "starting" })
       .mockResolvedValueOnce({ status: "available", memberCount: 1 });
     await runLine("/council x");
-    expectRefusal(t("council.command.starting"));
+    expectRefusal("This session process is still starting. Wait until startup finishes, then try /council again.");
     await runLine("/council x");
     expect(allPrompts()).toEqual(["/council x"]);
     expect(commandRows().map(({ status }) => status)).toEqual(["failed", "done"]);
   });
 
   it.each([
-    ["disabled", "council.command.disabled"],
-    ["missing-session", "council.command.missingSession"],
-    ["not-live", "council.command.notLive"],
-    ["terminal", "council.command.terminal"],
-  ] as const)("distinguishes %s process state from current enabled Settings", async (status, key) => {
+    ["disabled", "This session process started with Council disabled. Enable Council in Settings, then relaunch the session."],
+    ["missing-session", "This session no longer exists. /council was not sent."],
+    ["not-live", "This session has no running process. Resume it before using /council."],
+    ["terminal", "This session process is running in terminal mode, so native /council dispatch is unavailable."],
+  ] as const)("distinguishes %s process state from current enabled Settings", async (status, expected) => {
     seed(true, [MEMBER]);
     getSessionCouncilStatus.mockResolvedValue({ status });
     await runLine("/council x");
-    expectRefusal(t(key));
+    expectRefusal(expected);
   });
 
   it("reports transport errors and never falls back to the advertised bridge or model", async () => {
     seed(true, [MEMBER]);
     getSessionCouncilStatus.mockRejectedValue(new Error("Unknown channel: session:council-status"));
     await runLine("/council x");
-    expectRefusal(t("council.command.queryFailed", { cause: "Unknown channel: session:council-status" }));
+    expectRefusal(`Could not read this session process's Council status: ${"Unknown channel: session:council-status"}`);
   });
 
   it.each([false, true])("refuses an available process without its advertised extension command (non-extension=%s)", async (nonExtension) => {
@@ -160,7 +161,7 @@ describe("/council in a native tab (ADR-0088)", () => {
       },
     });
     await runLine("/council x");
-    expectRefusal(t("council.command.missingBridge"));
+    expectRefusal("This session process did not advertise the Council bridge command. Relaunch the session before using /council.");
   });
 
   it("keeps a bare bridge ack running until its correlated prompt_result arrives", async () => {

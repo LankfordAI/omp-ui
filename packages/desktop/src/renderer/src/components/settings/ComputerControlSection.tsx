@@ -2,12 +2,16 @@ import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { COMPUTER_CONTROL_POLICY } from "@omp-ui/core/omp-settings-keys";
 import { useStore } from "../../store";
 import { supportsComputerControlPolicy } from "../../lib/computer-control";
-import { useT } from "../../lib/i18n";
 import { Chip, Label } from "../ui";
 import { FIELD, Row } from "./rows";
 
 type ControlChoice = "ask" | "allow" | "deny";
 const CHOICES: readonly ControlChoice[] = ["ask", "allow", "deny"];
+const CHOICE_LABEL: Record<ControlChoice, string> = {
+  ask: "ask",
+  allow: "allow",
+  deny: "deny",
+};
 
 /** omp's own reading of a policy entry: trimmed, lowercased, and anything but
  *  allow/deny — `prompt`, a typo, no entry, or no record — leaves the request asking. */
@@ -42,7 +46,6 @@ export function ComputerControlSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   const supported = useStore((s) => supportsComputerControlPolicy(s.ompUpdate.installedVersion));
   if (entry === undefined || !supported) return null;
 
@@ -62,16 +65,16 @@ export function ComputerControlSection({
 
   return (
     <section className="px-4 pt-3">
-      <Label>{t("settings.omp.computerControl")}</Label>
+      <Label>Computer control</Label>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.computerControlHint")}
+        How omp answers the computer tool's requests for foreground control of this machine's desktop (omp 18.14+). allow approves them without prompting — for a dedicated fleet member nobody is watching; deny refuses them without prompting; ask shows the approval prompt, and a session with no one to answer it gets no control. This does not grant computer access: the computer tool stays off until computer.enabled is on. Edits write the global layer and apply at the next request.
       </p>
       <div className="mt-1 divide-y divide-line-soft">
         <Row
           title={`${entry.key}["${COMPUTER_CONTROL_POLICY}"]`}
           hint={
             projectWins
-              ? t("settings.omp.computerControlProjectWins", { value: effectiveChoice })
+              ? `The focused project's .omp/config.yml sets its own tools.approval, so sessions there resolve to ${effectiveChoice}.`
               : undefined
           }
           badge={
@@ -91,7 +94,7 @@ export function ComputerControlSection({
           >
             {CHOICES.map((choice) => (
               <option key={choice} value={choice}>
-                {t(`settings.omp.computerControl.${choice}`)}
+                {CHOICE_LABEL[choice]}
               </option>
             ))}
           </select>

@@ -1,6 +1,5 @@
 import { goalOwnsSession } from "@omp-ui/core/goal";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { ChoiceCapsule } from "./ui";
 
@@ -18,7 +17,6 @@ export function BuildPlanControl({
   onSelected?: () => void;
   className?: string;
 }) {
-  const t = useT();
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
   const vibe = useStore((s) => s.rpc[tabId]?.vibe);
@@ -46,7 +44,7 @@ export function BuildPlanControl({
 
   return (
     <ChoiceCapsule
-      label={t("hud.mode.sessionMode")}
+      label="session mode"
       value={planEnabled ? "plan" : "build"}
       options={modes.map((mode) => {
         const target = mode === "plan";
@@ -61,13 +59,13 @@ export function BuildPlanControl({
             (target && vibeBlocksPlan),
           title: target
             ? unavailable !== undefined
-              ? t("hud.mode.planUnavailable", { unavailable })
+              ? `plan mode unavailable: ${unavailable}`
               : goalBlocksPlan
-                ? t("hud.mode.planGoalBlocked")
+                ? "drop the current goal before entering plan mode"
                 : vibeBlocksPlan
-                  ? t("hud.mode.planVibeBlocked")
-                  : t("hud.mode.planDescription")
-            : t("hud.mode.buildDescription"),
+                  ? "exit vibe mode before entering plan mode"
+                  : "plan mode: read-only exploration — a plan is drafted and reviewed only when you ask"
+            : "build mode — working-tree writes and state-changing commands are allowed.",
           className: sheet ? "flex-1 justify-center" : "text-xs",
           selectedClassName: alternate ? "bg-iris-wash text-iris font-semibold" : "bg-hover text-ink font-semibold",
           unselectedClassName: "text-ink-faint",

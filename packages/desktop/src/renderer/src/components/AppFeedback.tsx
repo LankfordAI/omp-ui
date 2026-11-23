@@ -1,6 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
 import { LOCAL_MACHINE_KEY } from "@omp-ui/core/fleet";
-import { useT, type MessageKey } from "../lib/i18n";
 import type { LifecycleConfirmation } from "../store";
 import { useStore } from "../store";
 import { Button, ConfirmDialog, type Tone } from "./ui";
@@ -17,20 +16,19 @@ import { Button, ConfirmDialog, type Tone } from "./ui";
  * effects live in the lifecycle slice, keyed by confirmation id.
  */
 
-const MODE_LABEL: Record<"pty" | "rpc-ui", MessageKey> = {
-  pty: "dialog.lifecycle.terminal",
-  "rpc-ui": "dialog.lifecycle.native",
+const MODE_LABEL: Record<"pty" | "rpc-ui", string> = {
+  pty: "terminal",
+  "rpc-ui": "native",
 };
 
 /** A fleet machine's display name across the three version-update gates:
  *  nickname, else raw key — "This computer" for the local arm (the same rule
  *  ProviderKeyRolloutDialog applies). */
 function fleetMachineLabel(
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
   machineKey: string,
   nickname: string | null,
 ): string {
-  return machineKey === LOCAL_MACHINE_KEY ? t("fleet.machine.thisComputer") : nickname ?? machineKey;
+  return machineKey === LOCAL_MACHINE_KEY ? "This computer" : nickname ?? machineKey;
 }
 
 /** Whether a member joins over HTTPS — the rollout gate's transport rule
@@ -44,7 +42,6 @@ function fleetJoinEncrypted(machineKey: string): boolean {
 
 /** Copy and tone per confirmation discriminant; copper action, rose removal. */
 function lifecycleCopy(
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
   confirmation: LifecycleConfirmation,
 ): {
   tone: Tone;
@@ -59,20 +56,20 @@ function lifecycleCopy(
       const n = confirmation.runningTitles.length;
       const action =
         confirmation.tabIds.length === 1
-          ? t("dialog.lifecycle.settleRunningAction")
-          : t("dialog.lifecycle.settleRunningManyAction", { n: confirmation.tabIds.length });
+          ? "Settle"
+          : `Settle ${confirmation.tabIds.length} sessions`;
       return n === 1
         ? {
             tone: "copper",
-            title: t("dialog.lifecycle.settleRunningTitle"),
-            body: t("dialog.lifecycle.settleRunningBody"),
+            title: "Interrupt the running turn?",
+            body: "Settling stops the session's process now and interrupts the turn in progress. The session moves to Settled and stays resumable; Undo resumes it.",
             action,
             target: confirmation.runningTitles[0]!,
           }
         : {
             tone: "copper",
-            title: t("dialog.lifecycle.settleRunningManyTitle", { n }),
-            body: t("dialog.lifecycle.settleRunningManyBody", { titles: confirmation.runningTitles.join("\n") }),
+            title: `Interrupt ${n} running turns?`,
+            body: `Settling stops these sessions' processes now and interrupts their turns in progress. Each moves to Settled and stays resumable; Undo resumes them.\n\n${confirmation.runningTitles.join("\n")}`,
             action,
             target: null,
           };
@@ -80,45 +77,39 @@ function lifecycleCopy(
     case "switch-mode":
       return {
         tone: "copper",
-        title: t("dialog.lifecycle.switchTitle"),
-        body: t("dialog.lifecycle.switchBody", {
-          mode: t(MODE_LABEL[confirmation.mode]),
-        }),
-        action: t("dialog.lifecycle.switchAction"),
+        title: "Switch session mode?",
+        body: `Restart this session in ${MODE_LABEL[confirmation.mode]} mode? The process is killed and resumed.`,
+        action: "Restart session",
         target: confirmation.title,
       };
     case "remove-project":
       return {
         tone: "rose",
-        title: t("dialog.lifecycle.removeTitle"),
+        title: "Remove project?",
         // The interpolated path is verbatim; the dialog body wraps it.
-        body: t("dialog.lifecycle.removeBody", { path: confirmation.projectPath }),
-        action: t("dialog.lifecycle.removeAction"),
+        body: `Remove project ${confirmation.projectPath} and its session records? Files on disk are kept.`,
+        action: "Remove project",
         // The full path is in the body; no separate title line.
         target: null,
       };
     case "remove-remote-instance":
       return {
         tone: "rose",
-        title: t("remoteinstances.action.remove"),
-        body: t("remoteinstances.confirm.remove", { nickname: confirmation.nickname }),
-        action: t("remoteinstances.action.remove"),
+        title: "Remove",
+        body: `Remove ${confirmation.nickname}? Its sessions keep running on that host; only this app forgets the connection.`,
+        action: "Remove",
         target: null,
       };
     case "resume-forked-source":
       // CONTEXT.md **Fork**: the default is the running fork (third button).
       return {
         tone: "copper",
-        title: t("dialog.lifecycle.forkedSourceTitle"),
+        title: "Resume the original session?",
         body:
           confirmation.otherForks === 0
-            ? t("dialog.lifecycle.forkedSourceBody", { title: confirmation.title, fork: confirmation.forkTitle })
-            : t("dialog.lifecycle.forkedSourceBodyMany", {
-                title: confirmation.title,
-                fork: confirmation.forkTitle,
-                n: confirmation.otherForks,
-              }),
-        action: t("dialog.lifecycle.forkedSourceAction"),
+            ? `“${confirmation.title}” was forked into “${confirmation.forkTitle}”, which is running. Resuming the original starts a second session from the same history.`
+            : `“${confirmation.title}” was forked into “${confirmation.forkTitle}” and ${confirmation.otherForks} other running sessions. Resuming the original starts another session from the same history.`,
+        action: "Resume original",
         target: null,
       };
     case "rewind":
@@ -126,26 +117,26 @@ function lifecycleCopy(
       // story (issue #680): no session title — the tab is the target.
       return {
         tone: "copper",
-        title: t("dialog.lifecycle.rewindTitle"),
-        body: t("dialog.lifecycle.rewindBody", { count: confirmation.laterTurns }),
-        action: t("dialog.lifecycle.rewindAction"),
+        title: "Rewind to this prompt?",
+        body: `Rewind the session to this prompt? ${confirmation.laterTurns} later turns stop being the current branch — they stay in the session file as another branch.`,
+        action: "Rewind",
         target: null,
       };
     case "fork":
       // The tab is the subject, like rewind (issue #717): no target line.
       return {
         tone: "copper",
-        title: t("dialog.lifecycle.forkTitle"),
-        body: t("dialog.lifecycle.forkBody", { count: confirmation.laterTurns }),
-        action: t("dialog.lifecycle.forkAction"),
+        title: "Fork from this prompt?",
+        body: `Continue this tab in a new session cut at this prompt? The new file holds everything up to and including it — ${confirmation.laterTurns} later turns stop being this session's branch and stay in the original file, which remains on disk.`,
+        action: "Fork",
         target: null,
       };
     case "navigate":
       return {
         tone: "copper",
-        title: t("dialog.lifecycle.navigateTitle"),
-        body: t("dialog.lifecycle.navigateBody", { count: confirmation.laterTurns }),
-        action: t("dialog.lifecycle.navigateAction"),
+        title: "Navigate the tree here?",
+        body: `Move the session's leaf to this entry? ${confirmation.laterTurns} later turns stop being the current branch — they stay in the session file as another branch.`,
+        action: "Navigate",
         target: null,
       };
     case "carry-auth":
@@ -154,9 +145,9 @@ function lifecycleCopy(
       // user-named file; the two instance arms name the peer.
       return {
         tone: "rose",
-        title: t("dialog.lifecycle.carry-auth.title"),
-        body: t("dialog.lifecycle.carry-auth.body", { target: confirmation.targetLabel }),
-        action: t("dialog.lifecycle.carry-auth.action"),
+        title: "Carry credentials?",
+        body: `This writes every stored API key and login token in plaintext — to ${confirmation.targetLabel}. Nothing is removed from this machine. Continue?`,
+        action: "Carry sign-ins",
         target: null,
       };
     case "rollout-keys":
@@ -164,42 +155,31 @@ function lifecycleCopy(
       // whether the join transport is encrypted.
       return {
         tone: "rose",
-        title: t("dialog.lifecycle.rollout-keys.title"),
-        body: t(
-          confirmation.envNames.length === 1
-            ? confirmation.encrypted
-              ? "dialog.lifecycle.rollout-keys.body.one"
-              : "dialog.lifecycle.rollout-keys.bodyPlain.one"
-            : confirmation.encrypted
-              ? "dialog.lifecycle.rollout-keys.body"
-              : "dialog.lifecycle.rollout-keys.bodyPlain",
-          { count: confirmation.envNames.length, target: confirmation.targetLabel },
-        ),
-        action: t("dialog.lifecycle.rollout-keys.action"),
+        title: "Roll out Provider keys?",
+        body: confirmation.envNames.length === 1 ? confirmation.encrypted ? `This sends 1 Provider key from this computer to ${confirmation.targetLabel} over HTTPS, where it is stored in its OS credential store and replaces any stored value with the same name. Sessions already running there keep their old key until restarted. Continue?` : `This sends 1 Provider key from this computer to ${confirmation.targetLabel} over an unencrypted HTTP connection, where it is stored in its OS credential store and replaces any stored value with the same name. Sessions already running there keep their old key until restarted. Continue?` : confirmation.encrypted ? `This sends ${confirmation.envNames.length} Provider keys from this computer to ${confirmation.targetLabel} over HTTPS, where they are stored in its OS credential store and replace any stored value with the same name. Sessions already running there keep their old keys until restarted. Continue?` : `This sends ${confirmation.envNames.length} Provider keys from this computer to ${confirmation.targetLabel} over an unencrypted HTTP connection, where they are stored in its OS credential store and replace any stored value with the same name. Sessions already running there keep their old keys until restarted. Continue?`,
+        action: "Roll out keys",
         target: null,
       };
     case "copy-project": {
       // The Project copy gate (#992): the project, the member, and — when
       // gitignored files ride along — their count and the join transport.
       const count = confirmation.files.length;
-      const args = { name: confirmation.projectName, target: confirmation.targetLabel, count };
+      const name = confirmation.projectName;
+      const target = confirmation.targetLabel;
       return {
         tone: count === 0 ? "copper" : "rose",
-        title: t("dialog.lifecycle.copy-project.title", { target: confirmation.targetLabel }),
+        title: `Copy project to ${confirmation.targetLabel}?`,
         body:
           count === 0
-            ? t("dialog.lifecycle.copy-project.body", args)
-            : t(
-                count === 1
-                  ? confirmation.encrypted
-                    ? "dialog.lifecycle.copy-project.bodyFiles.one"
-                    : "dialog.lifecycle.copy-project.bodyFilesPlain.one"
-                  : confirmation.encrypted
-                    ? "dialog.lifecycle.copy-project.bodyFiles"
-                    : "dialog.lifecycle.copy-project.bodyFilesPlain",
-                args,
-              ),
-        action: t("dialog.lifecycle.copy-project.action"),
+            ? `${target} clones ${name} from its remote into one of its project roots and registers it. No files leave this computer. Continue?`
+            : count === 1
+              ? confirmation.encrypted
+                ? `${target} clones ${name} from its remote into one of its project roots and registers it. Then this computer sends 1 gitignored file to it over HTTPS, written into the new checkout. Continue?`
+                : `${target} clones ${name} from its remote into one of its project roots and registers it. Then this computer sends 1 gitignored file to it over an unencrypted HTTP connection, written into the new checkout. Continue?`
+              : confirmation.encrypted
+                ? `${target} clones ${name} from its remote into one of its project roots and registers it. Then this computer sends ${count} gitignored files to it over HTTPS, written into the new checkout. Continue?`
+                : `${target} clones ${name} from its remote into one of its project roots and registers it. Then this computer sends ${count} gitignored files to it over an unencrypted HTTP connection, written into the new checkout. Continue?`,
+        action: "Copy project",
         target: confirmation.projectCwd,
       };
     }
@@ -211,20 +191,9 @@ function lifecycleCopy(
       const local = confirmation.machineKey === LOCAL_MACHINE_KEY;
       return {
         tone: "copper",
-        title: t("fleet.update.omp.title"),
-        body: t(
-          local
-            ? "fleet.update.omp.bodyLocal"
-            : fleetJoinEncrypted(confirmation.machineKey)
-              ? "fleet.update.omp.body"
-              : "fleet.update.omp.bodyPlain",
-          {
-            target: fleetMachineLabel(t, confirmation.machineKey, confirmation.machineNickname),
-            from: confirmation.currentVersion ?? t("fleet.update.unknownVersion"),
-            to: confirmation.targetVersion ?? t("fleet.update.latest"),
-          },
-        ),
-        action: t("fleet.update.omp.action"),
+        title: "Update omp remotely?",
+        body: local ? `This asks this computer to update its own omp binary from ${confirmation.currentVersion ?? "an unknown version"} to ${confirmation.targetVersion ?? "latest"}. Sessions already running keep the binary they started with until they restart. Continue?` : fleetJoinEncrypted(confirmation.machineKey) ? `This sends ${fleetMachineLabel(confirmation.machineKey, confirmation.machineNickname)} a request over HTTPS, asking it to update its own omp binary from ${confirmation.currentVersion ?? "an unknown version"} to ${confirmation.targetVersion ?? "latest"}. Sessions already running there keep the binary they started with until they restart. Continue?` : `This sends ${fleetMachineLabel(confirmation.machineKey, confirmation.machineNickname)} a request over an unencrypted HTTP connection, asking it to update its own omp binary from ${confirmation.currentVersion ?? "an unknown version"} to ${confirmation.targetVersion ?? "latest"}. Sessions already running there keep the binary they started with until they restart. Continue?`,
+        action: "Update omp",
         target: null,
       };
     }
@@ -233,19 +202,9 @@ function lifecycleCopy(
       const local = confirmation.machineKey === LOCAL_MACHINE_KEY;
       return {
         tone: "copper",
-        title: t("fleet.update.stage.title"),
-        body: t(
-          local
-            ? "fleet.update.stage.bodyLocal"
-            : fleetJoinEncrypted(confirmation.machineKey)
-              ? "fleet.update.stage.body"
-              : "fleet.update.stage.bodyPlain",
-          {
-            target: fleetMachineLabel(t, confirmation.machineKey, confirmation.machineNickname),
-            version: confirmation.version ?? t("fleet.update.latest"),
-          },
-        ),
-        action: t("fleet.update.stage.action"),
+        title: "Stage the omp-ui app update?",
+        body: local ? `This asks this computer to download and stage its omp-ui app update (${confirmation.version ?? "latest"}). Nothing installs until the update is applied the next time it quits. Continue?` : fleetJoinEncrypted(confirmation.machineKey) ? `This sends ${fleetMachineLabel(confirmation.machineKey, confirmation.machineNickname)} a request over HTTPS, asking it to download and stage its omp-ui app update (${confirmation.version ?? "latest"}). Nothing installs until the update is applied the next time that machine quits. Continue?` : `This sends ${fleetMachineLabel(confirmation.machineKey, confirmation.machineNickname)} a request over an unencrypted HTTP connection, asking it to download and stage its omp-ui app update (${confirmation.version ?? "latest"}). Nothing installs until the update is applied the next time that machine quits. Continue?`,
+        action: "Stage update",
         target: null,
       };
     }
@@ -256,18 +215,13 @@ function lifecycleCopy(
       // "this computer" reads naturally mid-sentence in both arms.
       return {
         tone: "copper",
-        title: t("fleet.update.apply.title"),
-        body: t(
-          confirmation.liveSessions > 0 ? "fleet.update.apply.bodyLive" : "fleet.update.apply.body",
-          {
-            target:
-              confirmation.machineKey === LOCAL_MACHINE_KEY
-                ? t("fleet.update.thisMachine")
-                : confirmation.machineNickname ?? confirmation.machineKey,
-            count: confirmation.liveSessions,
-          },
-        ),
-        action: t("fleet.update.apply.action"),
+        title: "Install the staged update on quit?",
+        body: confirmation.liveSessions > 0 ? `${confirmation.liveSessions} live session(s) run on ${confirmation.machineKey === LOCAL_MACHINE_KEY
+                ? "this computer"
+                : confirmation.machineNickname ?? confirmation.machineKey}. It will install its staged omp-ui update the next time it quits, and those sessions keep running until then. Continue?` : `This arms ${confirmation.machineKey === LOCAL_MACHINE_KEY
+                ? "this computer"
+                : confirmation.machineNickname ?? confirmation.machineKey} to install its staged omp-ui update the next time it quits; nothing is interrupted before then. Continue?`,
+        action: "Install when I quit",
         target: null,
       };
     }
@@ -276,18 +230,15 @@ function lifecycleCopy(
       // leaves out; nothing restarts, and live sessions keep running.
       return {
         tone: "copper",
-        title: t("fleet.updateAll.title"),
-        body: t(confirmation.eligible === 1 ? "fleet.updateAll.body.one" : "fleet.updateAll.body", {
-          count: confirmation.eligible,
-        }) + (confirmation.skipped > 0 ? ` ${t("fleet.updateAll.bodySkipped", { count: confirmation.skipped })}` : ""),
-        action: t("fleet.updateAll.action"),
+        title: "Update every fleet member?",
+        body: (confirmation.eligible === 1 ? "This asks 1 member to update itself: it installs the newest omp binary, then stages its omp-ui update to install the next time that machine quits. Nothing restarts, and live sessions keep running. Continue?" : `This asks ${confirmation.eligible} members to update themselves: each installs the newest omp binary, then stages its omp-ui update to install the next time that machine quits. Nothing restarts, and live sessions keep running. Continue?`) + (confirmation.skipped > 0 ? ` ${`${confirmation.skipped} other member(s) without Full control or not ready are listed as skipped.`}` : ""),
+        action: "Update all",
         target: null,
       };
   }
 }
 
 export function AppFeedback(): JSX.Element | null {
-  const t = useT();
   const errorNotices = useStore((s) => s.errorNotices);
   const dismissError = useStore((s) => s.dismissError);
   const infoNotices = useStore((s) => s.infoNotices);
@@ -315,8 +266,8 @@ export function AppFeedback(): JSX.Element | null {
     return (
       <ConfirmDialog
         key={notice.id}
-        kicker={t("dialog.error.kicker")}
-        title={t("dialog.error.title")}
+        kicker="Action failed"
+        title="Could not complete the action"
         tone="rose"
         onClose={() => dismissError(notice.id)}
         actions={
@@ -326,7 +277,7 @@ export function AppFeedback(): JSX.Element | null {
             initialFocus
             onClick={() => dismissError(notice.id)}
           >
-            {t("dialog.error.dismiss")}
+            Dismiss
           </Button>
         }
       >
@@ -348,8 +299,8 @@ export function AppFeedback(): JSX.Element | null {
     return (
       <ConfirmDialog
         key={infoNotice.id}
-        kicker={t("dialog.notice.kicker")}
-        title={t("dialog.notice.title")}
+        kicker="Done"
+        title="A word from omp-ui"
         tone="copper"
         onClose={() => dismissNotice(infoNotice.id)}
         actions={
@@ -359,7 +310,7 @@ export function AppFeedback(): JSX.Element | null {
             initialFocus
             onClick={() => dismissNotice(infoNotice.id)}
           >
-            {t("dialog.error.dismiss")}
+            Dismiss
           </Button>
         }
       >
@@ -374,13 +325,13 @@ export function AppFeedback(): JSX.Element | null {
   }
 
   if (confirmation === null) return null;
-  const copy = lifecycleCopy(t, confirmation);
+  const copy = lifecycleCopy(confirmation);
   const busy = confirmation.busy;
   const forkChoice = confirmation.kind === "resume-forked-source" ? confirmation : null;
   return (
     <ConfirmDialog
       key={confirmation.id}
-      kicker={t("dialog.lifecycle.kicker")}
+      kicker="Session action"
       title={copy.title}
       tone={copy.tone}
       // While the accepted effect is in flight the dialog cannot be dismissed:
@@ -396,7 +347,7 @@ export function AppFeedback(): JSX.Element | null {
             initialFocus={forkChoice === null}
             onClick={() => cancelLifecycleAction(confirmation.id)}
           >
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           <Button
             variant={forkChoice === null ? "solid" : "outline"}
@@ -411,7 +362,7 @@ export function AppFeedback(): JSX.Element | null {
               void confirmLifecycleAction(confirmation.id);
             }}
           >
-            {busy ? t("dialog.lifecycle.working") : copy.action}
+            {busy ? "Working…" : copy.action}
           </Button>
           {forkChoice !== null && (
             <Button
@@ -421,7 +372,7 @@ export function AppFeedback(): JSX.Element | null {
               initialFocus
               onClick={() => void openForkInstead(forkChoice.id)}
             >
-              {t("dialog.lifecycle.openForkAction")}
+              Open fork
             </Button>
           )}
         </>
@@ -444,7 +395,7 @@ export function AppFeedback(): JSX.Element | null {
               onChange={(event) => setSkipTerminate(event.target.checked)}
               className="size-3.5 accent-current"
             />
-            {t("dialog.lifecycle.dontShowAgain")}
+            Do not show this warning again
           </label>
         )}
       </div>

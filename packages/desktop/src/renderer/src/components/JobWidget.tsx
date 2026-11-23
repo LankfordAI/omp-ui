@@ -6,7 +6,6 @@ import type {
 } from "@omp-ui/core/async-jobs";
 import { JOB_WIDGET_GLANCE_POINTS, JOB_WIDGET_TONE, isJobWidgetBlock, jobWidgetFigure } from "../lib/async-jobs";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import type { Tone } from "../lib/tone";
 import { Dot } from "./ui";
 import { TONE_DOT, TONE_TEXT } from "./ui/tone";
@@ -61,8 +60,7 @@ function WidgetBar({ fraction, tone, className }: { fraction: number; tone: Tone
 
 /** A subagent's own completion estimate: copper ring plus the number. */
 export function CompletionRing({ percent }: { percent: number }) {
-  const t = useT();
-  const label = t("rail.jobs.completion", { percent });
+  const label = `the agent's own completion estimate: ${percent}%`;
   const r = 6;
   const circumference = 2 * Math.PI * r;
   const fraction = Math.min(100, Math.max(0, percent)) / 100;

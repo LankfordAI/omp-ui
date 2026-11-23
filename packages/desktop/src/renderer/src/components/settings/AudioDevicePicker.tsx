@@ -1,6 +1,5 @@
 import type { AudioDeviceRole, AudioDevicesSnapshot } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
-import { useT } from "../../lib/i18n";
 
 export type AudioDevicesLoad =
   | { status: "loading" }
@@ -29,14 +28,13 @@ export function AudioDevicePicker({
   load: AudioDevicesLoad;
   onSelect: (role: AudioDeviceRole, id: string | null) => void;
 }) {
-  const t = useT();
   if (load.status === "loading") {
-    return <p className="text-xs text-ink-faint">{t("settings.omp.reading")}</p>;
+    return <p className="text-xs text-ink-faint">Reading omp configuration…</p>;
   }
   const { snapshot } = load;
   const roleLabel: Record<AudioDeviceRole, string> = {
-    input: t("settings.general.audioDeviceInput"),
-    output: t("settings.general.audioDeviceOutput"),
+    input: "Input",
+    output: "Output",
   };
   if (!snapshot.supported) {
     return (
@@ -58,7 +56,7 @@ export function AudioDevicePicker({
                 className="flex w-full cursor-not-allowed items-center gap-2 px-2.5 py-1.5 text-left opacity-45"
               >
                 <span className="min-w-0 truncate text-sm font-medium">
-                  {t("settings.general.audioDeviceSystemDefault")}
+                  System default
                 </span>
               </button>
             </div>
@@ -66,7 +64,7 @@ export function AudioDevicePicker({
         ))}
         {snapshot.error !== null && (
           <p className="text-xs text-ink-faint">
-            {t("settings.general.dictationLoadFailed", { message: snapshot.error })}
+            {`model discovery failed: ${snapshot.error}`}
           </p>
         )}
       </div>
@@ -84,7 +82,7 @@ export function AudioDevicePicker({
           role === "input" ? device.hasInput : device.hasOutput,
         );
         const options: Array<{ id: string | null; label: string; chip: string | null }> = [
-          { id: null, label: t("settings.general.audioDeviceSystemDefault"), chip: null },
+          { id: null, label: "System default", chip: null },
         ];
         // Capability-aware: a stored label with no live node for this role —
         // absent entirely, or present only as the other role's device — is
@@ -92,7 +90,7 @@ export function AudioDevicePicker({
         if (value !== null && !capable.some((device) => device.id === value)) {
           options.push({
             id: value,
-            label: `${value} ${t("settings.general.audioDeviceNotConnected")}`,
+            label: `${value} ${"(not connected)"}`,
             chip: null,
           });
         }
@@ -101,7 +99,7 @@ export function AudioDevicePicker({
             id: device.id,
             label: device.id,
             chip: (role === "input" ? device.isDefaultInput : device.isDefaultOutput)
-              ? t("settings.general.audioDeviceDefaultChip")
+              ? "Default"
               : null,
           });
         }

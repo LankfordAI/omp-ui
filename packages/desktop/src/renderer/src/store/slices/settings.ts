@@ -15,7 +15,6 @@ import {
   resolveGlassChrome,
 } from "../../lib/glass-chrome";
 import { applyBackdropMotion, currentBackdropMotion } from "../../lib/backdrop-motion";
-import { applyLocale, currentLocaleId, resolveLocale } from "../../lib/i18n";
 import type { SettingsSlice, UiStore } from "../types";
 
 /**
@@ -519,16 +518,6 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
-    async setLocaleId(id) {
-      const previousId = currentLocaleId();
-      applyLocale(resolveLocale(id));
-      try {
-        await backend.setLocaleId(id);
-      } catch (err) {
-        applyLocale(resolveLocale(previousId));
-        get().reportError(err);
-      }
-    },
     async setKeybindings(overrides) {
       await backend.setKeybindings(overrides);
     },

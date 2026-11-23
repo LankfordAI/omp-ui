@@ -1,8 +1,5 @@
 import { exactNum } from "./format";
-import type { MessageKey } from "./i18n";
 import type { ContextUsage } from "./rpc-types";
-
-type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 export interface ContextReadout {
   window: number;
@@ -15,7 +12,7 @@ export interface ContextReadout {
 }
 
 /** The context fill math the context meter and the gauge chip share. */
-export function contextReadout(usage: ContextUsage, markerTokens: number | null | undefined, t: Translate): ContextReadout {
+export function contextReadout(usage: ContextUsage, markerTokens: number | null | undefined): ContextReadout {
   const window = usage.contextWindow > 0 ? usage.contextWindow : 0;
   const fraction = window > 0 ? usage.tokens / window : 0;
   const percent = Number.isFinite(usage.percent) ? usage.percent : fraction * 100;
@@ -24,18 +21,9 @@ export function contextReadout(usage: ContextUsage, markerTokens: number | null 
       ? { tokens: markerTokens, at: Math.min(1, Math.max(0, markerTokens / window)) }
       : null;
   const thresholdLine = threshold
-    ? t("hud.context.autoCompactThreshold", {
-        threshold: exactNum(threshold.tokens),
-        window: exactNum(window),
-        percent: ((threshold.tokens / window) * 100).toFixed(1),
-      })
+    ? `omp auto-compacts when context exceeds ${exactNum(threshold.tokens)} of ${exactNum(window)} tokens (${((threshold.tokens / window) * 100).toFixed(1)}% of window)`
     : null;
-  const exact = t("hud.context.usage", {
-    tokens: exactNum(usage.tokens),
-    window: window > 0 ? exactNum(window) : "?",
-    percent: percent.toFixed(2),
-    threshold: thresholdLine ? `\n${thresholdLine}` : "",
-  });
+  const exact = `${exactNum(usage.tokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens (${percent.toFixed(2)}%)${thresholdLine ? `\n${thresholdLine}` : ""}`;
   return { window, fraction, percent, marker: threshold?.at ?? null, exact };
 }
 

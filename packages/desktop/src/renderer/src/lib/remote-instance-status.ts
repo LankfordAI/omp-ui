@@ -1,5 +1,4 @@
 import type { RemoteInstanceStatus } from "@omp-ui/core/types";
-import type { MessageKey } from "./i18n";
 import type { Tone } from "./tone";
 
 /**
@@ -24,19 +23,19 @@ export function remoteInstanceStatusTone(status: RemoteInstanceStatus): Tone {
   }
 }
 
-export function remoteInstanceStatusKey(status: RemoteInstanceStatus): MessageKey {
+export function remoteInstanceStatusLabel(status: RemoteInstanceStatus): string {
   switch (status) {
     case "connecting":
-      return "remoteinstances.status.connecting";
+      return "connecting";
     case "joined":
-      return "remoteinstances.status.joined";
+      return "joined";
     case "unreachable":
-      return "remoteinstances.status.unreachable";
+      return "unreachable";
     case "needs-sign-in":
-      return "remoteinstances.status.needsSignIn";
+      return "sign-in required";
     case "self":
-      return "remoteinstances.status.self";
+      return "this app";
     case "incompatible":
-      return "remoteinstances.status.incompatible";
+      return "incompatible version";
   }
 }

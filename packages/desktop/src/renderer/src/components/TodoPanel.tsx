@@ -1,6 +1,5 @@
 import { cn } from "../lib/cn";
 import type { TodoPhase, TodoTask } from "../lib/rpc-types";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Empty, Meter } from "./ui";
 
@@ -17,10 +16,10 @@ const CYCLE: Record<string, string> = {
 };
 
 /** omp's task statuses (docs/phase-2-rpc-ui.md § State). An unexpected token renders raw. */
-const STATUS_LABEL: Record<string, MessageKey> = {
-  pending: "todo.status.pending",
-  in_progress: "todo.status.inProgress",
-  completed: "todo.status.completed",
+const STATUS_LABEL: Record<string, string> = {
+  pending: "pending",
+  in_progress: "in progress",
+  completed: "completed",
 };
 
 function TaskGlyph({ status }: { status: string }) {
@@ -54,11 +53,10 @@ function TaskGlyph({ status }: { status: string }) {
 
 export function TodoPanel({ tabId }: { tabId: string }) {
   const phases = useStore((s) => s.rpc[tabId]?.todos) ?? [];
-  const t = useT();
   const setTodos = useStore((s) => s.setTodos);
 
   if (phases.length === 0) {
-    return <Empty title={t("todo.empty.title")} hint={t("todo.empty.hint")} />;
+    return <Empty title="No todos" hint="The agent publishes a plan here once it starts one." />;
   }
 
   const cycle = (phaseIndex: number, taskIndex: number): void => {
@@ -80,12 +78,12 @@ export function TodoPanel({ tabId }: { tabId: string }) {
       {phases.map((phase, pi) => {
         const tasks = phase.tasks ?? [];
         const done = tasks.filter((t) => t.status === "completed").length;
-        const progress = t("todo.panel.progress", { done, total: tasks.length });
+        const progress = `${done} of ${tasks.length} complete`;
         return (
           <section key={pi}>
             <div className="mb-1 flex items-baseline gap-2">
               <h3 className="min-w-0 flex-1 truncate text-xs text-ink">
-                {phase.phase ?? t("todo.panel.phase", { n: pi + 1 })}
+                {phase.phase ?? `Phase ${pi + 1}`}
               </h3>
               <span
                 className="shrink-0 font-mono text-xs tabular-nums text-ink-faint"
@@ -107,7 +105,7 @@ export function TodoPanel({ tabId }: { tabId: string }) {
                     <button
                       type="button"
                       onClick={() => cycle(pi, ti)}
-                      title={t("todo.panel.advance", { status: label ? t(label) : task.status })}
+                      title={`${label ?? task.status} — click to advance`}
                       className="flex w-full items-start gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-hover"
                     >
                       <TaskGlyph status={task.status} />

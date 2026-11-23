@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 import {
@@ -90,7 +89,6 @@ export function WorktreeBranchFields({
   baseBranch?: string | null;
   onBaseBranchChange?: (value: string | null) => void;
 }) {
-  const t = useT();
   // The base defaults to the checkout's current branch once known; a manual
   // pick must survive later refreshes of the branch list.
   // The manual-base latch. Uncontrolled (the sidebar dialog) it lives here;
@@ -157,9 +155,9 @@ export function WorktreeBranchFields({
   // legal refname, so the option rows never carry it.
   const baseOptions = branchNames.filter((name) => name !== NEW_BRANCH_SENTINEL);
   const optionRows = loading ? (
-    <option value="">{t("worktree.field.baseLoading")}</option>
+    <option value="">reading branches…</option>
   ) : headOnly ? (
-    <option value="">{t("worktree.field.currentHead")}</option>
+    <option value="">current HEAD</option>
   ) : (
     baseOptions.map((name) => (
       <option key={name} value={name}>
@@ -182,7 +180,7 @@ export function WorktreeBranchFields({
     <>
       <div>
         <label htmlFor={`${idPrefix}-branch`} className="block text-xs text-ink-faint">
-          {t("worktree.field.branch")}
+          Branch
         </label>
         <input
           id={`${idPrefix}-branch`}
@@ -194,7 +192,7 @@ export function WorktreeBranchFields({
       {showBase !== false && (
         <div>
           <label htmlFor={`${idPrefix}-base`} className="block text-xs text-ink-faint">
-            {t("worktree.field.base")}
+            Base
           </label>
           <select
             id={`${idPrefix}-base`}
@@ -217,14 +215,14 @@ export function WorktreeBranchFields({
           >
             {optionRows}
             {onBaseBranchChange !== undefined && (
-              <option value={NEW_BRANCH_SENTINEL}>{t("worktree.field.newBaseOption")}</option>
+              <option value={NEW_BRANCH_SENTINEL}>new branch…</option>
             )}
           </select>
           {creatingBase && (
             <div className="mt-1.5 space-y-2">
               <div>
                 <label htmlFor={`${idPrefix}-new-base`} className="block text-xs text-ink-faint">
-                  {t("worktree.field.newBaseName")}
+                  new base branch
                 </label>
                 <input
                   id={`${idPrefix}-new-base`}
@@ -237,7 +235,7 @@ export function WorktreeBranchFields({
               </div>
               <div>
                 <label htmlFor={`${idPrefix}-new-base-from`} className="block text-xs text-ink-faint">
-                  {t("worktree.field.newBaseFrom")}
+                  cut from
                 </label>
                 <select
                   id={`${idPrefix}-new-base-from`}
@@ -252,10 +250,7 @@ export function WorktreeBranchFields({
                   {optionRows}
                 </select>
                 <p className="mt-1 text-xs leading-snug text-ink-faint">
-                  {t("worktree.field.newBaseHint", {
-                    name: (baseBranch ?? "").trim() || "…",
-                    from: baseRef ?? t("worktree.field.currentHead"),
-                  })}
+                  {`creates ${(baseBranch ?? "").trim() || "…"} from ${baseRef ?? "current HEAD"}, then cuts the worktree branch from it`}
                 </p>
               </div>
             </div>

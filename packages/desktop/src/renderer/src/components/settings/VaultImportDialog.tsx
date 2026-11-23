@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { VaultDetection } from "@omp-ui/core/types";
 import { vaultNameFromPath } from "@omp-ui/core/vault-shared";
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { Button, Chip, Modal } from "../ui";
 
@@ -18,7 +17,6 @@ export function VaultImportDialog({
   entries: VaultDetection["obsidianList"];
   onClose: () => void;
 }) {
-  const t = useT();
   const importVaults = useStore((s) => s.importVaults);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -42,9 +40,9 @@ export function VaultImportDialog({
     <Modal onClose={onClose} width="w-[30rem]" labelledBy="vault-import-title">
       <header className="border-b border-line px-4 py-3">
         <h2 id="vault-import-title" className="text-sm font-semibold text-ink">
-          {t("settings.vault.importTitle")}
+          Import from Obsidian
         </h2>
-        <p className="mt-0.5 text-sm text-ink-faint">{t("settings.vault.importHint")}</p>
+        <p className="mt-0.5 text-sm text-ink-faint">Vaults from Obsidian's vault list.</p>
       </header>
 
       <div className="max-h-[22rem] overflow-y-auto px-2 py-2">
@@ -65,8 +63,8 @@ export function VaultImportDialog({
                     <span className="flex flex-wrap items-center gap-1.5">
                       <span className="text-sm font-semibold text-ink">{vaultNameFromPath(entry.path)}</span>
                       <span className="font-mono text-xs text-ink-faint">{entry.id}</span>
-                      {entry.open && <Chip>{t("settings.vault.open")}</Chip>}
-                      {added && <Chip tone="signal">{t("settings.vault.added")}</Chip>}
+                      {entry.open && <Chip>open</Chip>}
+                      {added && <Chip tone="signal">added</Chip>}
                     </span>
                     <span className="block break-all font-mono text-xs text-ink-dim">{entry.path}</span>
                   </span>
@@ -79,10 +77,10 @@ export function VaultImportDialog({
 
       <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-2.5">
         <Button variant="ghost" onClick={onClose}>
-          {t("settings.vault.importCancel")}
+          Cancel
         </Button>
         <Button variant="solid" disabled={picks.length === 0} onClick={() => void runImport()}>
-          {t("settings.vault.importConfirm")}
+          Import
         </Button>
       </footer>
     </Modal>

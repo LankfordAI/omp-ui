@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StatsDataState, StatsOverview, StatsQuery, StatsSyncRun, StatsSyncState } from "@omp-ui/core/types";
-import { applyLocale, resolveLocale, t } from "../../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const read = vi.fn<(query: StatsQuery) => Promise<StatsOverview>>();
@@ -75,7 +74,7 @@ async function choose(label: string, value: string): Promise<void> {
   await flush();
 }
 function refresh(): void {
-  act(() => document.querySelector<HTMLButtonElement>(`button[aria-label="${t("stats.header.refresh")}"]`)!.click());
+  act(() => document.querySelector<HTMLButtonElement>(`button[aria-label="${"refresh stats"}"]`)!.click());
 }
 
 beforeEach(() => {
@@ -83,7 +82,6 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   document.body.innerHTML = "";
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
-  applyLocale(resolveLocale("en"));
   read.mockReset().mockImplementation(async (query) => overview(query));
   sync.mockReset().mockResolvedValue(collection("running"));
   status.mockReset().mockResolvedValue(collection("running"));
@@ -93,7 +91,6 @@ afterEach(() => {
   if (root !== null) act(() => root!.unmount());
   root = null;
   vi.useRealTimers();
-  applyLocale(resolveLocale("en"));
 });
 
 describe("Stats renderer", () => {
@@ -102,33 +99,33 @@ describe("Stats renderer", () => {
     expect(read.mock.calls).toEqual([[ALL]]);
     expect(sync.mock.calls).toEqual([["if-stale"]]);
     expect(document.querySelectorAll("select")).toHaveLength(5);
-    expect(rowNames(t("stats.section.tools"))).toEqual(["popular", "alpha", "zeta"]);
-    expect(rowNames(t("stats.section.sessions"))).toEqual(["Newest session", "Older session"]);
-    expect(rowNames(t("stats.section.projects"))).toEqual([PROJECT.name]);
-    expect(section(t("stats.section.projects")).querySelector("tbody td")?.getAttribute("title")).toBe(PROJECT.path);
-    expect(section(t("stats.section.days")).querySelector("[role=img] > div")?.getAttribute("title")).toContain("2026-11-07 UTC");
-    const calls = [...section(t("stats.section.tools")).querySelectorAll("th button")].find((button) => button.textContent?.startsWith(t("stats.col.toolCalls")))!;
+    expect(rowNames("tools")).toEqual(["popular", "alpha", "zeta"]);
+    expect(rowNames("sessions in selected range")).toEqual(["Newest session", "Older session"]);
+    expect(rowNames("Projects")).toEqual([PROJECT.name]);
+    expect(section("Projects").querySelector("tbody td")?.getAttribute("title")).toBe(PROJECT.path);
+    expect(section("per day (UTC)").querySelector("[role=img] > div")?.getAttribute("title")).toContain("2026-11-07 UTC");
+    const calls = [...section("tools").querySelectorAll("th button")].find((button) => button.textContent?.startsWith("tool calls"))!;
     act(() => (calls as HTMLButtonElement).click());
-    expect(rowNames(t("stats.section.tools"))).toEqual(["alpha", "zeta", "popular"]);
+    expect(rowNames("tools")).toEqual(["alpha", "zeta", "popular"]);
     expect(calls.parentElement?.getAttribute("aria-sort")).toBe("ascending");
-    expect(section(t("stats.section.tools")).querySelectorAll("tbody tr")[0]?.textContent).toContain("0.0%");
-    expect(section(t("stats.coverage.title")).textContent).toContain("/owned/sessions");
+    expect(section("tools").querySelectorAll("tbody tr")[0]?.textContent).toContain("0.0%");
+    expect(section("collection and coverage").textContent).toContain("/owned/sessions");
   });
 
   it("applies all filters, pairs model/provider identity, and clears an incompatible model", async () => {
     await mount();
-    await choose(t("stats.col.model"), JSON.stringify(["beta", "shared"]));
+    await choose("model", JSON.stringify(["beta", "shared"]));
     expect(useStore.getState().stats).toEqual({ ...ALL, provider: "beta", model: { provider: "beta", id: "shared" } });
-    await choose(t("stats.col.provider"), JSON.stringify("alpha"));
+    await choose("provider", JSON.stringify("alpha"));
     expect(useStore.getState().stats?.model).toBeNull();
-    await choose(t("stats.header.range"), "7");
-    await choose(t("stats.col.project"), JSON.stringify(PROJECT.key));
-    await choose(t("stats.col.agentType"), JSON.stringify("task"));
+    await choose("range", "7");
+    await choose("project", JSON.stringify(PROJECT.key));
+    await choose("agent type", JSON.stringify("task"));
     expect(read.mock.calls.at(-1)?.[0]).toEqual({ ...ALL, rangeDays: 7, projectKey: PROJECT.key, provider: "alpha", agentType: "task" });
-    await choose(t("stats.col.model"), JSON.stringify(["alpha", "shared"]));
-    await choose(t("stats.col.provider"), "null");
+    await choose("model", JSON.stringify(["alpha", "shared"]));
+    await choose("provider", "null");
     expect(useStore.getState().stats?.model).toEqual({ provider: "alpha", id: "shared" });
-    await choose(t("stats.col.model"), "null");
+    await choose("model", "null");
     expect(read.mock.calls.at(-1)?.[0].model).toBeNull();
   });
 
@@ -137,13 +134,13 @@ describe("Stats renderer", () => {
     const latest = Promise.withResolvers<StatsOverview>();
     read.mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
     await mount();
-    await choose(t("stats.header.range"), "7");
+    await choose("range", "7");
     const query = { ...ALL, rangeDays: 7 as const };
     latest.resolve(overview(query, { sessions: [{ ...overview().sessions[0]!, title: "Current selection" }] }));
     await flush();
     old.resolve(overview(ALL, { sessions: [{ ...overview().sessions[0]!, title: "Stale selection" }] }));
     await flush();
-    expect(rowNames(t("stats.section.sessions"))).toEqual(["Current selection"]);
+    expect(rowNames("sessions in selected range")).toEqual(["Current selection"]);
     expect(document.body.textContent).not.toContain("Stale selection");
   });
 
@@ -151,18 +148,18 @@ describe("Stats renderer", () => {
     await mount();
     const next = Promise.withResolvers<StatsOverview>();
     read.mockReturnValueOnce(next.promise);
-    await choose(t("stats.header.range"), "30");
-    expect(document.body.textContent).toContain(t("stats.overview.previousSelection"));
-    expect(section(t("stats.section.sessions")).parentElement?.className).toContain("opacity-50");
+    await choose("range", "30");
+    expect(document.body.textContent).toContain("Showing the previous selection until the new selection can be read.");
+    expect(section("sessions in selected range").parentElement?.className).toContain("opacity-50");
     next.reject(new Error("read transport unavailable"));
     await flush();
-    expect(rowNames(t("stats.section.sessions"))).toEqual(["Newest session", "Older session"]);
+    expect(rowNames("sessions in selected range")).toEqual(["Newest session", "Older session"]);
     expect(document.body.textContent).toContain("read transport unavailable");
     read.mockResolvedValueOnce(overview({ ...ALL, rangeDays: 7 }, { dataState: "locked", error: "busy fixture" }));
-    await choose(t("stats.header.range"), "7");
-    expect(document.body.textContent).toContain(t("stats.error.locked"));
-    expect(document.body.textContent).toContain(t("stats.overview.previousSelection"));
-    expect(rowNames(t("stats.section.sessions"))).toEqual(["Newest session", "Older session"]);
+    await choose("range", "7");
+    expect(document.body.textContent).toContain("The stats database is locked. Try reading again.");
+    expect(document.body.textContent).toContain("Showing the previous selection until the new selection can be read.");
+    expect(rowNames("sessions in selected range")).toEqual(["Newest session", "Older session"]);
   });
 
   it("retains snapshot provenance when the host selects another source until Refresh succeeds", async () => {
@@ -171,11 +168,11 @@ describe("Stats renderer", () => {
     const target = { ...SOURCE, profile: "work", databasePath: "/other/stats.db", sessionsRoot: "/other/sessions" };
     status.mockResolvedValue({ ...collection(), source: target });
     await tick();
-    const coverage = section(t("stats.coverage.title"));
-    expect(coverage.textContent).toContain(t("stats.coverage.source", { profile: t("stats.coverage.default"), path: SOURCE.databasePath }));
-    expect(coverage.textContent).toContain(t("stats.coverage.target", { profile: "work", path: target.databasePath, root: target.sessionsRoot }));
-    expect(section(t("stats.section.sessions")).parentElement?.className).toContain("opacity-50");
-    expect(rowNames(t("stats.section.sessions"))).toEqual(["Newest session", "Older session"]);
+    const coverage = section("collection and coverage");
+    expect(coverage.textContent).toContain(`Profile: ${"default"} · Database: ${SOURCE.databasePath}`);
+    expect(coverage.textContent).toContain(`Collection target · Profile: ${"work"} · Database: ${target.databasePath} · Sessions: ${target.sessionsRoot}`);
+    expect(section("sessions in selected range").parentElement?.className).toContain("opacity-50");
+    expect(rowNames("sessions in selected range")).toEqual(["Newest session", "Older session"]);
     await tick();
     expect(read).toHaveBeenCalledTimes(1);
     sync.mockResolvedValueOnce({ ...collection("succeeded", "other-run"), source: target });
@@ -183,7 +180,7 @@ describe("Stats renderer", () => {
     refresh();
     await flush();
     expect(read).toHaveBeenCalledTimes(2);
-    expect(section(t("stats.section.sessions")).parentElement?.className).not.toContain("opacity-50");
+    expect(section("sessions in selected range").parentElement?.className).not.toContain("opacity-50");
     expect(coverage.textContent).not.toContain(SOURCE.databasePath);
   });
 
@@ -192,7 +189,7 @@ describe("Stats renderer", () => {
     sync.mockReturnValueOnce(lost.promise);
     status.mockResolvedValue(collection("succeeded"));
     await mount();
-    await choose(t("stats.header.range"), "7");
+    await choose("range", "7");
     expect(read).toHaveBeenCalledTimes(2);
     await tick();
     expect(read).toHaveBeenCalledTimes(3);
@@ -201,7 +198,7 @@ describe("Stats renderer", () => {
     expect(read).toHaveBeenCalledTimes(3);
     lost.resolve(collection("running"));
     await flush();
-    expect(section(t("stats.coverage.title")).textContent).toContain(t("stats.sync.succeeded"));
+    expect(section("collection and coverage").textContent).toContain("Collection complete.");
     sync.mockResolvedValueOnce(collection("succeeded", "run-2"));
     refresh();
     await flush();
@@ -234,23 +231,23 @@ describe("Stats renderer", () => {
     await flush();
     expect(document.body.textContent).not.toContain("obsolete status error");
     expect(read).toHaveBeenCalledTimes(2);
-    expect(section(t("stats.coverage.title")).textContent).toContain(t("stats.sync.succeeded"));
+    expect(section("collection and coverage").textContent).toContain("Collection complete.");
   });
 
   it("keeps sync failures separate from readable data and from read failures", async () => {
     sync.mockRejectedValueOnce(new Error("start transport unavailable"));
     await mount();
     expect(document.body.textContent).toContain("start transport unavailable");
-    expect(rowNames(t("stats.section.tools"))).toHaveLength(3);
+    expect(rowNames("tools")).toHaveLength(3);
     status.mockResolvedValueOnce(collection("failed"));
     await tick();
     expect(document.body.textContent).toContain("collector failed safely");
     expect(read).toHaveBeenCalledTimes(1);
     read.mockRejectedValueOnce(new Error("read failed separately"));
-    await choose(t("stats.header.range"), "7");
+    await choose("range", "7");
     expect(document.body.textContent).toContain("read failed separately");
     expect(document.body.textContent).toContain("collector failed safely");
-    expect(rowNames(t("stats.section.tools"))).toHaveLength(3);
+    expect(rowNames("tools")).toHaveLength(3);
   });
 
   it("polls only while visible, recovers on reveal, and ignores replies after closing", async () => {
@@ -282,38 +279,30 @@ describe("Stats renderer", () => {
     await flush();
     expect(read).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledTimes(1);
-    expect(document.querySelector<HTMLSelectElement>(`select[aria-label="${t("stats.col.model")}"]`)?.value).toBe(JSON.stringify(["alpha", "shared"]));
+    expect(document.querySelector<HTMLSelectElement>(`select[aria-label="${"model"}"]`)?.value).toBe(JSON.stringify(["alpha", "shared"]));
   });
 
   it("renders optional capabilities without inventing zero calls or running outcomes", async () => {
     const fixture = overview();
     read.mockResolvedValueOnce(overview(ALL, { capabilities: { tools: true, toolOutcomes: false, agentTypes: false }, agents: [{ agentType: "unknown", requests: 2, cost: 1.25, totalTokens: 150, toolCalls: 8 }], tools: fixture.tools.map((tool) => ({ ...tool, completed: 0, errors: 0, noRecordedOutcome: tool.calls, errorRate: null })) }));
     await mount();
-    expect(section(t("stats.section.agents")).textContent).toContain(t("stats.agents.legacy"));
-    expect(section(t("stats.section.tools")).textContent).toContain(t("stats.tools.outcomesUnavailable"));
-    const cells = section(t("stats.section.tools")).querySelector("tbody tr")!.querySelectorAll("td");
+    expect(section("agent types").textContent).toContain("This database does not record agent types; requests are grouped as unknown.");
+    expect(section("tools").textContent).toContain("This database records calls but not their outcomes; error rates are unavailable.");
+    const cells = section("tools").querySelector("tbody tr")!.querySelectorAll("td");
     expect([...cells].map((cell) => cell.textContent)).toEqual(["popular", "9", "—", "—", "9", "—"]);
     read.mockResolvedValueOnce(overview({ ...ALL, rangeDays: 7 }, { capabilities: { tools: false, toolOutcomes: false, agentTypes: false }, totals: { ...fixture.totals, toolCalls: null }, tools: [] }));
-    await choose(t("stats.header.range"), "7");
-    expect(section(t("stats.section.tools")).querySelector("table")).toBeNull();
-    expect(section(t("stats.section.tools")).textContent).toContain(t("stats.tools.unavailable"));
+    await choose("range", "7");
+    expect(section("tools").querySelector("table")).toBeNull();
+    expect(section("tools").textContent).toContain("Tool-call counts are unavailable in this database.");
   });
 
   it.each<StatsDataState>(["missing", "invalid-source", "incompatible", "locked", "corrupt", "error"])("renders %s as a distinct data state", async (dataState) => {
     read.mockResolvedValueOnce(overview(ALL, { dataState, databasePresent: dataState !== "missing", error: dataState === "missing" ? null : "fixture diagnostic" }));
     await mount();
     expect(document.querySelector("table")).toBeNull();
-    expect(section(t("stats.coverage.title")).textContent).toContain(SOURCE.databasePath);
-    if (dataState === "missing") expect(document.body.textContent).toContain(t("stats.empty.none"));
+    expect(section("collection and coverage").textContent).toContain(SOURCE.databasePath);
+    if (dataState === "missing") expect(document.body.textContent).toContain("omp has not recorded stats on this machine yet");
     else expect(document.querySelector("[role=alert]")?.textContent).toContain("fixture diagnostic");
   });
 
-  it("switches filter controls, diagnostics, and sections to Korean without another read", async () => {
-    await mount();
-    act(() => applyLocale(resolveLocale("ko")));
-    expect(document.querySelector(`select[aria-label="${t("stats.col.agentType")}"]`)).not.toBeNull();
-    expect(section(t("stats.section.tools")).textContent).toContain(t("stats.tools.note"));
-    expect(document.body.textContent).toContain(t("stats.cost.note"));
-    expect(read).toHaveBeenCalledTimes(1);
-  });
 });

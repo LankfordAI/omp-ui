@@ -10,7 +10,6 @@ import type { ApprovalMode, BackendState, ExperimentRecord, OmpSettingsSnapshot,
 import { emptySessionRuntime, type SessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 import type { ExperimentsCache, RpcTabState } from "../store/types";
-import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const readOmpSettings = vi.fn((): Promise<OmpSettingsSnapshot> =>
@@ -612,14 +611,14 @@ describe("wide Session HUD", () => {
     const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
     const cost = chip.querySelector<HTMLElement>(".titlebar-gauge-cost")!;
     // The header figure counts only this process; say so next to it.
-    expect(cost.textContent).toContain(t("hud.metrics.thisRun"));
-    expect(cost.getAttribute("title")).toBe(t("hud.metrics.runOnlyTitle"));
+    expect(cost.textContent).toContain("this run");
+    expect(cost.getAttribute("title")).toBe("Counts only the current process; the receipts in the transcript cover every turn.");
     // Round-3 judge, Clarity 2: the abbreviation left visible chrome — the
     // face text now spells the word out, following the catalog.
     const ctx = chip.querySelector<HTMLElement>("span[title]")!;
-    expect(ctx.textContent).toBe(t("hud.gauge.contextShort"));
+    expect(ctx.textContent).toBe("context");
     expect(ctx.getAttribute("title")).toBe(
-      t("hud.gauge.contextTitle", { used: "20", window: "100" }),
+      `Context used by this run: ${"20"} of ${"100"} tokens`,
     );
   });
 
@@ -924,7 +923,7 @@ describe("SessionHud title menu (issue #941)", () => {
       state: { ...state, projects: [{ ...group, sessions: [{ ...own, forkSourceTabId: source.tabId }, source] }] },
     });
     const host = render();
-    const forkNote = t("sidebar.session.forkOf", { title: "Original work" });
+    const forkNote = `Fork of “${"Original work"}”`;
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
     expect(trigger.querySelector(`[title="${forkNote}"]`)?.textContent).toBe("fork");
     openTitleMenu(host);
@@ -1225,7 +1224,7 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     // The chip word comes from the catalog (round-2 vocabulary: the HUD's
     // in-turn label is "working"; pinning the literal would re-pin churn).
-    expect(host.textContent).toContain(t("hud.status.running"));
+    expect(host.textContent).toContain("working");
     expect(host.textContent).not.toContain("stalled");
   });
 
@@ -1237,8 +1236,8 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     seedRunning({ awaitingAsyncWork: true });
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    expect(host.textContent).toContain(t("hud.status.awaitingWork"));
-    expect(host.textContent).not.toContain(t("hud.status.running"));
+    expect(host.textContent).toContain("waiting on background work");
+    expect(host.textContent).not.toContain("working");
   });
 
   it("lets the compacting chip take priority over the stall chip", () => {
@@ -2004,9 +2003,9 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     expect(document.body.querySelector('[role="switch"][aria-label="fast mode"]')).toBeNull();
     const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
     expect(choices.map((button) => button.textContent)).toEqual([
-      t("hud.fast.tierOff"),
-      t("hud.fast.tierPriority"),
-      t("hud.fast.tierUltrafast"),
+      "off",
+      "priority",
+      "ultrafast",
     ]);
     expect(choices[0]!.getAttribute("aria-pressed")).toBe("true");
     await act(async () => choices[2]!.click());
@@ -2017,18 +2016,18 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     seedFast(true, true, { serviceTiers: ["priority", "ultrafast"], serviceTier: "ultrafast" });
     const host = renderWide();
     const chip = [...host.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.trim() === t("hud.fast.label"))!;
+      .find((button) => button.textContent?.trim() === "fast")!;
     expect(chip).toBeDefined();
-    expect(chip.getAttribute("aria-label")).toBe(t("hud.fast.ultraTitle"));
+    expect(chip.getAttribute("aria-label")).toBe("fast mode active — ultrafast serving live · click to turn off");
   });
 
   it("titles a declined ultrafast chip with the declined tooltip", () => {
     seedFast(true, false, { serviceTiers: ["priority", "ultrafast"], serviceTier: "ultrafast" });
     const host = renderWide();
     const chip = [...host.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.trim() === t("hud.fast.label"))!;
+      .find((button) => button.textContent?.trim() === "fast")!;
     expect(chip).toBeDefined();
-    expect(chip.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
+    expect(chip.getAttribute("aria-label")).toBe("fast mode enabled but the provider declined it · click to retry");
   });
 });
 
@@ -2062,17 +2061,17 @@ describe("SessionHud usage-limit chip", () => {
     const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
     seedSlow({ usageLimit: { stage: "low_priority", resetsAtSec, allowanceLeftPercent: 33, extraUsage: false } });
     const host = renderWide();
-    const chip = host.querySelector(`[title*="${t("hud.usage.lowPriority")}"]`)!;
+    const chip = host.querySelector(`[title*="${"low priority"}"]`)!;
     expect(chip).not.toBeNull();
-    expect(chip.textContent).toContain(t("hud.usage.lowPriority"));
+    expect(chip.textContent).toContain("low priority");
     expect(chip.getAttribute("title")).toContain("33% allowance left");
   });
 
   it("renders no usage-limit chip when usageLimit is null", () => {
     seedSlow({ usageLimit: null });
     const host = renderWide();
-    expect(host.textContent).not.toContain(t("hud.usage.wrapUp"));
-    expect(host.textContent).not.toContain(t("hud.usage.lowPriority"));
+    expect(host.textContent).not.toContain("wrap-up");
+    expect(host.textContent).not.toContain("low priority");
   });
 });
 
@@ -2361,7 +2360,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     let host = renderWide();
     expect(
       host.querySelector('[title*="rpc status"]')?.getAttribute("title"),
-    ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.running") }));
+    ).toBe(`rpc status: ${"working"}`);
     act(() => root!.unmount());
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
@@ -2373,7 +2372,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     host = renderWide();
     expect(
       host.querySelector('[title*="rpc status"]')?.getAttribute("title"),
-    ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.ready") }));
+    ).toBe(`rpc status: ${"ready"}`);
   });
 });
 describe("SessionHud dispatcher chip (#1226)", () => {
@@ -2388,15 +2387,15 @@ describe("SessionHud dispatcher chip (#1226)", () => {
   const withSessions = (sessions: (typeof me)[]): BackendState =>
     backendState({ projects: [{ ...state.projects[0]!, sessions }] });
   const plainChip = (host: HTMLElement): boolean =>
-    host.textContent?.includes(t("fleet.hud.dispatchedFromAgent", { label: "this computer" })) === true;
+    host.textContent?.includes(`Dispatched from ${"this computer"} · agent`) === true;
 
   it("renders a button that opens the dispatching session", () => {
     const openSession = vi.fn(async () => {});
     useStore.setState({ state: withSessions([{ ...me, fleet: fleet("tab-parent") }, parent]), openSession });
     wideMedia();
     const host = mountHud();
-    const chip = host.querySelector<HTMLButtonElement>(`button[title="${t("fleet.hud.openDispatcher")}"]`)!;
-    expect(chip.textContent).toContain(t("fleet.hud.dispatchedBySession", { title: "Parent session" }));
+    const chip = host.querySelector<HTMLButtonElement>(`button[title="${"Open the session that dispatched this one"}"]`)!;
+    expect(chip.textContent).toContain(`Dispatched by ${"Parent session"}`);
     act(() => chip.click());
     expect(openSession).toHaveBeenCalledWith("tab-parent");
   });
@@ -2409,7 +2408,7 @@ describe("SessionHud dispatcher chip (#1226)", () => {
     useStore.setState({ state: withSessions([...sessions]) });
     wideMedia();
     const host = mountHud();
-    expect(host.querySelector(`button[title="${t("fleet.hud.openDispatcher")}"]`)).toBeNull();
+    expect(host.querySelector(`button[title="${"Open the session that dispatched this one"}"]`)).toBeNull();
     expect(plainChip(host)).toBe(true);
   });
 });

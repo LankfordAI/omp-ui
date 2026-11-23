@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
-import { useT, type MessageKey } from "../lib/i18n";
 import type { ToolItem } from "../lib/transcript";
 import { noteTitleFromPath, type VaultWriteAction } from "../lib/vault-notes";
 import { DiffViewer } from "./DiffViewer";
@@ -21,20 +20,19 @@ const TOOL_ACTION: Record<string, VaultWriteAction> = {
   "omp-ui_vault_refactor": "refactor",
 };
 
-const ACTION_CHIP: Record<VaultWriteAction, { key: MessageKey; tone: Tone }> = {
-  create: { key: "transcript.vault.created", tone: "signal" },
-  append: { key: "transcript.vault.appended", tone: "neutral" },
-  edit: { key: "transcript.vault.edited", tone: "copper" },
-  link: { key: "transcript.vault.edited", tone: "copper" },
-  rename: { key: "transcript.vault.renamed", tone: "copper" },
-  delete: { key: "transcript.vault.deleted", tone: "rose" },
-  refactor: { key: "transcript.vault.merged", tone: "signal" },
+const ACTION_CHIP: Record<VaultWriteAction, { label: string; tone: Tone }> = {
+  create: { label: "Created", tone: "signal" },
+  append: { label: "Appended", tone: "neutral" },
+  edit: { label: "Edited", tone: "copper" },
+  link: { label: "Edited", tone: "copper" },
+  rename: { label: "Moved", tone: "copper" },
+  delete: { label: "Deleted", tone: "rose" },
+  refactor: { label: "Merged", tone: "signal" },
 };
 
 export function VaultActionChip({ action }: { action: VaultWriteAction }) {
-  const t = useT();
-  const { key, tone } = ACTION_CHIP[action];
-  return <Chip tone={tone}>{t(key)}</Chip>;
+  const { label, tone } = ACTION_CHIP[action];
+  return <Chip tone={tone}>{label}</Chip>;
 }
 
 export function NoteGlyph({ className }: { className?: string }) {
@@ -47,16 +45,15 @@ export function NoteGlyph({ className }: { className?: string }) {
 
 /** ToolCard's status vocabulary, so a vault card settles exactly like any other tool. */
 function StatusMark({ status }: { status: ToolItem["status"] }) {
-  const t = useT();
   switch (status) {
     case "running":
-      return <Chip tone="copper">{t("transcript.tool.running")}</Chip>;
+      return <Chip tone="copper">running</Chip>;
     case "error":
-      return <Chip tone="rose">{t("transcript.tool.error")}</Chip>;
+      return <Chip tone="rose">error</Chip>;
     case "aborted":
-      return <Chip tone="copper">{t("transcript.tool.aborted")}</Chip>;
+      return <Chip tone="copper">aborted</Chip>;
     case "cancelled":
-      return <Chip>{t("transcript.tool.cancelled")}</Chip>;
+      return <Chip>cancelled</Chip>;
     case "done":
       return <CheckGlyph />;
   }
@@ -68,7 +65,6 @@ function StatusMark({ status }: { status: ToolItem["status"] }) {
  * copper marker; the body is open by default because omp-ui has no note reader.
  */
 export function VaultToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
-  const t = useT();
   const [open, setOpen] = useState(true);
   const [diffOpen, setDiffOpen] = useState(true);
   const vault = item.vault;
@@ -112,7 +108,7 @@ export function VaultToolCard({ item, tabId }: { item: ToolItem; tabId?: string 
         {/* Chips and the open button wrap as one group, so the button never drops alone (#753). */}
         <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
           <VaultActionChip action={action} />
-          {foreign && <Chip tone="copper">{t("transcript.vault.notCreated")}</Chip>}
+          {foreign && <Chip tone="copper">Not created by omp-ui</Chip>}
           <StatusMark status={item.status} />
           {openable && <OpenInObsidianButton vaultName={openable.vaultName} file={openable.file} tabId={tabId} />}
         </span>

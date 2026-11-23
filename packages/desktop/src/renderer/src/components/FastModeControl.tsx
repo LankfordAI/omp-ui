@@ -1,6 +1,5 @@
 import type { ServiceTier } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { modelFastTier } from "../lib/rpc-types";
 import type { Tone } from "../lib/tone";
 import { findRecord, useStore } from "../store";
@@ -35,6 +34,18 @@ const DOT_TONE: Record<FastModeState, Tone> = {
 
 const CAPSULE_TONE: Record<FastModeState, Tone> = DOT_TONE;
 
+const FAST_MODE_LABEL: Record<FastModeState, string> = {
+  on: "on",
+  declined: "on — provider declined",
+  off: "off",
+};
+
+const FAST_MODE_TITLE: Record<FastModeState, string> = {
+  on: "fast mode active — priority serving live · click to turn off",
+  declined: "fast mode enabled but the provider declined it · click to retry",
+  off: "fast mode off · click to enable priority serving",
+};
+
 /** The capsule's choices (issue #719); "off" is the same set_fast_mode(false)
  *  rail the switch's off position rides — one verb clears either tier. */
 type TierChoice = "off" | ServiceTier;
@@ -50,7 +61,6 @@ export function FastModeControl({
   disabled?: boolean;
   className?: string;
 }) {
-  const t = useT();
   const enabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const active = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
@@ -85,9 +95,9 @@ export function FastModeControl({
   const inlineTitle =
     isUltra && enabled
       ? state === "declined"
-        ? t("hud.fast.declinedTitle")
-        : t("hud.fast.ultraTitle")
-      : t(`hud.fast.${state}Title`);
+        ? "fast mode enabled but the provider declined it · click to retry"
+        : "fast mode active — ultrafast serving live · click to turn off"
+      : FAST_MODE_TITLE[state];
 
   if (layout === "sheet") {
     if (ultrafastCapable) {
@@ -98,29 +108,29 @@ export function FastModeControl({
           : "priority";
       const titleFor = (choice: TierChoice): string =>
         choice === tierValue && state === "declined"
-          ? t("hud.fast.declinedTitle")
+          ? "fast mode enabled but the provider declined it · click to retry"
           : choice === "off"
-            ? t("hud.fast.offTitle")
+            ? "fast mode off · click to enable priority serving"
             : choice === "priority"
-              ? t("hud.fast.tierPriorityTitle")
+              ? "priority serving · click to set this tier"
               : enabled && active
-                ? t("hud.fast.ultraTitle")
-                : t("hud.fast.tierUltrafastTitle");
+                ? "fast mode active — ultrafast serving live · click to turn off"
+                : "ultrafast serving · click to set this tier";
       return (
         <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
           <span className="flex min-w-0 flex-col">
-            <span className="text-xs">{t("hud.fast.labelLong")}</span>
-            <span className="font-mono text-xs">{t(`hud.fast.${state}`)}</span>
+            <span className="text-xs">fast mode</span>
+            <span className="font-mono text-xs">{FAST_MODE_LABEL[state]}</span>
           </span>
           <ChoiceCapsule
-            label={t("hud.fast.labelLong")}
+            label="fast mode"
             tone={CAPSULE_TONE[state]}
             value={tierValue}
             options={[
-              { value: "off" as const, label: t("hud.fast.tierOff"), title: titleFor("off"), disabled },
-              { value: "priority" as const, label: t("hud.fast.tierPriority"), title: titleFor("priority"), disabled },
+              { value: "off" as const, label: "off", title: titleFor("off"), disabled },
+              { value: "priority" as const, label: "priority", title: titleFor("priority"), disabled },
               ...(ultraAdvertised
-                ? [{ value: "ultrafast" as const, label: t("hud.fast.tierUltrafast"), title: titleFor("ultrafast"), disabled }]
+                ? [{ value: "ultrafast" as const, label: "ultrafast", title: titleFor("ultrafast"), disabled }]
                 : []),
             ]}
             onChange={pick}
@@ -134,14 +144,14 @@ export function FastModeControl({
     return (
       <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
         <span className="flex min-w-0 flex-col">
-          <span className="text-xs">{t("hud.fast.labelLong")}</span>
-          <span className="font-mono text-xs">{t(`hud.fast.${state}`)}</span>
+          <span className="text-xs">fast mode</span>
+          <span className="font-mono text-xs">{FAST_MODE_LABEL[state]}</span>
         </span>
         <Switch
           on={enabled}
           disabled={disabled}
-          label={t("hud.fast.labelLong")}
-          title={t(`hud.fast.${state}Title`)}
+          label="fast mode"
+          title={FAST_MODE_TITLE[state]}
           onChange={(next) => void setFastMode(tabId, next)}
         />
       </div>
@@ -162,7 +172,7 @@ export function FastModeControl({
         className={cn(CAPSULE_SEGMENT, "text-xs font-mono")}
       >
         <Dot tone={DOT_TONE[state]} />
-        {t("hud.fast.label")}
+        fast
       </button>
     </Capsule>
   );

@@ -14,7 +14,6 @@ import { artifactCanonicalJson, artifactFailure, validateArtifactJson, ARTIFACT_
 import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
-import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import type { ToolItem } from "../lib/transcript";
 import { useTheme } from "../lib/themes";
@@ -68,7 +67,6 @@ function ArtifactSurface({
   style?: React.CSSProperties;
   onMeasured?: (px: number) => void;
 }) {
-  const t = useT();
   const theme = useTheme();
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
@@ -115,8 +113,8 @@ function ArtifactSurface({
   if (failed) {
     return (
       <div role="alert" className={cn(frameClass, "flex items-center gap-2 border border-line bg-surface px-3 text-xs text-ink-dim")} style={style}>
-        <span className="min-w-0 flex-1 break-words">{t("artifacts.guestFailed")}</span>
-        <Button onClick={() => { setFailed(false); setReload((value) => value + 1); }}>{t("artifacts.reload")}</Button>
+        <span className="min-w-0 flex-1 break-words">This artifact failed to load.</span>
+        <Button onClick={() => { setFailed(false); setReload((value) => value + 1); }}>Reload</Button>
       </div>
     );
   }
@@ -135,7 +133,6 @@ function ArtifactSurface({
 }
 
 function ArtifactViewer({ html, title, hint, onClose }: { html: string; title: string; hint?: string; onClose: () => void }) {
-  const t = useT();
   const titleId = useId();
   return (
     <Modal
@@ -151,7 +148,7 @@ function ArtifactViewer({ html, title, hint, onClose }: { html: string; title: s
           {title}
         </h2>
         {hint !== undefined && <span className="max-w-[36rem] break-words text-xs text-ink-faint">{hint}</span>}
-        <IconButton label={t("common.overlay.close")} onClick={onClose}>
+        <IconButton label="close dialog" onClick={onClose}>
           <IconClose />
         </IconButton>
       </header>
@@ -163,7 +160,6 @@ function ArtifactViewer({ html, title, hint, onClose }: { html: string; title: s
 }
 
 function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, container }: { item: ToolItem; tabId: string; title: string; onResolvedDraft: (draftId: string | null) => void; onHistorical: (value: boolean) => void; container: HTMLElement | null }) {
-  const t = useT();
   const enabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
   const owner = useStore((s) => findOwner(s.state, tabId));
   const revision = useStore((s) => s.artifactLibraryRevision);
@@ -208,29 +204,29 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
       // Keep the loaded guest as a revoked historical preview; never mount a second writer.
       onHistorical(true); setLookup({status: "kept", artifact: kept});
       useStore.getState().invalidateArtifactLibrary();
-    } catch (reason) { setError(artifactFailure(reason)?.error === "over-limit" ? t("artifacts.overLimit") : displayMessage(reason)); }
+    } catch (reason) { setError(artifactFailure(reason)?.error === "over-limit" ? "Library is over its size limit — free space in Artifacts → Data or History, then try again." : displayMessage(reason)); }
     finally { setBusy(false); }
   };
-  if (!enabled) return item.args && typeof item.args === "object" && "artifact" in item.args ? <p className="mt-2 text-xs text-ink-dim">{t("artifacts.disabledHint")}</p> : null;
-  if (!native) return <p className="mt-2 text-xs text-ink-dim">{t("artifacts.foreignHint")}</p>;
+  if (!enabled) return item.args && typeof item.args === "object" && "artifact" in item.args ? <p className="mt-2 text-xs text-ink-dim">Managed state is disabled. Enable Artifact library in Settings → Experimental on the owning host.</p> : null;
+  if (!native) return <p className="mt-2 text-xs text-ink-dim">Open this artifact on its owning host to keep it or use managed state. Joined-owner actions are not supported.</p>;
   const publishable = lookup?.status === "draft" || lookup?.status === "kept" ? lookup : null;
   return <>
     {container && publishable && createPortal(<>
-      <span className="text-xs text-ink-dim">{t(publishable.status === "kept" ? "artifacts.kept" : publishable.candidate ? "artifacts.draftCandidate" : "artifacts.draft")}</span>
+      <span className="text-xs text-ink-dim">{publishable.status === "kept" ? "Kept" : publishable.candidate ? "Draft candidate" : "Draft"}</span>
       {titling && publishable.status === "draft"
         ? <>
-          <label className="flex items-center gap-1"><span className="sr-only">{t("artifacts.keepTitleLabel")}</span><input autoFocus type="text" maxLength={ARTIFACT_LIMITS.titleChars} value={keepTitle} onChange={(event) => setKeepTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); setTitling(false); void keep(false); } if (event.key === "Escape") { event.preventDefault(); setTitling(false); } }} className="w-48 min-w-0 rounded border border-line bg-raised px-2 py-0.5 text-xs outline-none focus-visible:border-copper" aria-label={t("artifacts.keepTitleLabel")} /></label>
-          <Button disabled={busy} onClick={() => { setTitling(false); void keep(false); }}>{t("artifacts.keepConfirm")}</Button>
-          <Button disabled={busy} onClick={() => setTitling(false)}>{t("artifacts.cancel")}</Button>
+          <label className="flex items-center gap-1"><span className="sr-only">Artifact title</span><input autoFocus type="text" maxLength={ARTIFACT_LIMITS.titleChars} value={keepTitle} onChange={(event) => setKeepTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); setTitling(false); void keep(false); } if (event.key === "Escape") { event.preventDefault(); setTitling(false); } }} className="w-48 min-w-0 rounded border border-line bg-raised px-2 py-0.5 text-xs outline-none focus-visible:border-copper" aria-label="Artifact title" /></label>
+          <Button disabled={busy} onClick={() => { setTitling(false); void keep(false); }}>Confirm</Button>
+          <Button disabled={busy} onClick={() => setTitling(false)}>Cancel</Button>
         </>
         : <>
-      <Button disabled={busy} onClick={() => { if (publishable.status === "kept") useStore.getState().openArtifacts({artifactId: publishable.artifact.artifactId}); else if (publishable.draft.artifactId) void keep(false); else { setKeepTitle(title); setTitling(true); } }}>{t(publishable.status === "kept" ? "artifacts.openLibrary" : publishable.draft.artifactId ? "artifacts.keepAsNew" : "artifacts.keep")}</Button>
-      {publishable.status === "draft" && publishable.candidate?.compatible && !publishable.candidate.stale && <Button disabled={busy} onClick={() => void keep(true)}>{t("artifacts.acceptRevision")}</Button>}
+      <Button disabled={busy} onClick={() => { if (publishable.status === "kept") useStore.getState().openArtifacts({artifactId: publishable.artifact.artifactId}); else if (publishable.draft.artifactId) void keep(false); else { setKeepTitle(title); setTitling(true); } }}>{publishable.status === "kept" ? "Open in library" : publishable.draft.artifactId ? "Keep as new" : "Keep"}</Button>
+      {publishable.status === "draft" && publishable.candidate?.compatible && !publishable.candidate.stale && <Button disabled={busy} onClick={() => void keep(true)}>Accept revision</Button>}
         </>}
     </>, container)}
-    {lookup?.status === "draft" && lookup.candidate && <div className="mt-2 space-y-1 text-xs text-ink-dim"><p>{t(lookup.candidate.stale ? "artifacts.candidateStale" : lookup.candidate.compatible ? "artifacts.contractHint" : "artifacts.candidateSchema")}</p><details open={!lookup.candidate.compatible}><summary className="cursor-pointer">{t("artifacts.contractChanges")}</summary><div className="break-words"><ArtifactContractDiff current={lookup.candidate.currentDefinition} candidate={lookup.candidate.definition} /></div></details></div>}
-    {lookup?.status === "missing" && <p className="mt-2 text-xs text-ink-dim">{t("artifacts.sourceUnavailable")}</p>}
-    {lookup?.status === "deleted" && <p className="mt-2 text-xs text-ink-dim">{t("artifacts.wasDeleted")}</p>}
+    {lookup?.status === "draft" && lookup.candidate && <div className="mt-2 space-y-1 text-xs text-ink-dim"><p>{lookup.candidate.stale ? "Based on older accepted code. Keep as new in the source session, or reference the current version to discuss another candidate." : lookup.candidate.compatible ? "Same declared data contract, not a verified migration. Accepting code retains the existing saved state and datasets." : "Different declared data contract. Keep as new; existing data will not be migrated."}</p><details open={!lookup.candidate.compatible}><summary className="cursor-pointer">Contract changes</summary><div className="break-words"><ArtifactContractDiff current={lookup.candidate.currentDefinition} candidate={lookup.candidate.definition} /></div></details></div>}
+    {lookup?.status === "missing" && <p className="mt-2 text-xs text-ink-dim">The exact source session is unavailable. Kept code and data remain available.</p>}
+    {lookup?.status === "deleted" && <p className="mt-2 text-xs text-ink-dim">This artifact was deleted. Its source remains in the transcript.</p>}
     {error && <p role="alert" className="mt-2 text-xs text-rose">{error}</p>}
   </>;
 }
@@ -249,7 +245,6 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
  * one-line note instead of the document, and mounts no guest and no Keep actions.
  */
 export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: ToolItem; tabId?: string; deferred?: boolean }) {
-  const t = useT();
   const titleId = useId();
   const parsed = useMemo(() => parseHtmlArtifactArgs(item.args), [item.args]);
   const [measured, setMeasured] = useState<number | null>(null);
@@ -279,7 +274,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
     observer.observe(row);
     return () => observer.disconnect();
   }, [latched, visible]);
-  const title = parsed.ok ? parsed.args.title : (strField(item.args, "title") ?? t("transcript.artifact.untitled"));
+  const title = parsed.ok ? parsed.args.title : (strField(item.args, "title") ?? "HTML artifact");
   const shown = item.status === "done" && parsed.ok ? parsed.args : null;
   const managed = shown?.artifact !== undefined;
   // Scripts-off hint (issue: post-#994 follow-through): the one sanctioned
@@ -304,7 +299,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
     return (
       <p className="flex items-center gap-1.5 text-xs text-ink-faint animate-rise">
         <ArtifactGlyph />
-        {t("transcript.artifact.deferred", { title })}
+        {`“${title}” appears after the final reply`}
       </p>
     );
   }
@@ -325,15 +320,15 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
             : <div aria-hidden className="w-full" style={{height: frameHeight}} />}
           <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5" style={managed && expanded && IS_ELECTRON && OVERLAY_INSET > 0 ? { paddingRight: OVERLAY_INSET } : undefined}><div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
             <span ref={setActions} className="flex flex-wrap items-center gap-1" />
-            {scriptsOffHint && <span className="max-w-[24rem] truncate text-xs text-ink-faint" title={t(IS_ELECTRON ? "artifacts.scriptsOffSettings" : "artifacts.scriptsOffBrowser")}>{t(IS_ELECTRON ? "artifacts.scriptsOffSettings" : "artifacts.scriptsOffBrowser")}</span>}
-            <IconButton label={t(managed && expanded ? "common.overlay.close" : "transcript.artifact.expand")} onClick={() => setExpanded(value => !value)}>{managed && expanded ? <IconClose /> : <ExpandGlyph />}</IconButton>
+            {scriptsOffHint && <span className="max-w-[24rem] truncate text-xs text-ink-faint" title={IS_ELECTRON ? "This artifact uses scripts, which are off in Settings → Artifacts." : "This viewer never runs artifact scripts; interactive behavior did not run."}>{IS_ELECTRON ? "This artifact uses scripts, which are off in Settings → Artifacts." : "This viewer never runs artifact scripts; interactive behavior did not run."}</span>}
+            <IconButton label={managed && expanded ? "close dialog" : "Expand to full view"} onClick={() => setExpanded(value => !value)}>{managed && expanded ? <IconClose /> : <ExpandGlyph />}</IconButton>
           </div></div>
         </>)}
       </div>
-      {expanded && !managed && <ArtifactViewer html={shown.html} title={title} hint={scriptsOffHint ? t(IS_ELECTRON ? "artifacts.scriptsOffSettings" : "artifacts.scriptsOffBrowser") : undefined} onClose={() => setExpanded(false)} />}
+      {expanded && !managed && <ArtifactViewer html={shown.html} title={title} hint={scriptsOffHint ? IS_ELECTRON ? "This artifact uses scripts, which are off in Settings → Artifacts." : "This viewer never runs artifact scripts; interactive behavior did not run." : undefined} onClose={() => setExpanded(false)} />}
       {tabId && <ArtifactActions item={item} tabId={tabId} title={title} onResolvedDraft={setDraftId} onHistorical={setHistorical} container={actions} />}
     </div>}
-    {item.status === "running" && <div className="flex items-center gap-2 animate-rise"><span className="text-xs text-ink-faint">{t("transcript.tool.running")}</span><div className="flex-1"><ProgressSweep tone="copper" /></div></div>}
+    {item.status === "running" && <div className="flex items-center gap-2 animate-rise"><span className="text-xs text-ink-faint">running</span><div className="flex-1"><ProgressSweep tone="copper" /></div></div>}
     {slab !== null && <Slab className="max-h-48 animate-rise" tone={item.status === "error" ? "rose" : "neutral"}>{linkify(slab)}</Slab>}
   </>;
 }

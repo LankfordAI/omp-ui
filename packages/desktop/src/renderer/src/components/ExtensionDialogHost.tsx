@@ -2,7 +2,6 @@ import { useEffect, useMemo, useReducer, useRef } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { field, numField, strField } from "../lib/fields";
-import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
 import {
   checkedValues,
@@ -246,7 +245,6 @@ export function ExtensionDialogHost({
   /** False where no visible composer can answer: the sheet, the subagent view, a hidden floating composer. */
   composerVisible?: boolean;
 }) {
-  const t = useT();
   const queue = useStore((s) => s.rpc[tabId]?.extensionQueue) ?? [];
   const answerExtension = useStore((s) => s.answerExtension);
   const current = queue[0];
@@ -268,7 +266,7 @@ export function ExtensionDialogHost({
   const panelField = compact || !composerVisible;
 
   const method = strField(current, "method") ?? "";
-  const rawTitle = strField(current, "title") ?? t("dialog.extension.fallbackTitle");
+  const rawTitle = strField(current, "title") ?? "extension request";
   const options = useMemo(() => readOptions(field(current, "options")), [current]);
 
   const plan = method === "select" ? planSelect(rawTitle, options) : null;
@@ -391,8 +389,8 @@ export function ExtensionDialogHost({
   // header names the form; every question renders in the body below.
   const displayTitle =
     method === "ask"
-      ? t("dialog.extension.ask.title")
-      : (dialogQuestion(current) ?? t("dialog.extension.fallbackTitle"));
+      ? "The agent is asking questions"
+      : (dialogQuestion(current) ?? "extension request");
   const message = strField(current, "message") ?? strField(current, "label") ?? "";
   const reviewEntry =
     reviewing !== null && series !== null
@@ -511,18 +509,18 @@ export function ExtensionDialogHost({
           />
         )}
         <div className="flex items-start gap-2">
-          <Dot tone="signal" pulse className="mt-1.5" title={t("dialog.extension.waiting")} />
+          <Dot tone="signal" pulse className="mt-1.5" title="the agent is waiting on this answer" />
           <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-snug text-ink">
             {reviewEntry !== undefined ? reviewEntry.title : displayTitle}
           </h2>
-          {reviewEntry !== undefined && <Chip tone="signal">{t("dialog.extension.answered")}</Chip>}
+          {reviewEntry !== undefined && <Chip tone="signal">answered</Chip>}
           {inMultiLoop && (plan.count ?? 0) + (picked?.length ?? 0) > 0 && (
-            <Chip tone="iris" mono title={t("dialog.extension.pickedTitle")}>
-              {t("dialog.extension.selected", { n: plan.count ?? picked?.length ?? 0 })}
+            <Chip tone="iris" mono title="answers picked so far — picking again removes one">
+              {`${plan.count ?? picked?.length ?? 0} selected`}
             </Chip>
           )}
           {queue.length > 1 && (
-            <Chip tone="copper">{t("dialog.extension.more", { n: queue.length - 1 })}</Chip>
+            <Chip tone="copper">{`${queue.length - 1} more`}</Chip>
           )}
         </div>
       </div>
@@ -579,9 +577,9 @@ export function ExtensionDialogHost({
                 (o) => o.label === reviewEntry.answer[0] || o.value === reviewEntry.answer[0],
               ) && <p className="mt-2 text-xs text-ink-dim">{reviewEntry.answer[0]}</p>}
             <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-ink-faint">{t("dialog.extension.reviewFinal")}</span>
+              <span className="text-xs text-ink-faint">answers are final once sent · Esc back</span>
               <Button variant="outline" size="xs" onClick={() => dispatch({ type: "review", page: null })}>
-                {t("dialog.extension.backToQuestion", { n: series.current })}
+                {`back to question ${series.current}`}
               </Button>
             </div>
           </div>
@@ -614,21 +612,21 @@ export function ExtensionDialogHost({
             {method === "confirm" && (
               <div className="flex justify-end gap-2">
                 <Button onClick={() => answerExtension(tabId, current, { confirmed: false })}>
-                  {t("dialog.extension.cancel")}
+                  cancel
                 </Button>
                 <Button
                   variant="solid"
                   tone="signal"
                   onClick={() => answerExtension(tabId, current, { confirmed: true })}
                 >
-                  {t("dialog.extension.confirm")}
+                  confirm
                 </Button>
               </div>
             )}
 
             {plan !== null && (
               <>
-                {plan.listed.length === 0 && <p className="rounded-md border border-line p-3 text-xs text-ink-dim">{t("dialog.extension.noChoices")}</p>}
+                {plan.listed.length === 0 && <p className="rounded-md border border-line p-3 text-xs text-ink-dim">No choices are available for this request.</p>}
                 <div className="space-y-1">
                 {plan.listed.map((option, i) => {
                   const isPicked = picked?.includes(option.value) ?? false;
@@ -679,7 +677,7 @@ export function ExtensionDialogHost({
                             isPicked ? "text-signal" : "text-ink",
                           )}
                         >
-                          {other ? t("dialog.extension.other") : option.label}
+                          {other ? "Other — type your own…" : option.label}
                         </span>
                         {option.description && (
                           <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-snug text-ink-faint">
@@ -693,12 +691,12 @@ export function ExtensionDialogHost({
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-xs text-ink-faint">
                     {plan.doneValue !== null
-                      ? t("dialog.extension.multiHint")
-                      : t("dialog.extension.singleHint")}
+                      ? "↑↓ move · Space or click toggles · Enter done · Esc dismiss"
+                      : "↑↓ choose · Enter answer · Esc dismiss"}
                   </span>
                   <span className="flex items-center gap-2">
                     <Button variant="ghost" size="xs" onClick={cancel}>
-                      {t("dialog.extension.cancel")}
+                      cancel
                     </Button>
                     {plan.doneValue !== null && (
                       <Button
@@ -706,9 +704,9 @@ export function ExtensionDialogHost({
                         tone="signal"
                         size="xs"
                         onClick={finishMulti}
-                        title={t("dialog.extension.doneTitle")}
+                        title="finish selecting and send the answer"
                       >
-                        {t("dialog.extension.done")}
+                        done selecting
                       </Button>
                     )}
                   </span>
@@ -776,19 +774,19 @@ export function ExtensionDialogHost({
                       />
                     )}
                     <div className="flex justify-end gap-2">
-                      <Button onClick={cancel}>{t("dialog.extension.cancel")}</Button>
+                      <Button onClick={cancel}>cancel</Button>
                       <Button type="submit" variant="solid" tone="signal">
-                        {t("dialog.extension.submit")}
+                        submit
                       </Button>
                     </div>
                   </form>
                 ) : (
                   <div className="flex items-center justify-between pt-2">
                     <span className="text-xs text-ink-faint">
-                      {t("dialog.extension.answerInComposer")}
+                      Type your answer in the box below — Enter sends it.
                     </span>
                     <Button variant="ghost" size="xs" onClick={cancel}>
-                      {t("dialog.extension.cancel")}
+                      cancel
                     </Button>
                   </div>
                 )}
@@ -819,12 +817,11 @@ function SeriesRail({
   onReview: (page: number) => void;
   onJumpToCurrent: () => void;
 }) {
-  const t = useT();
   const compact = useCompactShell();
   const label =
     reviewing !== null
-      ? t("dialog.extension.reviewing", { n: reviewing, total: state.total })
-    : t("dialog.extension.question", { n: state.current, total: state.total });
+      ? `Reviewing ${reviewing} of ${state.total}`
+    : `Question ${state.current} of ${state.total}`;
   if (state.total > 10) {
     return (
       <div className="mb-2 flex items-center gap-2">
@@ -835,7 +832,7 @@ function SeriesRail({
   }
   return (
     <div className="mb-2 flex items-center gap-2">
-      <ol className="flex items-center gap-1.5" aria-label={t("dialog.extension.seriesProgress")}>
+      <ol className="flex items-center gap-1.5" aria-label="question series progress">
         {Array.from({ length: state.total }, (_, i) => i + 1).map((page) => {
           const answered = isAnswered(state, page);
           const isCurrent = page === state.current;
@@ -846,11 +843,7 @@ function SeriesRail({
                 type="button"
                 disabled={!answered && !isCurrent}
                 aria-current={isCurrent ? "step" : undefined}
-                aria-label={t("dialog.extension.questionAria", {
-                  page,
-                  total: state.total,
-                  status: isCurrent ? t("dialog.extension.questionCurrent") : answered ? t("dialog.extension.answered") : t("dialog.extension.questionNotAnswered")
-                }) + (isViewing ? t("dialog.extension.questionReviewing") : "")}
+                aria-label={`question ${page} of ${state.total}, ${isCurrent ? "current" : answered ? "answered" : "not answered"}` + (isViewing ? ", reviewing" : "")}
                 onClick={() => (isCurrent ? onJumpToCurrent() : onReview(page))}
                 className={cn(
                   "grid place-items-center rounded-full transition-colors",

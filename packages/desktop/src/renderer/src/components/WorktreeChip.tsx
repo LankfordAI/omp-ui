@@ -4,7 +4,6 @@ import type { SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { shortBase } from "../lib/format";
 import { Chip, CopyButton, Panel } from "./ui";
 import { useStore } from "../store";
@@ -36,7 +35,6 @@ export function WorktreeChip({
   hostLocalActions: boolean;
   className?: string;
 }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   /** null = never asked; asked once per mount, like the sidebar's discovery. */
@@ -123,7 +121,7 @@ export function WorktreeChip({
                 <span className="min-w-0 truncate font-mono text-xs text-ink" title={worktree.branch}>
                   {worktree.branch}
                 </span>
-                <CopyButton text={worktree.branch} label={t("worktree.actions.copy")} doneLabel={t("worktree.actions.copied")} />
+                <CopyButton text={worktree.branch} label="Copy" doneLabel="Copied" />
               </div>
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                 <span
@@ -132,11 +130,11 @@ export function WorktreeChip({
                 >
                   {worktree.path}
                 </span>
-                <CopyButton text={worktree.path} label={t("worktree.actions.copy")} doneLabel={t("worktree.actions.copied")} />
+                <CopyButton text={worktree.path} label="Copy" doneLabel="Copied" />
               </div>
               {worktree.base !== null && (
                 <p className="px-2.5 pb-1.5 text-xs text-ink-faint" title={worktree.base}>
-                  {t("worktree.details.cutFrom", { base: shortBase(worktree.base) })}
+                  {`cut from ${shortBase(worktree.base)}`}
                 </p>
               )}
               <div className="my-1 border-t border-line-soft" />
@@ -149,17 +147,17 @@ export function WorktreeChip({
                   openFinishWorktree(tabId);
                 }}
               >
-                {t("worktree.actions.finish")}
+                finish worktree…
               </button>
               {hostLocalActions && (
                 <>
                   {vsCodeAvailable === true && (
                     <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>
-                      {t("worktree.actions.openVsCode")}
+                      Open in VS Code
                     </button>
                   )}
                   <button type="button" role="menuitem" className={rowText} onClick={() => openIn("files")}>
-                    {t("worktree.actions.openFiles")}
+                    Open in Files
                   </button>
                 </>
               )}

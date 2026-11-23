@@ -6,7 +6,6 @@ import type {
   SpendCapKey,
 } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { Button, Label } from "../ui";
 import { CommitField, layerBadge } from "./rows";
@@ -40,7 +39,6 @@ export function SpendCapSection({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   const published = warnEntry !== undefined || maxEntry !== undefined;
   // Project opens only when the project layer already supplies the stop
   // amount: a cap is a machine-wide habit more often than a per-repo one.
@@ -134,7 +132,7 @@ export function SpendCapSection({
     // Empty or non-finite reverts: the clear button unsets a cap, not a blank field.
     if (raw.trim() === "" || !Number.isFinite(value)) return;
     if (value <= 0) {
-      setLocalError(t("settings.omp.spendCapPositive"));
+      setLocalError("Enter an amount above $0.");
       return;
     }
     if (scope === "global") {
@@ -184,7 +182,7 @@ export function SpendCapSection({
             onCommit={(raw) => commitValue(entry, child, raw)}
           />
           <Button size="xs" disabled={disabled || !clearable} onClick={() => clearValue(entry, child)}>
-            {t("settings.omp.spendCapClear")}
+            clear
           </Button>
         </span>
       </div>
@@ -194,11 +192,11 @@ export function SpendCapSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.spendCaps")}</Label>
+        <Label>Spend caps</Label>
         <span
           className="ml-auto flex items-center gap-1"
           role="group"
-          aria-label={t("settings.omp.subagentScope")}
+          aria-label="edit scope"
         >
           {(["global", "project"] as const).map((choice) => (
             <button
@@ -208,7 +206,7 @@ export function SpendCapSection({
               title={
                 choice === "project" && !projectEditable
                   ? projectCwd === null
-                    ? t("settings.omp.noSessionFocused")
+                    ? "No session focused — showing omp's global configuration."
                     : (unsupported?.reason ?? "")
                   : undefined
               }
@@ -221,23 +219,23 @@ export function SpendCapSection({
               )}
             >
               {choice === "global"
-                ? t("settings.omp.subagentScopeGlobal")
-                : t("settings.omp.subagentScopeProject")}
+                ? "Global"
+                : "Project"}
             </button>
           ))}
         </span>
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.spendCapsHint")}
+        USD per session, subagents included. omp warns once at the warning amount and stops sending model requests at the stop amount. Global edits go through omp config set; Project edits write the key into the project's .omp/config.yml, which wins over Global. Running sessions pick up a change at their next model request.
       </p>
       {unsupported !== null && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.spendCapUnsupported", { reason: unsupported.reason })}
+          {`This project's spend caps can't be edited here: ${unsupported.reason}`}
         </p>
       )}
       {outOfOrder && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.spendCapOrder")}
+          The warning amount is at or above the stop amount, so omp stops before it ever warns.
         </p>
       )}
       {localError !== null && (
@@ -247,8 +245,8 @@ export function SpendCapSection({
       )}
 
       <div className="mt-1.5">
-        {row(warnEntry, "warnCost", t("settings.omp.spendCapWarn"))}
-        {row(maxEntry, "maxCost", t("settings.omp.spendCapMax"))}
+        {row(warnEntry, "warnCost", "Warn at")}
+        {row(maxEntry, "maxCost", "Stop at")}
       </div>
     </section>
   );

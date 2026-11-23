@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import { cn } from "../lib/cn";
 import { HIGHLIGHT_CHAR_CAP, langFromPath, useHighlightTokens } from "../lib/highlight";
-import { useT, type MessageKey } from "../lib/i18n";
 import { diffCounts, hunkStarts, pairWordRanges, rowSegments, type DiffRow, type DiffSegment } from "../lib/omp-diff";
 import { useStore } from "../store";
 import { Chevron, Chip, CopyButton, ICON_STROKE, IconButton, type Tone } from "./ui";
@@ -21,22 +20,20 @@ const EMPH_CLASS: Partial<Record<DiffRow["kind"], string>> = {
 
 const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "-", ctx: " ", meta: " " };
 
-const OP_KEY: Partial<Record<string, MessageKey>> = {
-  create: "diff.op.create",
-  update: "diff.op.update",
-  modified: "diff.op.modified",
-  delete: "diff.op.delete",
-  write: "diff.op.write",
+const OP_LABEL: Partial<Record<string, string>> = {
+  create: "create",
+  update: "update",
+  modified: "modified",
+  delete: "delete",
+  write: "write",
 };
 
-/** Localized operation chip; an unknown op is data and prints as-is. */
+/** Operation chip; an unknown op is data and prints as-is. */
 export function OpChip({ op }: { op: string | undefined }) {
-  const t = useT();
   if (!op) return null;
-  const key = OP_KEY[op];
   // Rose for delete: destructive (ADR-0004).
   const tone: Tone = op === "create" ? "signal" : op === "delete" ? "rose" : "neutral";
-  return <Chip tone={tone}>{key ? t(key) : op}</Chip>;
+  return <Chip tone={tone}>{OP_LABEL[op] ?? op}</Chip>;
 }
 
 /** The gutter / sign / segments strip shared by the unified row and the two
@@ -170,7 +167,6 @@ export interface DiffViewerProps {
 
 export function DiffViewer(props: DiffViewerProps) {
   const { rows, path, op, renamedFrom, binary } = props;
-  const t = useT();
   const { added, removed } = useMemo(() => diffCounts(rows), [rows]);
   const rebuilt = useMemo(
     () => rows.map((row) => (row.kind === "meta" ? row.text : `${SIGN[row.kind]}${row.text}`)).join("\n"),
@@ -286,7 +282,7 @@ export function DiffViewer(props: DiffViewerProps) {
     });
   }, [open, rows, oldTokens, newTokens, oldCount, newCount, ranges]);
 
-  const shown = path ?? t("diff.viewer.fallbackName");
+  const shown = path ?? "diff";
   const cut = shown.lastIndexOf("/") + 1;
   const dir = shown.slice(0, cut);
   const base = shown.slice(cut);
@@ -313,13 +309,13 @@ export function DiffViewer(props: DiffViewerProps) {
             <OpChip op={op} />
             {renamedFrom !== undefined && (
               <>
-                <Chip>{t("diff.op.rename")}</Chip>
+                <Chip>renamed</Chip>
                 <span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={renamedFrom}>
-                  {t("diff.viewer.renamedFrom", { path: renamedFrom })}
+                  {`from ${renamedFrom}`}
                 </span>
               </>
             )}
-            {binary && <Chip>{t("diff.viewer.binary")}</Chip>}
+            {binary && <Chip>binary</Chip>}
           </span>
     </>
   );
@@ -327,10 +323,10 @@ export function DiffViewer(props: DiffViewerProps) {
   // Unified/split preference; two icon-buttons, the pressed one raised.
   const layoutControl = open && expandable && (
     <span className="flex shrink-0 items-center gap-0.5" role="group">
-      <IconButton label={t("diff.viewer.viewUnified")} pressed={layout === "unified"} onClick={() => setLayout("unified")}>
+      <IconButton label="unified view" pressed={layout === "unified"} onClick={() => setLayout("unified")}>
         <IconUnified />
       </IconButton>
-      <IconButton label={t("diff.viewer.viewSplit")} pressed={layout === "split"} onClick={() => setLayout("split")}>
+      <IconButton label="split view" pressed={layout === "split"} onClick={() => setLayout("split")}>
         <IconSplit />
       </IconButton>
     </span>
@@ -353,7 +349,7 @@ export function DiffViewer(props: DiffViewerProps) {
             state. */}
         {layoutControl}
         {(props.patch !== undefined || expandable) && (
-          <CopyButton text={patch} label={t("diff.viewer.patchLabel")} />
+          <CopyButton text={patch} label="patch" />
         )}
       </div>
 
@@ -375,7 +371,7 @@ export function DiffViewer(props: DiffViewerProps) {
                   // The rule and raw headers span the full band, not half a
                   // column each — the hunk boundary is file-wide context.
                   return gap !== null ? (
-                    <CollapsedRule key={i} label={t("diff.viewer.unmodified", { count: gap })} header={row.text} />
+                    <CollapsedRule key={i} label={`${gap} unmodified lines`} header={row.text} />
                   ) : (
                     <Row key={i} row={row} segments={seg(line.row)} />
                   );
@@ -428,7 +424,7 @@ export function DiffViewer(props: DiffViewerProps) {
               {rows.map((row, i) => {
                 const gap = collapse[i];
                 return gap !== null ? (
-                  <CollapsedRule key={i} label={t("diff.viewer.unmodified", { count: gap })} header={row.text} />
+                  <CollapsedRule key={i} label={`${gap} unmodified lines`} header={row.text} />
                 ) : (
                   <Row key={i} row={row} segments={segments[i] ?? [{ text: row.text, emph: false }]} />
                 );

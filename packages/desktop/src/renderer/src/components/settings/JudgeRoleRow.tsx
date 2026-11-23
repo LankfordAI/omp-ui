@@ -3,7 +3,6 @@ import type { JudgeModelSnapshot } from "@omp-ui/core/types";
 import { OMP_JUDGE_ROLE_ID } from "@omp-ui/core/omp-settings-keys";
 import { useStore } from "../../store";
 import { displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui";
 import { CommitField } from "./rows";
@@ -31,7 +30,6 @@ export function JudgeRoleRow({
   pending: boolean;
   onCommit: (raw: string) => void;
 }) {
-  const t = useT();
   const readJudgeModels = useStore((s) => s.readJudgeModels);
   const [open, setOpen] = useState(false);
   const [load, setLoad] = useState<JudgeModelsLoad>({ status: "idle" });
@@ -69,29 +67,29 @@ export function JudgeRoleRow({
         <CommitField
           current={value}
           kind="text"
-          label={t("settings.omp.modelRoleLabel", { role: OMP_JUDGE_ROLE_ID })}
-          placeholder={t("settings.omp.judgePlaceholder")}
+          label={`model role ${OMP_JUDGE_ROLE_ID}`}
+          placeholder="provider/model — blank = unset"
           disabled={pending}
           className="flex-1"
           onCommit={onCommit}
         />
         <Button size="xs" disabled={pending} onClick={toggle}>
-          {t("settings.omp.judgeBrowse")}
+          browse…
         </Button>
       </div>
       {open && load.status === "loading" && (
-        <p className="mt-1.5 text-xs text-ink-faint">{t("settings.omp.reading")}</p>
+        <p className="mt-1.5 text-xs text-ink-faint">Reading omp configuration…</p>
       )}
       {open && load.status === "loaded" && (
         <div className="mt-1.5 flex min-w-0 flex-col gap-2">
           <div
             role="group"
-            aria-label={t("settings.omp.modelRoleLabel", { role: OMP_JUDGE_ROLE_ID })}
+            aria-label={`model role ${OMP_JUDGE_ROLE_ID}`}
             className="divide-y divide-line-soft rounded-md border border-line bg-raised"
           >
             {(() => {
               const options: Array<{ id: string; label: string }> = [
-                { id: "", label: t("settings.omp.judgeUnset") },
+                { id: "", label: "Unset — omp's built-in judge chain" },
               ];
               if (
                 trimmed !== "" &&
@@ -99,7 +97,7 @@ export function JudgeRoleRow({
               ) {
                 options.push({
                   id: trimmed,
-                  label: `${trimmed}${t("settings.omp.judgeOutsideCatalog")}`,
+                  label: `${trimmed}${" · not in omp's catalog"}`,
                 });
               }
               for (const model of load.snapshot.models) {
@@ -134,11 +132,11 @@ export function JudgeRoleRow({
             })()}
           </div>
           {load.snapshot.discovered && load.snapshot.models.length === 0 && (
-            <p className="text-xs text-ink-faint">{t("settings.omp.judgeNone")}</p>
+            <p className="text-xs text-ink-faint">omp published no judge-kind models</p>
           )}
           {!load.snapshot.discovered && (
             <p className="text-xs text-ink-faint">
-              {t("settings.omp.judgeLoadFailed", { message: load.snapshot.error ?? "" })}
+              {`could not read omp's judge catalog: ${load.snapshot.error ?? ""}`}
             </p>
           )}
         </div>

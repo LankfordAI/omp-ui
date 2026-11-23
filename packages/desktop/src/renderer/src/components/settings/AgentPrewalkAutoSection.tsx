@@ -1,7 +1,6 @@
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { AGENT_PREWALK_AUTO_KEY } from "@omp-ui/core/omp-settings-keys";
 import { useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { Label } from "../ui";
 import { CommitField, layerBadge } from "./rows";
 
@@ -39,7 +38,6 @@ export function AgentPrewalkAutoSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   const roster = useStore((s) => s.state?.agentRoster ?? EMPTY_ROSTER);
   if (entry === undefined) return null;
 
@@ -65,11 +63,11 @@ export function AgentPrewalkAutoSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.agentPrewalkAuto")}</Label>
+        <Label>Judge-armed subagent prewalk</Label>
         {layerBadge(entry.layer)}
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.agentPrewalkAutoHint")}
+        Per-agent entries for task.agentPrewalkAuto (omp 18.22+): on asks the native judge per assignment whether to prewalk, handing off to prewalk.autoTarget at the first edit; off skips the judgment; any other text is a model pattern. A per-agent task.agentPrewalk entry or the agent's own prewalk frontmatter arms unconditionally and beats this. Empty clears the agent's entry. Edits write the global layer.
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {agents.map((agent) => (
@@ -80,7 +78,7 @@ export function AgentPrewalkAutoSection({
             <CommitField
               current={typeof record[agent] === "string" ? record[agent] : ""}
               kind="text"
-              label={t("settings.omp.agentPrewalkAutoField", { agent })}
+              label={`prewalk entry for ${agent}`}
               placeholder="on"
               disabled={pendingWrite}
               className="w-56 font-mono"
@@ -90,7 +88,7 @@ export function AgentPrewalkAutoSection({
         ))}
       </div>
       {agents.length === 0 && (
-        <p className="mt-1.5 text-sm text-ink-faint">{t("settings.omp.agentPrewalkAutoEmpty")}</p>
+        <p className="mt-1.5 text-sm text-ink-faint">No agents discovered yet — focus a running session or refresh the roster from Subagent models.</p>
       )}
     </section>
   );

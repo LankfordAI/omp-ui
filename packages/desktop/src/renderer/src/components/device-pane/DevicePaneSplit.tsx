@@ -4,7 +4,6 @@ import {
   DEVICE_PANE_DEFAULT_WIDTH,
   DEVICE_PANE_MIN_WIDTH,
 } from "../../lib/panel-layout";
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ResizeHandle } from "../ui";
 import { useDesktopPanelWidths } from "../split-slot";
@@ -12,7 +11,6 @@ import { DevicePane } from "./DevicePane";
 
 /** The desktop split: the device pane as a resizable column between the transcript and the inspector rail. */
 export function DevicePaneSplit({ tabId }: { tabId: string }) {
-  const t = useT();
   const resolved = useDesktopPanelWidths(tabId);
   const devicePaneWidth = useStore((s) => s.devicePaneWidth);
   const setDevicePaneWidth = useStore((s) => s.setDevicePaneWidth);
@@ -35,7 +33,7 @@ export function DevicePaneSplit({ tabId }: { tabId: string }) {
       style={{ width: displayedWidth }}
     >
       <ResizeHandle
-        label={t("device.split.resize")}
+        label="resize device pane"
         edge="left"
         value={displayedWidth}
         min={DEVICE_PANE_MIN_WIDTH}

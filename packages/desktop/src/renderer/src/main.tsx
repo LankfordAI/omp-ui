@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { useT } from "./lib/i18n";
 import "./style.css";
 
 /**
@@ -11,12 +10,11 @@ import "./style.css";
  * markup on the void background: it must not depend on anything that can fail.
  */
 function AppCrash({ error }: { error: Error }) {
-  const t = useT();
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-3 bg-void px-8 font-sans text-ink">
-      <h1 className="text-base font-semibold">{t("app.crash.title")}</h1>
-      <p className="max-w-lg text-center text-sm text-ink-mid">{t("app.crash.body")}</p>
-      <p className="max-w-lg text-center text-xs text-ink-faint">{t("app.crash.diagnostics")}</p>
+      <h1 className="text-base font-semibold">omp-ui hit a render error</h1>
+      <p className="max-w-lg text-center text-sm text-ink-mid">The sessions themselves are unaffected — omp keeps running in the background. Reload to reattach.</p>
+      <p className="max-w-lg text-center text-xs text-ink-faint">If this keeps happening, export a diagnostic bundle from Settings → Advanced or the command palette.</p>
       <pre
         data-selectable
         className="max-h-48 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-3 py-2 font-mono text-xs leading-snug text-rose"
@@ -28,7 +26,7 @@ function AppCrash({ error }: { error: Error }) {
         onClick={() => window.location.reload()}
         className="rounded border border-line-strong bg-overlay px-3 py-1 text-sm text-ink transition-colors hover:bg-hover"
       >
-        {t("app.crash.reload")}
+        reload
       </button>
     </div>
   );

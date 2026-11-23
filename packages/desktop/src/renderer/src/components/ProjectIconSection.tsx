@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import type { ProjectIconRequest, ProjectRecord } from "@omp-ui/core/types";
 import { displayMessage } from "../backend";
 import { bytesToBase64 } from "../lib/clipboard-image";
-import { useT } from "../lib/i18n";
 import { projectIconUrl, projectIdentitySeed } from "../lib/repository-members";
 import { useStore } from "../store";
 import { ProjectMonogram } from "./ProjectMonogram";
@@ -20,7 +19,6 @@ const ROSE_LINE = "mt-3 rounded-md border border-rose-dim/50 bg-rose-wash px-3 p
  * the record; "Use initials" is a standing choice that detection respects.
  */
 export function ProjectIconSection({ project, instanceId }: { project: ProjectRecord; instanceId: string | null }) {
-  const t = useT();
   const setProjectIcon = useStore((s) => s.setProjectIcon);
   const picker = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -48,7 +46,7 @@ export function ProjectIconSection({ project, instanceId }: { project: ProjectRe
     event.target.value = "";
     if (file === undefined) return;
     if (file.size > MAX_PICK_BYTES) {
-      setError(t("project.settings.iconTooLarge"));
+      setError("That image is larger than 1 MB.");
       return;
     }
     await run({ kind: "custom", data: bytesToBase64(new Uint8Array(await file.arrayBuffer())) });
@@ -57,19 +55,19 @@ export function ProjectIconSection({ project, instanceId }: { project: ProjectRe
   const icon = project.icon ?? null;
   const status =
     icon?.source === "detected"
-      ? t("project.settings.iconDetected", { file: icon.file })
+      ? `Found ${icon.file}`
       : icon?.source === "custom"
-        ? t("project.settings.iconCustom")
+        ? "Your image"
         : icon?.source === "none"
-          ? t("project.settings.iconInitials")
-          : t("project.settings.iconNone");
+          ? "Initials (detection off)"
+          : "Initials. No icon was found in the repository.";
 
   return (
     <section aria-labelledby="project-settings-icon" className="px-4 py-4">
       <h3 id="project-settings-icon" className="mb-1 text-sm font-semibold text-ink">
-        {t("project.settings.icon")}
+        Icon
       </h3>
-      <p className="text-xs leading-relaxed text-ink-faint">{t("project.settings.iconHint")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">Shown in place of this project's initials, ringed in its colour. omp-ui looks for a favicon or app icon in the repository (favicon.ico, public/favicon.*, app/icon.*, static/favicon.*, assets/icon.*) when you add the project and each time omp-ui starts.</p>
 
       <div className="mt-3 flex items-center gap-3">
         <ProjectMonogram
@@ -79,19 +77,19 @@ export function ProjectIconSection({ project, instanceId }: { project: ProjectRe
           className="size-10 rounded-lg text-sm"
         />
         <p data-testid="project-icon-status" className="min-w-0 text-xs text-ink-mid">
-          {notFound ? t("project.settings.iconNotFound") : status}
+          {notFound ? "No icon found in the repository; showing initials." : status}
         </p>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button disabled={busy} onClick={() => picker.current?.click()}>
-          {t("project.settings.iconChoose")}
+          Choose image…
         </Button>
         <Button variant="ghost" disabled={busy} onClick={() => void run({ kind: "detect" })}>
-          {t("project.settings.iconDetect")}
+          Detect from repository
         </Button>
         <Button variant="ghost" disabled={busy || icon?.source === "none"} onClick={() => void run({ kind: "none" })}>
-          {t("project.settings.iconUseInitials")}
+          Use initials
         </Button>
       </div>
       <input

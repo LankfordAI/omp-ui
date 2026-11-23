@@ -17,7 +17,6 @@ import { useCompactShell } from "../lib/responsive";
 import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
 import { backend } from "../backend";
 import { withTitleCard } from "./TitleCardChip";
-import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
@@ -213,17 +212,17 @@ function IconRetitle() {
 
 const STATUS: Record<
   string,
-  { tone: Tone; pulse: boolean; labelKey: MessageKey }
+  { tone: Tone; pulse: boolean; label: string }
 > = {
-  starting: { tone: "neutral", pulse: true, labelKey: "hud.status.starting" },
-  ready: { tone: "signal", pulse: false, labelKey: "hud.status.ready" },
-  running: { tone: "copper", pulse: true, labelKey: "hud.status.running" },
+  starting: { tone: "neutral", pulse: true, label: "starting" },
+  ready: { tone: "signal", pulse: false, label: "ready" },
+  running: { tone: "copper", pulse: true, label: "working" },
   // The run is open but paused; only background work can wake it (issue
   // #1204). Copper without the pulse: work exists, the model stream does not
   // (ADR-0004 reserves the pulse for liveness right now), matching the
   // sidebar row's face for the same state.
-  awaitingWork: { tone: "copper", pulse: false, labelKey: "hud.status.awaitingWork" },
-  error: { tone: "rose", pulse: false, labelKey: "hud.status.error" },
+  awaitingWork: { tone: "copper", pulse: false, label: "waiting on background work" },
+  error: { tone: "rose", pulse: false, label: "error" },
 };
 
 /** Observation-only claim for the stall chip (issue #228, #179). */
@@ -243,13 +242,12 @@ function StreamStallChip({
   short?: boolean;
   className?: string;
 }) {
-  const t = useT();
   return (
-    <Chip tone="copper" mono title={t("hud.stall.explanation")} className={cn("shrink-0", className)}>
+    <Chip tone="copper" mono title="The renderer has received no model-stream frames — text, thinking, or tool-call arguments — for the shown time while the assistant response is open. Local tool execution does not count. The session may still recover; if it does not, omp's idle watchdog posts a retry notice." className={cn("shrink-0", className)}>
       <Dot tone="copper" />
       {short
-        ? t("hud.stall.short", { duration: formatDuration(stallMs) })
-        : t("hud.stall.long", { duration: formatDuration(stallMs) })}
+        ? `stalled ${formatDuration(stallMs)}`
+        : `no stream activity for ${formatDuration(stallMs)}`}
     </Chip>
   );
 }
@@ -269,18 +267,10 @@ function VibeChip({
   tabId: string;
   className?: string;
 }) {
-  const t = useT();
   const setInspectorOpen = useStore((s) => s.setInspectorOpen);
   const focusRailPane = useStore((s) => s.focusRailPane);
   const working = vibeWorkLive(vibe);
-  const title = t(
-    working
-      ? "hud.vibe.working"
-      : vibe.workers.length > 0
-        ? "hud.vibe.idleWorkers"
-        : "hud.vibe.noWorkers",
-    { count: vibe.workers.length },
-  );
+  const title = working ? `vibe: ${vibe.workers.length} worker(s), work in flight` : vibe.workers.length > 0 ? `vibe: ${vibe.workers.length} worker(s) at rest` : "vibe mode on, no workers yet";
   return (
     <button
       type="button"
@@ -288,13 +278,13 @@ function VibeChip({
         setInspectorOpen(true);
         focusRailPane(tabId, "agents");
       }}
-      title={`${title}. ${t("hud.vibe.openTitle")}`}
+      title={`${title}. ${"open the worker roster"}`}
       aria-label={title}
       className={cn("shrink-0 rounded border border-transparent", className)}
     >
       <Chip tone="copper" mono>
         {working && <Dot tone="copper" />}
-        {t("hud.vibe.label")}
+        vibe
         <span className="opacity-70">{vibe.workers.length}</span>
       </Chip>
     </button>
@@ -316,16 +306,15 @@ function JobsChip({
   tabId: string;
   className?: string;
 }) {
-  const t = useT();
   const setInspectorOpen = useStore((s) => s.setInspectorOpen);
   const focusRailPane = useStore((s) => s.focusRailPane);
-  const title = t("hud.jobs.running", { count });
+  const title = `${count} background job(s) running`;
   const figure = glance !== null && glance.widget !== null ? jobWidgetFigure(glance.widget) : null;
   const glanceTitle =
     glance !== null && figure !== null
-      ? t("hud.jobs.glance", { job: glance.id, figure: [figure.label, figure.text, figure.trend?.text].filter(Boolean).join(" ") })
+      ? `${glance.id}: ${[figure.label, figure.text, figure.trend?.text].filter(Boolean).join(" ")}`
       : null;
-  const openTitle = t("hud.jobs.openTitle");
+  const openTitle = "open the background jobs list";
   return (
     <button
       type="button"
@@ -339,7 +328,7 @@ function JobsChip({
     >
       <Chip tone="copper" mono>
         <Dot tone="copper" />
-        {t("hud.jobs.label")}
+        jobs
         <span className="opacity-70">{count}</span>
         {figure !== null && <span data-jobs-glance className="max-w-[10ch] truncate">{figure.text}</span>}
         {figure?.trend && <span className={TONE_TEXT[JOB_WIDGET_TONE[figure.trend.tone]]}>{figure.trend.text}</span>}
@@ -366,7 +355,6 @@ function AutoresearchChip({
   tabId: string;
   className?: string;
 }) {
-  const t = useT();
   const openLab = useStore((s) => s.openLab);
   const loadExperiments = useStore((s) => s.loadExperiments);
   const tab = useStore((s) => s.tabs.find((candidate) => candidate.tabId === tabId));
@@ -389,30 +377,28 @@ function AutoresearchChip({
   if (record !== null && progress !== null) {
     detail.push(
       record.maxIterations === null
-        ? t("hud.autoresearch.run", { n: progress.segmentRuns })
-        : t("hud.autoresearch.runOf", { n: progress.segmentRuns, cap: record.maxIterations }),
+        ? `run ${progress.segmentRuns}`
+        : `run ${progress.segmentRuns}/${record.maxIterations}`,
     );
     if (progress.best !== null && progress.baseline !== null) {
       detail.push(
-        t("hud.autoresearch.best", {
-          delta: deltaLabel(progress.baseline.metric, progress.best.metric),
-        }),
+        `best ${deltaLabel(progress.baseline.metric, progress.best.metric)}`,
       );
     }
-    if (progress.pendingRunId !== null) detail.push(t("hud.autoresearch.logPending"));
+    if (progress.pendingRunId !== null) detail.push("log pending");
   }
-  const title = t("hud.autoresearch.goal", { goal: snapshot.goal ?? "" });
+  const title = `autoresearch: ${snapshot.goal ?? ""}`;
   return (
     <button
       type="button"
       onClick={() => openLab(projectCwd ?? null, instanceId, { tabId })}
-      title={`${title} — ${t("hud.autoresearch.openTitle")}`}
+      title={`${title} — ${"open the Lab on this experiment"}`}
       aria-label={title}
       className={cn("shrink-0 rounded border border-transparent", className)}
     >
       <Chip tone={turnRunning ? "signal" : "copper"} mono>
         {turnRunning && <Dot tone="signal" />}
-        {t("hud.autoresearch.on")}
+        autoresearch
         {detail.length > 0 && <span className="opacity-70">{detail.join(" · ")}</span>}
       </Chip>
     </button>
@@ -437,12 +423,11 @@ function LivenessBadge({
   className?: string;
   title?: string;
 }) {
-  const t = useT();
   if (compacting) {
     return (
       <Chip tone="copper" className={className}>
         <Dot tone="copper" pulse />
-        {t("hud.status.compacting")}
+        compacting
       </Chip>
     );
   }
@@ -463,14 +448,13 @@ function LivenessBadge({
  * name; Escape and blur both abandon.
  */
 function TitleRenameInput({ tabId, title, onDone }: { tabId: string; title: string; onDone: () => void }) {
-  const t = useT();
   const renameSessionTo = useStore((s) => s.renameSessionTo);
   const [draft, setDraft] = useState(title);
   return (
     <input
       autoFocus
       value={draft}
-      aria-label={t("hud.session.nameLabel")}
+      aria-label="session name"
       onChange={(e) => setDraft(e.target.value)}
       onBlur={onDone}
       onKeyDown={(e) => {
@@ -494,7 +478,6 @@ function TitleRenameInput({ tabId, title, onDone }: { tabId: string; title: stri
  * only; the wide face renames from the title menu (#941).
  */
 function TitleField({ tabId, title }: { tabId: string; title: string }) {
-  const t = useT();
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const [editing, setEditing] = useState(false);
 
@@ -503,7 +486,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
     <span className="group/title flex min-w-0 items-center gap-0.5 [app-region:no-drag]">
       <button
         type="button"
-        title={t("hud.session.renameTitle", { title })}
+        title={`${title} — click to rename`}
         onClick={() => setEditing(true)}
         className="min-w-0 truncate rounded px-1 py-0.5 text-left text-sm text-ink transition-colors hover:bg-hover [app-region:no-drag]"
       >
@@ -513,8 +496,8 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
           the sidebar row's controls. */}
       <button
         type="button"
-        aria-label={t("hud.session.retitle")}
-        title={t("hud.session.retitleTitle", { title })}
+        aria-label="retitle"
+        title={`${title} — regenerate the title from this session's transcript`}
         onClick={() => void regenerateSessionTitle(tabId)}
         className="grid size-5 shrink-0 place-items-center rounded text-ink-dim opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-ink group-hover/title:opacity-100 focus-visible:opacity-100 focus-visible:outline-none [app-region:no-drag]"
       >
@@ -532,8 +515,7 @@ function ContextCluster({
   /** Token count where omp auto-compacts; null/undefined = no notch. */
   markerTokens?: number | null;
 }) {
-  const t = useT();
-  const { window, fraction, percent, marker, exact } = contextReadout(usage, markerTokens, t);
+  const { window, fraction, percent, marker, exact } = contextReadout(usage, markerTokens);
   return (
     <div className="flex shrink-0 items-center gap-2" title={exact}>
       <Meter fraction={fraction} marker={marker} className="titlebar-context-meter w-20" title={exact} />
@@ -562,7 +544,6 @@ const LIMITS_TICK_MS = 30_000;
  * provider reports nothing.
  */
 function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layout?: "inline" | "list" }) {
-  const t = useT();
   const [, setTick] = useState(0);
   const now = Date.now();
   const hasFutureReset = limits.windows.some(
@@ -577,33 +558,22 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
     limits.fetchedAtMs > 0 && now - limits.fetchedAtMs > LIMITS_STALE_MS;
   const windows = limits.windows
     .map((window) =>
-      t("hud.limits.windowLine", {
-        label: window.label,
-        percent:
-          window.percent !== null
+      `  ${window.label}: ${window.percent !== null
             ? `${window.percent.toFixed(1)}%`
-            : t("hud.limits.unknownPercent"),
-        reset:
-          window.resetsAtMs === null
-            ? t("hud.limits.unknownReset")
+            : "usage unknown"} · resets ${window.resetsAtMs === null
+            ? "reset time unknown"
             : window.resetsAtMs <= now
-              ? t("hud.limits.resetNow")
-              : new Date(window.resetsAtMs).toLocaleString(localeTag()),
-      }),
+              ? "resets now"
+              : new Date(window.resetsAtMs).toLocaleString("en")}`,
     )
     .join("\n");
   // The selected account's paid plan (omp ≥ 19); quiet label beside the
   // windows, absent when the report names none — never inferred (#1237).
   const plan = limits.subscriptionPlan;
   const details =
-    t("hud.limits.details", {
-      provider: limits.provider ?? "?",
-      age:
-        limits.fetchedAtMs > 0
+    `${limits.provider ?? "?"} rate limits, fetched ${limits.fetchedAtMs > 0
           ? formatDuration(Math.max(0, now - limits.fetchedAtMs))
-          : "?",
-      windows,
-    }) + (plan === undefined ? "" : "\n" + t("hud.limits.planLine", { plan }));
+          : "?"} ago\n${windows}` + (plan === undefined ? "" : "\n" + `plan: ${plan}`);
   const nextReset = limits.windows
     .map((window) => window.resetsAtMs)
     .filter((at): at is number => at !== null && at > now)
@@ -619,24 +589,24 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
             ? "text-copper"
             : "text-ink-dim";
   const banked = limits.bankedResets > 0 && (
-    <Chip mono title={t("hud.limits.bankedResets", { count: limits.bankedResets })}>
+    <Chip mono title={`${limits.bankedResets} saved rate-limit reset(s) — spend with /usage reset`}>
       ×{limits.bankedResets}
     </Chip>
   );
   const planChip =
     plan === undefined ? null : (
-      <span className="shrink-0 text-ink-faint" title={t("hud.limits.planTip")}>
+      <span className="shrink-0 text-ink-faint" title="Claude subscription plan for the account these limits come from">
         {plan}
       </span>
     );
   if (layout === "list") {
     const resetText = (at: number | null): string =>
       at === null
-        ? t("hud.limits.unknownReset")
+        ? "reset time unknown"
         : at <= now
-          ? t("hud.limits.resetNow")
-          : t("hud.limits.resetsAt", { time: new Date(at).toLocaleString(localeTag()) }) +
-            (stale ? "" : t("hud.limits.resetsIn", { duration: formatDuration(at - now) }));
+          ? "resets now"
+          : `resets ${new Date(at).toLocaleString("en")}` +
+            (stale ? "" : ` · resets in ${formatDuration(at - now)}`);
     return (
       <div className="titlebar-limits flex flex-col gap-1 font-mono text-xs tabular-nums" title={details}>
         {limits.windows.map((window) => (
@@ -661,7 +631,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
       title={details}
     >
       <span className="tab-label text-ink-faint">
-        {t("hud.limits.label")}
+        quota
       </span>
       {limits.windows.map((window) => (
         <span key={window.id} className={cn("tabular-nums", tone(window.percent))}>
@@ -671,7 +641,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
       ))}
       {nextReset !== undefined && !stale && (
         <span className="text-ink-dim">
-          {t("hud.limits.resetsIn", { duration: formatDuration(nextReset - now) })}
+          {` · resets in ${formatDuration(nextReset - now)}`}
         </span>
       )}
       {planChip}
@@ -695,16 +665,13 @@ function QuotaChip({
   event: NonNullable<RpcTabState["quotaEvent"]>;
   className?: string;
 }) {
-  const t = useT();
   const wait =
     event.delayMs !== undefined
-      ? t("hud.limits.chipWait", {
-          delay: t("hud.limits.chipDelay", { duration: formatDuration(event.delayMs) }),
-        })
-      : t("hud.limits.chipWait", { delay: "" });
+      ? `rate limit — waiting${` for ${formatDuration(event.delayMs)}`}`
+      : `rate limit — waiting${""}`;
   return event.kind === "rotation" ? (
-    <Chip tone="iris" className={className} title={t("hud.limits.chipRotation")}>
-      {t("hud.limits.chipRotation")}
+    <Chip tone="iris" className={className} title="credential switched">
+      credential switched
     </Chip>
   ) : (
     <Chip tone="copper" className={className} title={wait}>
@@ -722,7 +689,6 @@ function QuotaChip({
  * only while a future reset is visible.
  */
 function UsageLimitChip({ usage, className }: { usage: UsageLimit; className?: string }) {
-  const t = useT();
   const [, setTick] = useState(0);
   const now = Date.now();
   const resetMs = usage.resetsAtSec === null ? null : usage.resetsAtSec * 1000;
@@ -732,20 +698,20 @@ function UsageLimitChip({ usage, className }: { usage: UsageLimit; className?: s
     const stop = startVisibleInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
     return stop;
   }, [hasFutureReset]);
-  const stage = t(usage.stage === "wrap_up" ? "hud.usage.wrapUp" : "hud.usage.lowPriority");
+  const stage = usage.stage === "wrap_up" ? "wrap-up" : "low priority";
   const title = [
     resetMs === null
       ? stage
-      : t("hud.usage.stageTitle", { stage, time: new Date(resetMs).toLocaleString(localeTag()) }) +
-        (usage.stage === "wrap_up" && usage.extraUsage ? t("hud.usage.extraUsage") : ""),
+      : `${stage} · resets ${new Date(resetMs).toLocaleString("en")}` +
+        (usage.stage === "wrap_up" && usage.extraUsage ? " · extra usage available after the reset" : ""),
     ...(usage.allowanceLeftPercent !== null
-      ? [t("hud.usage.allowanceLeft", { percent: usage.allowanceLeftPercent })]
+      ? [`${usage.allowanceLeftPercent}% allowance left`]
       : []),
   ].join("\n");
   return (
     <Chip tone="copper" className={className} title={title}>
       {stage}
-      {hasFutureReset ? t("hud.usage.resetsIn", { duration: formatDuration(resetMs! - now) }) : ""}
+      {hasFutureReset ? ` · resets in ${formatDuration(resetMs! - now)}` : ""}
     </Chip>
   );
 }
@@ -760,25 +726,24 @@ const INTERRUPT_MODES = ["immediate", "wait"];
 // follow-up option text is omp's own settings copy; interrupt text mirrors
 // the tool-loop branch (`wait` lets the in-flight tool finish).
 function useModeCopy() {
-  const t = useT();
   return {
     labels: {
-      steering: t("hud.modes.steering"),
-      followUp: t("hud.modes.followUp"),
-      interrupt: t("hud.modes.interrupt"),
+      steering: "steering",
+      followUp: "follow-up",
+      interrupt: "interrupt",
     },
     queueHints: {
-      "one-at-a-time": t("hud.modes.oneAtATimeHint"),
-      "all-at-once": t("hud.modes.allAtOnceHint"),
+      "one-at-a-time": "process queued messages one by one, one per turn (recommended)",
+      "all-at-once": "process all queued messages at once",
     },
     interruptHints: {
-      immediate: t("hud.modes.immediateHint"),
-      wait: t("hud.modes.waitHint"),
+      immediate: "interrupt the in-flight tool as soon as a steering message arrives",
+      wait: "let the current tool finish, then inject queued steering",
     },
     rowHints: {
-      steering: t("hud.modes.steeringHint"),
-      followUp: t("hud.modes.followUpHint"),
-      interrupt: t("hud.modes.interruptHint"),
+      steering: "steering messages: what you send while the agent is still running",
+      followUp: "follow-up messages: queued to run after the current turn completes",
+      interrupt: "when steering messages may interrupt tool execution",
     },
   };
 }
@@ -826,7 +791,6 @@ function ModesPanel({
   autoRetry: boolean;
   onAutoRetry: (next: boolean) => void;
 }) {
-  const t = useT();
   const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
@@ -876,19 +840,19 @@ function ModesPanel({
           variant="ghost"
           size="xs"
           tone="rose"
-          title={t("hud.retry.abortTitle")}
+          title="abort an in-flight retry backoff"
           onClick={() => void abortRetry(tabId)}
         >
-          {t("hud.retry.abort")}
+          abort retry
         </Button>
         {/* Label and switch stay adjacent: Switch renders no visible text,
             so proximity is the only association (issue #79). */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-ink-mid">{t("hud.retry.autoRetry")}</span>
+          <span className="text-xs text-ink-mid">auto-retry</span>
           <Switch
             on={autoRetry}
-            label={t("hud.retry.autoRetry")}
-            title={t("hud.retry.autoRetryTitle")}
+            label="auto-retry"
+            title="retry transient provider errors automatically"
             onChange={onAutoRetry}
           />
         </div>
@@ -906,7 +870,6 @@ function CompactModes({
   autoRetry: boolean;
   onAutoRetry: (next: boolean) => void;
 }) {
-  const t = useT();
   const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
@@ -919,10 +882,10 @@ function CompactModes({
       <ModeRow label={modeCopy.labels.followUp} value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} hint={modeCopy.rowHints.followUp} optionHints={modeCopy.queueHints} />
       <ModeRow label={modeCopy.labels.interrupt} value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} hint={modeCopy.rowHints.interrupt} optionHints={modeCopy.interruptHints} />
       <div className="flex items-center justify-between gap-3 border-t border-line-soft pt-3">
-        <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>{t("hud.retry.abort")}</Button>
+        <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>abort retry</Button>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-ink-mid">{t("hud.retry.autoRetry")}</span>
-          <Switch on={autoRetry} label={t("hud.retry.autoRetry")} onChange={onAutoRetry} />
+          <span className="text-xs text-ink-mid">auto-retry</span>
+          <Switch on={autoRetry} label="auto-retry" onChange={onAutoRetry} />
         </div>
       </div>
     </div>
@@ -963,8 +926,7 @@ function RemoteVsCodeRow({
   open: boolean;
   onOpen: () => void;
 }) {
-  const t = useT();
-  const row = remoteVsCodeRow(useRemoteVsCodeTarget(instanceId, open), nickname, t);
+  const row = remoteVsCodeRow(useRemoteVsCodeTarget(instanceId, open), nickname);
   if (!row.show) return null;
   return (
     <>
@@ -973,12 +935,12 @@ function RemoteVsCodeRow({
         type="button"
         role="menuitem"
         disabled={row.reason !== null}
-        title={row.reason ?? t("remotevscode.sub")}
+        title={row.reason ?? "Remote-SSH"}
         onClick={onOpen}
         className={MENU_ROW}
       >
         <span className="min-w-0">
-          {t("quickopen.action.openIn", { target: "VS Code" })}
+          {`Open in ${"VS Code"}`}
           {row.reason !== null && <span className="block text-xs text-ink-faint">{row.reason}</span>}
         </span>
       </button>
@@ -1039,7 +1001,6 @@ function TitleMenu({
   onAutoRetry: (next: boolean) => void;
   onRefresh: () => void;
 }) {
-  const t = useT();
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
@@ -1048,7 +1009,7 @@ function TitleMenu({
   const openSession = useStore((s) => s.openSession);
   // CONTEXT.md **Fork**: the original this session was forked from, on the same host.
   const forkSource = useStore((s) => forkSourceOf(s.state, tabId));
-  const forkNote = forkSource === null ? null : t("sidebar.session.forkOf", { title: forkSource.title });
+  const forkNote = forkSource === null ? null : `Fork of “${forkSource.title}”`;
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const newSession = useStore((s) => s.newSession);
   const newChat = useStore((s) => s.newChat);
@@ -1133,7 +1094,7 @@ function TitleMenu({
       {hotkey !== null && <span className="font-mono text-xs text-ink-faint">{hotkey}</span>}
     </button>
   );
-  const anonNeedsOmp = t("hud.actions.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP });
+  const anonNeedsOmp = `this omp has no anonymize — update omp to ${ANONYMIZE_MIN_OMP} or later`;
 
   return (
     <span ref={rootRef} className="flex min-w-16 shrink items-center [app-region:no-drag]">
@@ -1145,14 +1106,14 @@ function TitleMenu({
           type="button"
           aria-haspopup="menu"
           aria-expanded={surface === "menu"}
-          title={t("hud.menu.triggerTitle", { title })}
+          title={`${title} — session menu`}
           onClick={toggle}
           className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 text-sm text-ink transition-colors hover:bg-hover"
         >
           <span className="min-w-0 truncate">{withTitleCard(title)}</span>
           {forkNote !== null && (
             <Chip className="shrink-0" title={forkNote}>
-              {t("sidebar.session.forkChip")}
+              fork
             </Chip>
           )}
           <Chevron open className="text-ink-dim" />
@@ -1166,8 +1127,8 @@ function TitleMenu({
             className="fixed z-[70]"
             style={{ left: pos.x, top: pos.y }}
             {...(surface === "menu"
-              ? { role: "menu", "aria-label": t("hud.menu.label"), onKeyDown: rovingFocus }
-              : { role: "dialog", "aria-label": t("hud.modes.controlLabel") })}
+              ? { role: "menu", "aria-label": "session menu", onKeyDown: rovingFocus }
+              : { role: "dialog", "aria-label": "queue modes and retry" })}
           >
             {surface === "menu" ? (
               <Panel className="edge-lit animate-rise max-h-[calc(100vh-3rem)] w-64 overflow-y-auto p-1">
@@ -1180,33 +1141,33 @@ function TitleMenu({
                   }}
                   className={MENU_ROW}
                 >
-                  {t("hud.menu.rename")}
+                  Rename…
                 </button>
                 {/* Never disabled: a fresh session retitles too (#788). */}
                 <button
                   type="button"
                   role="menuitem"
-                  title={t("hud.session.retitleTitle", { title })}
+                  title={`${title} — regenerate the title from this session's transcript`}
                   onClick={act(() => void regenerateSessionTitle(tabId))}
                   className={MENU_ROW}
                 >
-                  {t("hud.menu.retitle")}
+                  Retitle from transcript
                 </button>
-                <MenuGroup heading={t("hud.menu.view")}>
-                  {checkRow(t("hud.menu.console"), consoleOpen, consoleLabel, () => toggleConsole(tabId))}
-                  {checkRow(t("hud.menu.browserPane"), paneOpen, null, () => toggleBrowserPane(tabId))}
-                  {checkRow(t("hud.menu.devicePane"), deviceOpen, null, () => toggleDevicePane(tabId))}
+                <MenuGroup heading="View">
+                  {checkRow("Console", consoleOpen, consoleLabel, () => toggleConsole(tabId))}
+                  {checkRow("Browser pane", paneOpen, null, () => toggleBrowserPane(tabId))}
+                  {checkRow("Device pane", deviceOpen, null, () => toggleDevicePane(tabId))}
                 </MenuGroup>
                 {MENU_SEPARATOR}
-                <MenuGroup heading={t("hud.menu.session")}>
+                <MenuGroup heading="Session">
                   <button
                     type="button"
                     role="menuitem"
-                    title={t("hud.actions.forkTitle")}
+                    title="fork this session into a new tab — the original keeps running"
                     onClick={act(() => void forkIntoNewTab(tabId))}
                     className={MENU_ROW}
                   >
-                    {t("hud.menu.fork")}
+                    Fork into a new tab
                   </button>
                   {forkSource !== null && (
                     <button
@@ -1216,7 +1177,7 @@ function TitleMenu({
                       onClick={act(() => void openSession(forkSource.tabId))}
                       className={MENU_ROW}
                     >
-                      {t("hud.menu.openForkSource")}
+                      Open original session
                     </button>
                   )}
                   {/* The tree navigator needs a live process (#680). */}
@@ -1224,11 +1185,11 @@ function TitleMenu({
                     <button
                       type="button"
                       role="menuitem"
-                      title={t("hud.actions.treeTitle")}
+                      title="show the session tree — rewind to any prompt or jump between branches"
                       onClick={act(() => openSessionTreeView(tabId))}
                       className={MENU_ROW}
                     >
-                      {t("hud.menu.tree")}
+                      Session tree
                     </button>
                   )}
                   {/* Same command as the composer's bare /new and mod+shift+n: a
@@ -1243,17 +1204,17 @@ function TitleMenu({
                     })}
                     className={MENU_ROW}
                   >
-                    {chat ? t("hud.menu.newChat") : t("hud.menu.newHere")}
+                    {chat ? "New chat" : "New session here"}
                   </button>
                   <button
                     type="button"
                     role="menuitem"
-                    title={t("hud.actions.compactTitle")}
+                    title="compact the conversation now"
                     disabled={compacting}
                     onClick={act(() => void compactSession(tabId))}
                     className={MENU_ROW}
                   >
-                    {t("hud.menu.compact")}
+                    Compact now
                   </button>
                   {/* Scheduled prompts (issue #987): native sessions only — a
                       terminal has no prompt channel main may inject into. */}
@@ -1261,37 +1222,37 @@ function TitleMenu({
                     <button
                       type="button"
                       role="menuitem"
-                      title={t("hud.menu.scheduleTitle")}
+                      title="send a prompt into this session at a time or on a recurring schedule"
                       onClick={act(() => openScheduleDialog(tabId))}
                       className={MENU_ROW}
                     >
-                      {t(hasSchedule ? "hud.menu.editSchedule" : "hud.menu.schedule")}
+                      {hasSchedule ? "Edit schedule…" : "Schedule…"}
                     </button>
                   )}
                   {settleable && (
                     <button
                       type="button"
                       role="menuitem"
-                      title={t("hud.menu.settleTitle", { hotkey: undoSettleLabel })}
+                      title={`done with this session: stop it and move it to Settled (${undoSettleLabel} undoes)`}
                       onClick={act(() => void settleSessions([tabId]))}
                       className={MENU_ROW}
                     >
-                      {t("hud.menu.settle")}
+                      Settle
                     </button>
                   )}
                   {hasWorktree && (
                     <>
-                      {checkRow(t("hud.menu.settleOnMerge"), autoSettleOnMerge, null, () =>
+                      {checkRow("Settle when pull requests merge", autoSettleOnMerge, null, () =>
                         void setSessionAutoSettleOnMerge(tabId, !autoSettleOnMerge),
                       )}
                       <button
                         type="button"
                         role="menuitem"
-                        title={t("hud.menu.checkPullRequestsTitle")}
+                        title="read this branch's pull requests from GitHub now instead of waiting for the next check"
                         onClick={act(() => void refreshPullRequests(tabId))}
                         className={MENU_ROW}
                       >
-                        {t("hud.menu.checkPullRequests")}
+                        Check pull requests now
                       </button>
                     </>
                   )}
@@ -1305,27 +1266,27 @@ function TitleMenu({
                   />
                 )}
                 {MENU_SEPARATOR}
-                <MenuGroup heading={t("hud.menu.share")}>
+                <MenuGroup heading="Share">
                   <button type="button" role="menuitem" onClick={act(() => void exportHtml(tabId))} className={MENU_ROW}>
-                    {t("hud.menu.export")}
+                    Export HTML
                   </button>
                   <button
                     type="button"
                     role="menuitem"
-                    title={t("hud.actions.shareTitle")}
+                    title="publish an encrypted snapshot of this session"
                     onClick={act(() => void shareSession(tabId))}
                     className={MENU_ROW}
                   >
-                    {t("hud.menu.publish")}
+                    Publish encrypted snapshot
                   </button>
                   <button
                     type="button"
                     role="menuitem"
-                    title={t("hud.actions.shareLiveTitle")}
+                    title="open the live Collab room dialog — hosting needs a terminal tab; native sessions do not expose omp's /collab"
                     onClick={act(() => openShareLive(tabId))}
                     className={MENU_ROW}
                   >
-                    {t("hud.menu.shareLive")}
+                    Share live
                   </button>
                   {/* A disabled row gets no hover title (pointer-events-none), so
                       the needs-omp reason also renders as a second line (#834). */}
@@ -1333,12 +1294,12 @@ function TitleMenu({
                     type="button"
                     role="menuitem"
                     disabled={!anonAvailable}
-                    title={anonAvailable ? t("hud.actions.anonymizeTitle") : anonNeedsOmp}
+                    title={anonAvailable ? "write a redacted copy of this session beside the transcripts" : anonNeedsOmp}
                     onClick={act(() => void anonymizeSession(tabId))}
                     className={MENU_ROW}
                   >
                     <span className="min-w-0">
-                      {t("hud.menu.redacted")}
+                      Write redacted copy
                       {!anonAvailable && <span className="block text-xs text-ink-faint">{anonNeedsOmp}</span>}
                     </span>
                   </button>
@@ -1351,8 +1312,8 @@ function TitleMenu({
                   onClick={act(() => openCapabilitiesViewer(null, undefined, "mcp", instanceId))}
                   className={MENU_ROW}
                 >
-                  {t("hud.actions.capabilities")}
-                  {mcpFailureCount > 0 && <Chip tone="rose">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}
+                  Capabilities
+                  {mcpFailureCount > 0 && <Chip tone="rose">{`${mcpFailureCount} failed`}</Chip>}
                 </button>
                 <button
                   type="button"
@@ -1361,16 +1322,16 @@ function TitleMenu({
                   onClick={() => setSurface("modes")}
                   className={MENU_ROW}
                 >
-                  {t("hud.menu.modes")}
+                  {"Queue modes & retry…"}
                 </button>
                 <button
                   type="button"
                   role="menuitem"
-                  title={t("hud.actions.refreshTitle")}
+                  title="refresh state and stats"
                   onClick={act(onRefresh)}
                   className={MENU_ROW}
                 >
-                  {t("hud.menu.refresh")}
+                  Refresh state
                 </button>
               </Panel>
             ) : (
@@ -1443,7 +1404,6 @@ function GaugeChip({
   /** omp's spend-cap stop (issue #952); null when no cap stopped the session. */
   costCap: { message: string } | null;
 }) {
-  const t = useT();
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const openProjectSettings = useStore((s) => s.openProjectSettings);
@@ -1474,7 +1434,7 @@ function GaugeChip({
     restoreFocus: () => buttonRef.current?.focus(),
   });
 
-  const readout = usage ? contextReadout(usage, markerTokens, t) : null;
+  const readout = usage ? contextReadout(usage, markerTokens) : null;
   let advisorReadout: ReactNode = null;
   if (advisor) {
     const ctxWindow = advisor.contextWindow > 0 ? advisor.contextWindow : 0;
@@ -1482,21 +1442,14 @@ function GaugeChip({
     // A subscription-billed root advisor legitimately accrues $0. Descendant
     // usage can still make the session-tree total nonzero, which stays numeric.
     const subscribed = advisor.subscription && advisor.cost === 0;
-    const exact = t("hud.advisor.contextUsage", {
-      model: advisor.model ? ` · ${advisor.model}` : "",
-      tokens: exactNum(advisor.contextTokens),
-      window: ctxWindow > 0 ? exactNum(ctxWindow) : "?",
-      percent: percent.toFixed(2),
-      billing: subscribed
-        ? t("hud.advisor.subscriptionBilling")
-        : t("hud.advisor.sessionSpend", { cost: formatCost(advisor.cost) }),
-      totalTokens: exactNum(advisor.totalTokens),
-    });
+    const exact = `parent advisor context${advisor.model ? ` · ${advisor.model}` : ""}: ${exactNum(advisor.contextTokens)} of ${ctxWindow > 0 ? exactNum(ctxWindow) : "?"} tokens (${percent.toFixed(2)}%) · ${subscribed
+        ? "parent advisor uses subscription billing"
+        : `session-tree advisor spend ${formatCost(advisor.cost)}`} · session-tree advisor tokens ${exactNum(advisor.totalTokens)}`;
     advisorReadout = (
       <span className="flex items-center gap-1.5 font-mono text-xs tabular-nums" title={exact}>
         <Meter fraction={ctxWindow > 0 ? advisor.contextTokens / ctxWindow : 0} className="w-14" title={exact} />
         <span className="text-ink-dim">{percent.toFixed(1)}%</span>
-        <span className="text-ink-faint">{subscribed ? t("hud.advisor.subscriptionShort") : formatCost(advisor.cost)}</span>
+        <span className="text-ink-faint">{subscribed ? "sub" : formatCost(advisor.cost)}</span>
       </span>
     );
   }
@@ -1508,7 +1461,7 @@ function GaugeChip({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={t("hud.gauge.label")}
+        aria-label="context and spend"
         title={[readout?.exact, mainSpend?.title, costCap?.message].filter(Boolean).join("\n")}
         onClick={() => setOpen(!open)}
         className={cn(
@@ -1527,14 +1480,11 @@ function GaugeChip({
           className="tab-label text-ink-faint"
           title={
             usage && readout
-              ? t("hud.gauge.contextTitle", {
-                  used: exactNum(usage.tokens),
-                  window: readout.window > 0 ? exactNum(readout.window) : "?",
-                })
-              : t("hud.metrics.context")
+              ? `Context used by this run: ${exactNum(usage.tokens)} of ${readout.window > 0 ? exactNum(readout.window) : "?"} tokens`
+              : "context"
           }
         >
-          {t("hud.gauge.contextShort")}
+          context
         </span>
         <span className={readout ? percentTone(readout.percent) : "text-ink-dim"}>
           {readout ? `${Math.round(readout.percent)}%` : "—"}
@@ -1545,12 +1495,12 @@ function GaugeChip({
             // Round-5 judge, Clarity 1: with the bridge snapshot the figure is
             // the whole session — every turn, matching the receipts — so say
             // "session"; only the fallback counts this process alone.
-            title={mainSpend.sessionTotal ? t("hud.metrics.sessionTotalTitle") : t("hud.metrics.runOnlyTitle")}
+            title={mainSpend.sessionTotal ? "Whole session — every turn, main and subagents, counted from the session's journal." : "Counts only the current process; the receipts in the transcript cover every turn."}
           >
             {formatCost(mainSpend.cost)}
             {dispatchedSpend !== null && dispatchedSpend.missing > 0 ? "+" : ""}
             <span className="ml-1 font-sans">
-              {t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}
+              {mainSpend.sessionTotal ? "session" : "this run"}
             </span>
           </span>
         )}
@@ -1558,11 +1508,11 @@ function GaugeChip({
       {open &&
         pos &&
         createPortal(
-          <div ref={panelRef} role="dialog" aria-label={t("hud.gauge.label")} className="fixed z-[70]" style={pos}>
+          <div ref={panelRef} role="dialog" aria-label="context and spend" className="fixed z-[70]" style={pos}>
             <Panel className="edge-lit animate-rise max-h-[calc(100vh-3rem)] w-[22rem] overflow-y-auto p-3 text-xs">
               {usage && (
                 <div className={cn(GAUGE_SECTION, GAUGE_HEADER)}>
-                  <Label>{t("hud.metrics.context")}</Label>
+                  <Label>context</Label>
                   <ContextCluster usage={usage} markerTokens={markerTokens} />
                 </div>
               )}
@@ -1571,20 +1521,20 @@ function GaugeChip({
                   size="xs"
                   variant="ghost"
                   tone="copper"
-                  title={t("hud.actions.compactTitle")}
+                  title="compact the conversation now"
                   disabled={compacting}
                   onClick={() => void compactSession(tabId)}
                 >
-                  {t("hud.menu.compact")}
+                  Compact now
                 </Button>
                 {/* Label and switch stay adjacent: Switch renders no visible
                     text, so proximity is the only association (issue #79). */}
                 <span className="flex items-center gap-2">
-                  <span className="text-ink-mid">{t("hud.actions.autoCompact")}</span>
+                  <span className="text-ink-mid">auto-compact</span>
                   <Switch
                     on={autoCompaction}
-                    label={t("hud.actions.autoCompact")}
-                    title={t("hud.actions.autoCompactTitle")}
+                    label="auto-compact"
+                    title="auto-compact when the context window fills"
                     onChange={(next) => void setAutoCompaction(tabId, next)}
                   />
                 </span>
@@ -1594,22 +1544,17 @@ function GaugeChip({
               {mainSpend && (
                 <div className={cn(GAUGE_SECTION, "gauge-spend space-y-1")}>
                   <div className={GAUGE_HEADER}>
-                    <Label>{t("hud.metrics.spend")}</Label>
+                    <Label>spend</Label>
                     <span className="font-mono tabular-nums text-ink-mid" title={mainSpend.title}>
-                      {t("hud.stats.compact", {
-                        cost:
-                          dispatchedSpend !== null && dispatchedSpend.missing > 0
+                      {`${dispatchedSpend !== null && dispatchedSpend.missing > 0
                             ? `${formatCost(mainSpend.cost)}+`
-                            : formatCost(mainSpend.cost),
-                        tokens: compactNum(mainSpend.tokens),
-                        premium: mainSpend.premium,
-                      })}
+                            : formatCost(mainSpend.cost)} · ${compactNum(mainSpend.tokens)} tok · ${mainSpend.premium} premium`}
                     </span>
                   </div>
                   {costCap && (
                     <div className={GAUGE_HEADER}>
-                      <Chip tone="rose" title={costCap.message || t("hud.costCap.chip")}>
-                        {t("hud.costCap.chip")}
+                      <Chip tone="rose" title={costCap.message || "spend cap reached"}>
+                        spend cap reached
                       </Chip>
                       {instanceId === null && (
                         <Button
@@ -1621,7 +1566,7 @@ function GaugeChip({
                             openSettings("omp");
                           }}
                         >
-                          {t("hud.costCap.raise")}
+                          Raise cap…
                         </Button>
                       )}
                     </div>
@@ -1632,11 +1577,11 @@ function GaugeChip({
                   {mainSpend.sessionTotal && sessionSpend !== null && (
                     <>
                       <div className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}>
-                        <span>{t("hud.gauge.main")}</span>
+                        <span>main</span>
                         <span className="font-mono tabular-nums">{formatCost(sessionSpend.main.cost)}</span>
                       </div>
                       <div className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}>
-                        <span>{t("hud.gauge.subagents", { count: sessionSpend.transcripts })}</span>
+                        <span>{`subagents (${sessionSpend.transcripts})`}</span>
                         <span className="font-mono tabular-nums">{formatCost(sessionSpend.subagents.cost)}</span>
                       </div>
                     </>
@@ -1646,17 +1591,14 @@ function GaugeChip({
                       className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}
                       title={
                         dispatchedSpend.missing > 0
-                          ? t("hud.gauge.dispatchedPartialTitle", {
-                              reported: dispatchedSpend.reported,
-                              total: dispatchedSpend.count,
-                            })
+                          ? `Spend reported by ${dispatchedSpend.reported} of ${dispatchedSpend.count} dispatched sessions; remaining sessions are unreachable or on an older host.`
                           : undefined
                       }
                     >
-                      <span>{t("hud.gauge.dispatched", { count: dispatchedSpend.count })}</span>
+                      <span>{`dispatched (${dispatchedSpend.count})`}</span>
                       <span className="font-mono tabular-nums">
                         {dispatchedSpend.reported === 0
-                          ? t("hud.gauge.valueUnknown")
+                          ? "unknown"
                           : dispatchedSpend.missing > 0
                             ? `${formatCost(dispatchedSpend.totals.cost)}+`
                             : formatCost(dispatchedSpend.totals.cost)}
@@ -1671,14 +1613,14 @@ function GaugeChip({
                       with no reported method (an older harness) this line
                       never appears. */}
                   {mainSpend.sessionTotal && sessionSpend !== null && warmingMethod !== null && (
-                    <div className={cn(GAUGE_HEADER, "pl-2 text-ink-faint")} title={t("hud.gauge.cacheWarmTitle")}>
-                      <span>{t("hud.gauge.cacheWarm")}</span>
+                    <div className={cn(GAUGE_HEADER, "pl-2 text-ink-faint")} title="How prompt-cache warming refreshed the provider, and what omp's own journal attributes to those refreshes. The cost is part of the figures above — never an added charge; it shows unknown until omp journals a billed refresh.">
+                      <span>cache warming</span>
                       <span className="font-mono tabular-nums">
                         {warmingMethod}
                         {" · "}
                         {sessionSpend.cacheWarm.requests > 0
                           ? formatCost(sessionSpend.cacheWarm.cost)
-                          : t("hud.gauge.valueUnknown")}
+                          : "unknown"}
                       </span>
                     </div>
                   )}
@@ -1686,14 +1628,14 @@ function GaugeChip({
               )}
               {limits && (
                 <div className={cn(GAUGE_SECTION, "space-y-1.5")}>
-                  <Label>{t("hud.limits.label")}</Label>
+                  <Label>quota</Label>
                   <LimitsCluster limits={limits} layout="list" />
                 </div>
               )}
               {advisor && (
                 <div className={cn(GAUGE_SECTION, "gauge-advisor space-y-2")}>
                   <div className={GAUGE_HEADER}>
-                    <Label>{t("hud.gauge.advisor")}</Label>
+                    <Label>advisor</Label>
                     {advisorReadout}
                   </div>
                   <AdvisorRosterView
@@ -1710,22 +1652,19 @@ function GaugeChip({
                     }
                   />
                   <div className={GAUGE_HEADER}>
-                    <Label>{t("hud.metrics.advisorTotal")}</Label>
+                    <Label>advisor total</Label>
                     <span
                       className="font-mono tabular-nums text-ink-mid"
-                      title={t("hud.advisor.totalUsage", { tokens: exactNum(advisor.totalTokens), cost: formatCost(advisor.cost) })}
+                      title={`session-tree advisor usage: ${exactNum(advisor.totalTokens)} tokens · ${formatCost(advisor.cost)}`}
                     >
-                      {t("hud.advisor.compactTotal", {
-                        tokens: compactNum(advisor.totalTokens),
-                        spend: advisor.subscription && advisor.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisor.cost),
-                      })}
+                      {`${compactNum(advisor.totalTokens)} tok · ${advisor.subscription && advisor.cost === 0 ? "sub" : formatCost(advisor.cost)}`}
                     </span>
                   </div>
                 </div>
               )}
               {notices.length > 0 && (
                 <div className={cn(GAUGE_SECTION, "space-y-1.5")}>
-                  <Label>{t("hud.gauge.notices")}</Label>
+                  <Label>extension status</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {notices.map(([key, text]) => (
                       <Chip key={key} mono title={`${key}: ${text}`}>
@@ -1746,7 +1685,6 @@ function GaugeChip({
 /* ---------------------------------------------------------------- the HUD */
 
 export function SessionHud({ tabId, active = true }: { tabId: string; active?: boolean }) {
-  const t = useT();
   const setAutoRetry = useStore((s) => s.setAutoRetry);
   const [autoRetry, setAutoRetryLocal] = useState(true);
   const updateAutoRetry = (next: boolean): void => {
@@ -1791,7 +1729,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
     dispatchedSpend === null
       ? ""
       : dispatchedSpend.reported === 0
-        ? t("hud.gauge.valueUnknown")
+        ? "unknown"
         : dispatchedSpend.missing > 0
           ? `${formatCost(dispatchedSpend.totals.cost)}+`
           : formatCost(dispatchedSpend.totals.cost);
@@ -1813,24 +1751,8 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
             sessionTotal: true,
             title:
               dispatchedSpend !== null
-                ? t("hud.stats.sessionDetailsWithDispatched", {
-                    cost: costDisplay,
-                    tokens: exactNum(tokens),
-                    premium,
-                    main: formatCost(sessionSpend.main.cost),
-                    subagents: formatCost(sessionSpend.subagents.cost),
-                    count: sessionSpend.transcripts,
-                    dispatched: dispatchedCostLabel,
-                    dispatchedCount: dispatchedSpend.count,
-                  })
-                : t("hud.stats.sessionDetails", {
-                    cost: formatCost(cost),
-                    tokens: exactNum(tokens),
-                    premium,
-                    main: formatCost(sessionSpend.main.cost),
-                    subagents: formatCost(sessionSpend.subagents.cost),
-                    count: sessionSpend.transcripts,
-                  }),
+                ? `${costDisplay} · ${exactNum(tokens)} tokens · ${premium} premium requests — main ${formatCost(sessionSpend.main.cost)} · subagents ${formatCost(sessionSpend.subagents.cost)} (${sessionSpend.transcripts}) · dispatched ${dispatchedCostLabel} (${dispatchedSpend.count})`
+                : `${formatCost(cost)} · ${exactNum(tokens)} tokens · ${premium} premium requests — main ${formatCost(sessionSpend.main.cost)} · subagents ${formatCost(sessionSpend.subagents.cost)} (${sessionSpend.transcripts})`,
           };
         })()
       : stats
@@ -1847,18 +1769,8 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
               sessionTotal: false,
               title:
                 dispatchedSpend !== null
-                  ? t("hud.stats.detailsWithDispatched", {
-                      cost: costDisplay,
-                      tokens: exactNum(tokens),
-                      premium,
-                      dispatched: dispatchedCostLabel,
-                      dispatchedCount: dispatchedSpend.count,
-                    })
-                  : t("hud.stats.details", {
-                      cost: formatCost(cost),
-                      tokens: exactNum(tokens),
-                      premium,
-                    }),
+                  ? `${costDisplay} · ${exactNum(tokens)} tokens · ${premium} premium requests — dispatched ${dispatchedCostLabel} (${dispatchedSpend.count})`
+                  : `${formatCost(cost)} · ${exactNum(tokens)} tokens · ${premium} premium requests`,
             };
           })()
         : dispatchedSpend !== null && dispatchedSpend.reported > 0
@@ -1872,13 +1784,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
                 tokens,
                 premium,
                 sessionTotal: true,
-                title: t("hud.stats.detailsWithDispatched", {
-                  cost: costDisplay,
-                  tokens: exactNum(tokens),
-                  premium,
-                  dispatched: dispatchedCostLabel,
-                  dispatchedCount: dispatchedSpend.count,
-                }),
+                title: `${costDisplay} · ${exactNum(tokens)} tokens · ${premium} premium requests — dispatched ${dispatchedCostLabel} (${dispatchedSpend.count})`,
               };
             })()
           : null;
@@ -1983,9 +1889,9 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
     <Chip
       tone="rose"
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
-      title={costCap.message || t("hud.costCap.chip")}
+      title={costCap.message || "spend cap reached"}
     >
-      {t("hud.costCap.chip")}
+      spend cap reached
     </Chip>
   );
 
@@ -2018,8 +1924,8 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
         : (STATUS[status] ?? STATUS.starting);
   const resolvedFace = face ?? { ...STATUS.starting, pulse: false };
   const label = hibernated
-    ? t("hud.status.hibernated")
-    : t(resolvedFace.labelKey);
+    ? "hibernated"
+    : resolvedFace.label;
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
   // Round-7 judge, Consistency 4: the mode appeared twice, at two sizes — this
   // 12px chip and the composer's 14px pill. The pill owns mode (it is where
@@ -2119,7 +2025,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
     dispatcher !== null ? (
       <button
         type="button"
-        title={t("fleet.hud.openDispatcher")}
+        title="Open the session that dispatched this one"
         onClick={() => void openDispatcher(dispatcher.session.tabId)}
         className={cn(
           "inline-flex max-w-64 shrink-0 items-center gap-1 rounded border px-1.5 py-px text-xs leading-4 transition-colors",
@@ -2128,29 +2034,20 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
           !compact && "[app-region:no-drag]",
         )}
       >
-        ↩ <span className="truncate">{t("fleet.hud.dispatchedBySession", { title: dispatcher.session.title })}</span>
+        ↩ <span className="truncate">{`Dispatched by ${dispatcher.session.title}`}</span>
       </button>
     ) : routineName !== null ? (
       <Chip
         truncate
-        title={t("fleet.hud.startedByRoutine", { name: routineName })}
+        title={`Started by the routine ${routineName}`}
         className={compact ? undefined : "max-w-64 [app-region:no-drag]"}
       >
-        {t("fleet.hud.startedByRoutine", { name: routineName })}
+        {`Started by the routine ${routineName}`}
       </Chip>
     ) : (
       fleetFrom !== null && (
         <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
-          {t(
-            fleetFrom.kind === "agent"
-              ? "fleet.hud.dispatchedFromAgent"
-              : fleetFrom.kind === "webhook"
-                ? "fleet.hud.startedByWebhook"
-                : fleetFrom.kind === "mcp"
-                  ? "fleet.hud.startedByMcp"
-                  : "fleet.hud.dispatchedFrom",
-            { label: fleetFrom.label },
-          )}
+          {fleetFrom.kind === "agent" ? `Dispatched from ${fleetFrom.label} · agent` : fleetFrom.kind === "webhook" ? `Started by a webhook on ${fleetFrom.label}` : fleetFrom.kind === "mcp" ? `Started by an MCP client on ${fleetFrom.label}` : `Dispatched from ${fleetFrom.label}`}
         </Chip>
       )
     );
@@ -2188,83 +2085,78 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
           <ConsoleToggle tabId={tabId} className="size-11" />
           <BrowserPaneToggle tabId={tabId} className="size-11" />
           <DevicePaneToggle tabId={tabId} className="size-11" />
-          <IconButton label={t("hud.actions.sessionActions")} onClick={() => showCompactSurface("session-actions")} className="size-11">
+          <IconButton label="session actions" onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
-            <span className="sr-only">{t("hud.actions.sessionActions")}</span>
+            <span className="sr-only">session actions</span>
           </IconButton>
         </header>
         {/* Only the displayed session's HUD may mount the app-global actions
             sheet: hidden tabs stay mounted behind `display:none` and the sheet
             portals to body, so an unscoped copy would overlay the visible
             session and steal focus/back (issue #1117). */}
-        <Sheet open={active && surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
+        <Sheet open={active && surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
-            <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
+            <TitleField tabId={tabId} title={title ?? "untitled"} />
             {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || costCap != null || usageLimitChip || limitsCluster || isPrivate) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
-                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
-                {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
-                {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
+                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>worktree</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label="Copy" doneLabel="copied" /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label="Copy" doneLabel="copied" /></div></div>}
+                {isPrivate && <div className="flex items-center justify-between gap-3"><Label>memory</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title="private — this session writes no memories or lessons">write-quiet — this session stores no memories or lessons</span></span></div>}
+                {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {mainSpend && (
                   <div className="flex items-center justify-between gap-3">
-                    <Label>{t("hud.metrics.spend")}</Label>
+                    <Label>spend</Label>
                     <span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>
-                      {t("hud.stats.compact", {
-                        cost:
-                          dispatchedSpend !== null && dispatchedSpend.missing > 0
+                      {`${dispatchedSpend !== null && dispatchedSpend.missing > 0
                             ? `${formatCost(mainSpend.cost)}+`
-                            : formatCost(mainSpend.cost),
-                        tokens: compactNum(mainSpend.tokens),
-                        premium: mainSpend.premium,
-                      })}{" "}
+                            : formatCost(mainSpend.cost)} · ${compactNum(mainSpend.tokens)} tok · ${mainSpend.premium} premium`}{" "}
                       <span className="font-sans">
-                        {t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}
+                        {mainSpend.sessionTotal ? "session" : "this run"}
                       </span>
                     </span>
                   </div>
                 )}
                 {costCapChip && (
                   <div className="flex items-center justify-between gap-3">
-                    <Label>{t("hud.costCap.label")}</Label>
+                    <Label>cap</Label>
                     <span className="flex items-center gap-1.5">
                       {costCapChip}
                       {instanceId === null && (
                         <Button size="xs" variant="ghost" tone="rose" onClick={() => openSettings("omp")}>
-                          {t("hud.costCap.raise")}
+                          Raise cap…
                         </Button>
                       )}
                     </span>
                   </div>
                 )}
-                {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
-                {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
-                {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
+                {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>quota</Label>{quotaChip}</div>}
+                {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>quota</Label>{usageLimitChip}</div>}
+                {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>quota</Label>{limitsCluster}</div>}
                 {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd && !chat ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
-                {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
+                {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{`${compactNum(advisorStats.totalTokens)} tok · ${advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}`}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
             )}
             <div>
-              <Label>{t("hud.actions.heading")}</Label>
+              <Label>actions</Label>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {!chat && <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />}
-                <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
-                <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
-                <Button title={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)} className={sheetAction}><IconShare />{t("hud.actions.share")}</Button>
+                <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
+                <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
+                <Button title="publish an encrypted snapshot of this session" onClick={() => void shareSession(tabId)} className={sheetAction}><IconShare />share</Button>
                 <Button
                   disabled={!anonAvailable}
-                  title={anonAvailable ? t("hud.actions.anonymizeTitle") : t("hud.actions.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP })}
+                  title={anonAvailable ? "write a redacted copy of this session beside the transcripts" : `this omp has no anonymize — update omp to ${ANONYMIZE_MIN_OMP} or later`}
                   onClick={() => void anonymizeSession(tabId)}
                   className={sheetAction}
-                ><IconAnonymize />{t("hud.actions.anonymize")}</Button>
-                <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
-                <Button title={t("hud.actions.forkTitle")} onClick={() => void forkIntoNewTab(tabId)} className={sheetAction}><IconFork />{t("hud.actions.fork")}</Button>
+                ><IconAnonymize />anonymize</Button>
+                <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />Capabilities{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{`${mcpFailureCount} failed`}</Chip>}</Button>
+                <Button title="fork this session into a new tab — the original keeps running" onClick={() => void forkIntoNewTab(tabId)} className={sheetAction}><IconFork />fork</Button>
                 {treeAvailable && (
-                  <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconSessionTree />{t("hud.actions.tree")}</Button>
+                  <Button title="show the session tree — rewind to any prompt or jump between branches" onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconSessionTree />tree</Button>
                 )}
-                <Button disabled={!chat && projectCwd === undefined} onClick={() => { if (chat) void newChat(); else if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
-                <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
-                <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
+                <Button disabled={!chat && projectCwd === undefined} onClick={() => { if (chat) void newChat(); else if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />new</Button>
+                <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
+                <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
               <div className="mt-2 rounded-md border border-line px-3">
                 <FastModeControl tabId={tabId} layout="sheet" />
@@ -2290,7 +2182,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
         face={resolvedFace}
         label={label}
         className="shrink-0 [app-region:no-drag]"
-        title={t("hud.status.rpcStatus", { status: label })}
+        title={`rpc status: ${label}`}
       />
       {/* Shrinkable, clipping, still draggable (NOT no-drag, NOT flex-1): the
           status cluster clips here, so the gauge on the right is never cut
@@ -2301,7 +2193,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
         <TitleMenu
           key={tabId}
           tabId={tabId}
-          title={title ?? t("hud.session.untitled")}
+          title={title ?? "untitled"}
           chat={chat}
           projectCwd={projectCwd}
           instanceId={instanceId}

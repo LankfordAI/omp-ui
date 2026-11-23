@@ -3,7 +3,6 @@ import "@xterm/xterm/css/xterm.css";
 import type { FleetTerminalRecord } from "@omp-ui/core/fleet";
 import { backend } from "../../backend";
 import { useFontFamily } from "../../lib/font-families";
-import { useT } from "../../lib/i18n";
 import { applyTerminalAppearance, createPtyResizePusher, createTerminal, type CreatedTerminal } from "../../lib/terminal";
 import { useTheme } from "../../lib/themes";
 import { findInstance, registerFleetTerminalWriter, useStore } from "../../store";
@@ -18,7 +17,6 @@ import { Button, Chip, Dot, IconButton, IconClose, Label } from "../ui";
  * and the shell keeps running until it is closed, exits, or this app quits.
  */
 export function FleetTerminalView({ terminal }: { terminal: FleetTerminalRecord }) {
-  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<CreatedTerminal | null>(null);
   const theme = useTheme();
@@ -66,18 +64,18 @@ export function FleetTerminalView({ terminal }: { terminal: FleetTerminalRecord 
     <div className="absolute inset-0 flex flex-col bg-void text-ink" data-fleet-terminal={terminalId}>
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line chrome-void px-3">
         <Dot tone={ended ? "neutral" : memberJoined ? "signal" : "rose"} />
-        <Label>{t("fleet.terminal.title", { machine: terminal.nickname })}</Label>
+        <Label>{`Terminal on ${terminal.nickname}`}</Label>
         {ended && (
           <Chip tone="neutral">
-            {terminal.exitCode === -1 ? t("fleet.terminal.lost") : t("fleet.terminal.exited", { code: terminal.exitCode ?? 0 })}
+            {terminal.exitCode === -1 ? "ended on the member" : `exited ${terminal.exitCode ?? 0}`}
           </Chip>
         )}
-        {!ended && !memberJoined && <Chip tone="rose">{t("fleet.terminal.unreachable", { machine: terminal.nickname })}</Chip>}
+        {!ended && !memberJoined && <Chip tone="rose">{`${terminal.nickname} is not connected; input is held off`}</Chip>}
         <span className="flex-1" />
         <Button size="xs" variant="ghost" onClick={openFleet}>
-          {t("fleet.terminal.back")}
+          Back to Fleet
         </Button>
-        <IconButton label={t("fleet.terminal.close")} onClick={() => void closeFleetTerminal(terminalId)}>
+        <IconButton label="Close terminal" onClick={() => void closeFleetTerminal(terminalId)}>
           <IconClose />
         </IconButton>
       </header>

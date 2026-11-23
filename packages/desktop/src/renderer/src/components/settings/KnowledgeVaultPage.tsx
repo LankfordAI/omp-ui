@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import type { VaultDetection, VaultRegistry, VaultRegistryEntry } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
-import { useT } from "../../lib/i18n";
 import { useLoad, type Load } from "../../lib/load";
 import { useStore } from "../../store";
 import { DirectoryPicker } from "../DirectoryPicker";
@@ -22,7 +21,6 @@ import { VaultImportDialog } from "./VaultImportDialog";
 const EMPTY_REGISTRY: VaultRegistry = { vaults: [], defaultWriteVault: null };
 
 export function KnowledgeVaultPage() {
-  const t = useT();
   const registry = useStore((s) => s.state?.vaultRegistry) ?? EMPTY_REGISTRY;
   const voice = useStore((s) => s.state?.vaultNoteVoice) ?? "user";
   const setVaultNoteVoice = useStore((s) => s.setVaultNoteVoice);
@@ -42,15 +40,15 @@ export function KnowledgeVaultPage() {
   const actions = (
     <>
       <Button size="xs" onClick={() => setDialog("picker")}>
-        {t("settings.vault.addVault")}
+        Add vault…
       </Button>
       <Button
         size="xs"
         disabled={importDisabled}
-        title={importDisabled ? t("settings.vault.importDisabled") : undefined}
+        title={importDisabled ? "Obsidian's vault list was not found on this machine." : undefined}
         onClick={() => setDialog("import")}
       >
-        {t("settings.vault.import")}
+        Import from Obsidian…
       </Button>
     </>
   );
@@ -58,8 +56,8 @@ export function KnowledgeVaultPage() {
   return (
     <div className="space-y-3 px-4 py-3">
       <div>
-        <h3 className="text-base font-semibold text-ink">{t("settings.vault.title")}</h3>
-        <p className="mt-0.5 text-sm text-ink-faint">{t("settings.vault.hint")}</p>
+        <h3 className="text-base font-semibold text-ink">Knowledge vault</h3>
+        <p className="mt-0.5 text-sm text-ink-faint">Obsidian vaults omp-ui may read. The agent writes only inside each vault's home folder.</p>
       </div>
 
       <DetectionPanel load={load} />
@@ -67,13 +65,13 @@ export function KnowledgeVaultPage() {
       {registry.vaults.length === 0 ? (
         <Panel>
           <Empty
-            title={t("settings.vault.empty")}
+            title="No vault yet"
             action={<div className="flex flex-wrap items-center justify-center gap-2">{actions}</div>}
           />
         </Panel>
       ) : (
         <>
-          <div role="radiogroup" aria-label={t("settings.vault.defaultWrite")} className="space-y-2">
+          <div role="radiogroup" aria-label="Default write vault" className="space-y-2">
             {registry.vaults.map((entry) => (
               <VaultRow
                 key={entry.name}
@@ -85,13 +83,13 @@ export function KnowledgeVaultPage() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2">{actions}</div>
-          <Row title={t("settings.vault.noteVoice")} hint={t("settings.vault.noteVoiceHint")}>
+          <Row title="Note voice" hint="Whose voice the agent uses when it writes vault note bodies. Applies to sessions started afterwards.">
             <ChoiceCapsule
-              label={t("settings.vault.noteVoice")}
+              label="Note voice"
               value={voice}
               options={[
-                { value: "user", label: t("settings.vault.noteVoiceUser") },
-                { value: "assistant", label: t("settings.vault.noteVoiceAssistant") },
+                { value: "user", label: "On my behalf" },
+                { value: "assistant", label: "As the assistant" },
               ]}
               onChange={(v) => void setVaultNoteVoice(v)}
               optionClassName="tab-label px-2"
@@ -129,57 +127,56 @@ interface DetectionRow {
 }
 
 function DetectionPanel({ load }: { load: Load<VaultDetection> }) {
-  const t = useT();
   const d = load.status === "loaded" ? load.value : null;
   const rows: DetectionRow[] = [
     {
-      label: t("settings.vault.obsidianApp"),
+      label: "Obsidian app",
       chip:
         d === null
           ? null
           : d.obsidianListFile !== null
-            ? { text: t("settings.vault.found"), tone: "signal" }
-            : { text: t("settings.vault.notFound"), tone: "copper" },
+            ? { text: "found", tone: "signal" }
+            : { text: "not found", tone: "copper" },
       detail: d?.obsidianListFile ?? undefined,
     },
     {
-      label: t("settings.vault.vaultList"),
+      label: "Vault list",
       chip:
         d === null
           ? null
           : d.obsidianListFile !== null
-            ? { text: t("settings.vault.listRead"), tone: "signal" }
-            : { text: t("settings.vault.listNone"), tone: "neutral" },
+            ? { text: "read", tone: "signal" }
+            : { text: "none", tone: "neutral" },
     },
     {
-      label: t("settings.vault.commandLine"),
+      label: "Command line",
       chip:
         d === null
           ? null
           : d.cliRegistered
-            ? { text: t("settings.vault.cliRegistered"), tone: "signal" }
-            : { text: t("settings.vault.cliNotRegistered"), tone: "neutral" },
+            ? { text: "registered", tone: "signal" }
+            : { text: "not registered", tone: "neutral" },
       hint:
         d === null
           ? undefined
           : d.cliRegistered
-            ? t("settings.vault.cliHint")
-            : `${t("settings.vault.cliEnableHint")} ${t("settings.vault.cliHint")}`,
+            ? "Optional. omp-ui works without it."
+            : `${"Turn on Settings, General, Command line interface in Obsidian."} ${"Optional. omp-ui works without it."}`,
     },
     {
-      label: t("settings.vault.uriLinks"),
+      label: "obsidian:// links",
       chip:
         d === null
           ? null
           : d.uriHandler
-            ? { text: t("settings.vault.uriHandled"), tone: "signal" }
-            : { text: t("settings.vault.uriNoHandler"), tone: "copper" },
+            ? { text: "handled", tone: "signal" }
+            : { text: "no handler", tone: "copper" },
     },
   ];
 
   return (
     <Panel className="px-3 py-2.5">
-      <Label>{t("settings.vault.detected")}</Label>
+      <Label>Detected on this machine</Label>
       {load.status === "error" ? (
         <p className="mt-2 text-xs text-rose">{load.message}</p>
       ) : (
@@ -204,7 +201,7 @@ function DetectionPanel({ load }: { load: Load<VaultDetection> }) {
           ))}
         </dl>
       )}
-      <p className="mt-2 text-xs text-ink-faint">{t("settings.vault.protocolPinned")}</p>
+      <p className="mt-2 text-xs text-ink-faint">omp's own vault:// protocol stays off in omp-ui sessions, so every vault write goes through the home folder boundary.</p>
     </Panel>
   );
 }
@@ -220,7 +217,6 @@ function VaultRow({
   row: VaultDetection["rows"][string] | null;
   uriHandler: boolean | undefined;
 }) {
-  const t = useT();
   const removeVault = useStore((s) => s.removeVault);
   const setDefaultWriteVault = useStore((s) => s.setDefaultWriteVault);
   const setVaultHomeFolder = useStore((s) => s.setVaultHomeFolder);
@@ -235,7 +231,7 @@ function VaultRow({
         <span className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
           <OpenInObsidianButton vaultName={entry.name} file={null} uriHandler={uriHandler} />
           <Button size="xs" variant="ghost" tone="rose" onClick={() => void removeVault(entry.name)}>
-            {t("settings.vault.remove")}
+            Remove
           </Button>
         </span>
       </div>
@@ -245,22 +241,22 @@ function VaultRow({
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
             {row.status === "no-obsidian-dir" && (
               <Chip tone="copper" mono>
-                {t("settings.vault.noObsidianDir")}
+                no .obsidian/
               </Chip>
             )}
-            {row.status === "missing" && <Chip tone="rose">{t("settings.vault.folderMissing")}</Chip>}
-            {row.status === "refused-root" && <Chip tone="rose">{t("settings.vault.refusedRoot")}</Chip>}
+            {row.status === "missing" && <Chip tone="rose">folder missing</Chip>}
+            {row.status === "refused-root" && <Chip tone="rose">folder not allowed</Chip>}
             {row.inObsidianList ? (
-              <Chip>{t("settings.vault.inList")}</Chip>
+              <Chip>in Obsidian's list</Chip>
             ) : (
-              <Chip tone="copper">{t("settings.vault.notInList")}</Chip>
+              <Chip tone="copper">not in Obsidian's list</Chip>
             )}
           </div>
           {row.status === "no-obsidian-dir" && (
-            <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.noObsidianHint")}</p>
+            <p className="mt-1 text-sm text-ink-faint">Open this folder in Obsidian once to make it a vault.</p>
           )}
           {row.status === "refused-root" && (
-            <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.refusedRootHint")}</p>
+            <p className="mt-1 text-sm text-ink-faint">omp-ui never uses your home folder, the filesystem root, or an omp or omp-ui data folder as a vault.</p>
           )}
         </>
       )}
@@ -274,14 +270,14 @@ function VaultRow({
             onChange={() => void setDefaultWriteVault(entry.name)}
             className="size-3.5 accent-current"
           />
-          {t("settings.vault.defaultWrite")}
+          Default write vault
         </label>
         <label className="flex min-w-0 flex-1 basis-56 items-center gap-2 text-xs text-ink-mid">
-          <span className="shrink-0">{t("settings.vault.homeFolder")}</span>
+          <span className="shrink-0">Home folder</span>
           <CommitField
             current={entry.homeFolder}
             kind="text"
-            label={t("settings.vault.homeFolder")}
+            label="Home folder"
             disabled={false}
             className={cn("w-full flex-1 font-mono", error !== null && "border-rose-dim")}
             onCommit={(raw) => {
@@ -301,11 +297,11 @@ function VaultRow({
         <Switch
           on={entry.allowWritesOutsideHome}
           onChange={(next) => void setVaultWritesOutsideHome(entry.name, next)}
-          label={t("settings.vault.writesOutside")}
+          label="Allow writes outside the home folder"
         />
-        <span className="text-xs text-ink-mid">{t("settings.vault.writesOutside")}</span>
+        <span className="text-xs text-ink-mid">Allow writes outside the home folder</span>
       </div>
-      <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.writesOutsideHint")}</p>
+      <p className="mt-1 text-sm text-ink-faint">The agent may append to and edit notes anywhere in this vault. New notes still go in the home folder.</p>
     </Panel>
   );
 }

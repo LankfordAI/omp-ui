@@ -1,6 +1,5 @@
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { CONTEXT_FILES_EXTRA_KEY } from "@omp-ui/core/omp-settings-keys";
-import { useT } from "../../lib/i18n";
 import { Button, Label } from "../ui";
 import { CommitField, layerBadge } from "./rows";
 
@@ -28,7 +27,6 @@ export function ContextFilesSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   if (entry === undefined) return null;
 
   // entry.value is unvalidated JSON from omp; a non-array or non-string
@@ -55,11 +53,11 @@ export function ContextFilesSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.contextFiles")}</Label>
+        <Label>Context files</Label>
         {layerBadge(entry.layer)}
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.contextFilesHint")}
+        Extra instruction files omp loads beside the usual context file (omp 18.8.8+), resolved per project. Edits write the global layer.
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {paths.map((path) => (
@@ -75,7 +73,7 @@ export function ContextFilesSection({
               disabled={pendingWrite}
               onClick={() => removePath(path)}
             >
-              {t("settings.omp.contextFilesRemove")}
+              remove
             </Button>
           </div>
         ))}
@@ -84,7 +82,7 @@ export function ContextFilesSection({
         <CommitField
           current=""
           kind="text"
-          label={t("settings.omp.contextFilesAdd")}
+          label="add instruction file"
           placeholder="AGENTS.local.md"
           disabled={pendingWrite}
           className="w-56 font-mono"

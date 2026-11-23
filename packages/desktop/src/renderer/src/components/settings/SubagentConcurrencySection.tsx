@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { OmpSettingEntry, OmpSettingValue, ProjectScalarResult } from "@omp-ui/core/types";
 import { OMP_MAX_CONCURRENCY_KEY } from "@omp-ui/core/omp-settings-keys";
 import { backend, displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { Button, Label } from "../ui";
 import { CommitField, layerBadge } from "./rows";
@@ -31,7 +30,6 @@ export function SubagentConcurrencySection({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   // A focused session defaults to its project layer: the narrower, safer
   // edit target. With no session focused, only Global is available.
   const [scope, setScope] = useState<"global" | "project">(
@@ -120,12 +118,12 @@ export function SubagentConcurrencySection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.subagentConcurrency")}</Label>
+        <Label>Subagent concurrency</Label>
         {layerBadge(entry.layer)}
         <span
           className="ml-auto flex items-center gap-1"
           role="group"
-          aria-label={t("settings.omp.subagentScope")}
+          aria-label="edit scope"
         >
           {(["global", "project"] as const).map((choice) => (
             <button
@@ -135,7 +133,7 @@ export function SubagentConcurrencySection({
               title={
                 choice === "project" && !projectEditable
                   ? projectCwd === null
-                    ? t("settings.omp.noSessionFocused")
+                    ? "No session focused — showing omp's global configuration."
                     : (unsupported?.reason ?? "")
                   : undefined
               }
@@ -148,18 +146,18 @@ export function SubagentConcurrencySection({
               )}
             >
               {choice === "global"
-                ? t("settings.omp.subagentScopeGlobal")
-                : t("settings.omp.subagentScopeProject")}
+                ? "Global"
+                : "Project"}
             </button>
           ))}
         </span>
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.subagentConcurrencyHint")}
+        How many subagents run at once; extra spawns queue instead of failing. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. Changes apply to sessions started afterwards.
       </p>
       {unsupported !== null && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.subagentConcurrencyUnsupported", { reason: unsupported.reason })}
+          {`This project's task.maxConcurrency can't be edited here: ${unsupported.reason}`}
         </p>
       )}
       {localError !== null && (
@@ -184,7 +182,7 @@ export function SubagentConcurrencySection({
             disabled={pendingWrite || !projectEditable || projectRead?.layer.shape !== "value"}
             onClick={() => writeProject(null)}
           >
-            {t("settings.omp.subagentConcurrencyClear")}
+            clear
           </Button>
         )}
       </div>

@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as RendererBackend from "../backend";
-import { t } from "../lib/i18n";
 import { backendState, remoteOwnedState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -86,7 +85,7 @@ describe("OpenInObsidianButton", () => {
     mocks.electron = true;
     mocks.webTransport = true;
     const button = render();
-    expect(button.title).toBe(t("transcript.vault.copyTitle"));
+    expect(button.title).toBe("Copies the obsidian:// link. Paste it on a machine that has this vault.");
 
     await click(button);
 
@@ -97,7 +96,7 @@ describe("OpenInObsidianButton", () => {
   it("copies when no obsidian:// handler is registered", async () => {
     mocks.electron = true;
     const button = render({ uriHandler: false });
-    expect(button.title).toBe(t("transcript.vault.copyTitle"));
+    expect(button.title).toBe("Copies the obsidian:// link. Paste it on a machine that has this vault.");
 
     await click(button);
 
@@ -108,18 +107,18 @@ describe("OpenInObsidianButton", () => {
   it("copies the basename-keyed link outside Electron and reverts the label after 2 s", async () => {
     vi.useFakeTimers();
     const button = render();
-    expect(button.textContent).toBe(t("transcript.vault.openInObsidian"));
+    expect(button.textContent).toBe("Open in Obsidian");
 
     await click(button);
 
     expect(openVault).not.toHaveBeenCalled();
     expect(writeText).toHaveBeenCalledWith("obsidian://open?vault=Notes&file=omp-ui%2FFoo");
-    expect(button.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(button.textContent).toBe("Link copied");
 
     act(() => vi.advanceTimersByTime(1999));
-    expect(button.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(button.textContent).toBe("Link copied");
     act(() => vi.advanceTimersByTime(1));
-    expect(button.textContent).toBe(t("transcript.vault.openInObsidian"));
+    expect(button.textContent).toBe("Open in Obsidian");
   });
 
   it("copies for a tab owned by a joined remote instance", async () => {
@@ -139,6 +138,6 @@ describe("OpenInObsidianButton", () => {
     await click(button);
 
     expect(writeText).toHaveBeenCalledWith("obsidian://open?vault=Notes&file=omp-ui%2FFoo");
-    expect(button.getAttribute("aria-label")).toBe(t("transcript.vault.linkCopied"));
+    expect(button.getAttribute("aria-label")).toBe("Link copied");
   });
 });

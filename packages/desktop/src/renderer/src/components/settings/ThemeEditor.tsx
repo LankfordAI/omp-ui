@@ -28,7 +28,6 @@ import {
   type BackdropAsset,
 } from "../../lib/backdrop";
 import { base64ToBytes, bytesToBase64 } from "../../lib/clipboard-image";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { setThemePreview } from "../../lib/themes";
 import { useStore } from "../../store";
 import { Button, Disclosure, Switch } from "../ui";
@@ -50,38 +49,33 @@ const DRAFT_HASH = "0".repeat(64);
 const PREVIEW_DEBOUNCE_MS = 120;
 const LABEL_MAX = 80;
 
-const ACCENT_FIELDS: ReadonlyArray<{ accent: ThemeSeedAccent; label: MessageKey }> = [
-  { accent: "signal", label: "settings.appearance.seedSignal" },
-  { accent: "copper", label: "settings.appearance.seedCopper" },
-  { accent: "rose", label: "settings.appearance.seedRose" },
-  { accent: "iris", label: "settings.appearance.seedIris" },
+const ACCENT_FIELDS: ReadonlyArray<{ accent: ThemeSeedAccent; label: string }> = [
+  { accent: "signal", label: "Agent activity (green)" },
+  { accent: "copper", label: "Attention" },
+  { accent: "rose", label: "Error" },
+  { accent: "iris", label: "Your messages" },
 ];
 
-const SYNTAX_FIELDS: ReadonlyArray<{ seed: ThemeSyntaxSeed; label: MessageKey }> = [
-  { seed: "comment", label: "settings.appearance.seedComment" },
-  { seed: "string", label: "settings.appearance.seedString" },
-  { seed: "constant", label: "settings.appearance.seedConstant" },
-  { seed: "function", label: "settings.appearance.seedFunction" },
-  { seed: "type", label: "settings.appearance.seedType" },
-  { seed: "property", label: "settings.appearance.seedProperty" },
+const SYNTAX_FIELDS: ReadonlyArray<{ seed: ThemeSyntaxSeed; label: string }> = [
+  { seed: "comment", label: "Comment" },
+  { seed: "string", label: "String" },
+  { seed: "constant", label: "Constant" },
+  { seed: "function", label: "Function" },
+  { seed: "type", label: "Type" },
+  { seed: "property", label: "Property" },
 ];
 
 /** The failing pairings, plane collapses and signal hue, one line each. */
 export function GateFailureList({ failures }: { failures: readonly ThemeGateFailure[] }) {
-  const t = useT();
   return (
     <ul className="mt-1 list-disc pl-4 font-mono text-xs text-ink-mid">
       {failures.map((failure) => (
         <li key={failure.kind === "signal" ? "signal" : failure.label}>
           {failure.kind === "contrast"
-            ? t("settings.appearance.importContrastPair", {
-                label: failure.label,
-                ratio: failure.ratio.toFixed(2),
-                min: String(failure.min),
-              })
+            ? `${failure.label}: ${failure.ratio.toFixed(2)}:1 (needs ${String(failure.min)}:1)`
             : failure.kind === "planes"
-              ? t("settings.appearance.importPlanes", { label: failure.label })
-              : t("settings.appearance.gateSignal", { hue: String(Math.round(failure.hue)) })}
+              ? `${failure.label}: the two planes are the same colour`
+              : `Agent activity colour must be a green (its hue is ${String(Math.round(failure.hue))}°; 100° to 200° is allowed).`}
         </li>
       ))}
     </ul>
@@ -90,11 +84,10 @@ export function GateFailureList({ failures }: { failures: readonly ThemeGateFail
 
 /** Why a theme was not saved: shared by the VS Code import, the file import and the editor. */
 export function GateFailures({ label, failures }: { label: string; failures: ThemeGateFailure[] }) {
-  const t = useT();
   return (
     <div role="alert" className="mt-2 text-sm text-rose">
       <p>
-        {t("settings.appearance.importContrastFailed", { name: label, count: String(failures.length) })}
+        {`${label} was not saved: ${String(failures.length)} colour checks are below the floor.`}
       </p>
       <GateFailureList failures={failures} />
     </div>
@@ -136,7 +129,6 @@ export function ThemeEditor(props: {
   onClose: () => void;
 }): ReactElement {
   const { initial, onClose } = props;
-  const t = useT();
   const saveStoredTheme = useStore((s) => s.saveStoredTheme);
   const storedSources = useStore((s) => s.state?.storedThemes);
   const [label, setLabel] = useState(initial.label);
@@ -240,13 +232,13 @@ export function ThemeEditor(props: {
     if (file === undefined) return;
     setBackdropError(null);
     if (file.size > BACKDROP_IMAGE_BYTES_MAX) {
-      setBackdropError(t("settings.appearance.backdropTooLarge"));
+      setBackdropError("Cannot use that file: backdrops can be at most 4 MiB.");
       return;
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const check = checkBackdropBytes(bytes);
     if (!check.ok) {
-      setBackdropError(t("settings.appearance.backdropRefused", { message: check.message }));
+      setBackdropError(`Cannot use that file: ${check.message}`);
       return;
     }
     setBackdrop({ from: "bytes", bytes, mime: check.mime, kind: check.kind });
@@ -292,13 +284,13 @@ export function ThemeEditor(props: {
     <div data-testid="theme-editor" className="mt-4 border-t border-line-soft pt-3">
       <h3 className="text-base font-semibold text-ink">
         {initial.id !== undefined
-          ? t("settings.appearance.editorTitleEdit", { name: initial.label })
-          : t("settings.appearance.newTheme")}
+          ? `Edit ${initial.label}`
+          : "New theme"}
       </h3>
 
       <div className="mt-2 grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-ink-mid">
-          {t("settings.appearance.editorName")}
+          Name
           <input
             type="text"
             maxLength={LABEL_MAX}
@@ -309,10 +301,10 @@ export function ThemeEditor(props: {
         </label>
         {initial.id === undefined && (
           <label className="flex flex-col gap-1 text-sm text-ink-mid">
-            {t("settings.appearance.editorStartFrom")}
+            Start from
             <select value="" onChange={(event) => pickStart(event.target.value)} className={FIELD}>
               <option value="" disabled>
-                {t("settings.appearance.editorStartFromPick")}
+                Choose a theme…
               </option>
               {startFrom.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
@@ -326,28 +318,28 @@ export function ThemeEditor(props: {
 
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
         <ColourField
-          label={t("settings.appearance.seedCanvas")}
+          label="Canvas"
           value={seeds.canvas}
           onChange={(hex) => setSeeds((prev) => ({ ...prev, canvas: hex }))}
         />
         <ColourField
-          label={t("settings.appearance.seedInk")}
+          label="Ink"
           value={seeds.ink}
           onChange={(hex) => setSeeds((prev) => ({ ...prev, ink: hex }))}
         />
       </div>
 
-      <h4 className="mt-3 text-sm font-semibold text-ink">{t("settings.appearance.editorAccents")}</h4>
+      <h4 className="mt-3 text-sm font-semibold text-ink">Accents</h4>
       <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-2">
-        {ACCENT_FIELDS.map(({ accent, label: key }) => (
+        {ACCENT_FIELDS.map(({ accent, label: fieldLabel }) => (
           <div key={accent}>
             <ColourField
-              label={t(key)}
+              label={fieldLabel}
               value={seeds.accents[accent] ?? "#000000"}
               onChange={(hex) => setAccent(accent, hex)}
             />
             {accent === "signal" && (
-              <p className="mt-0.5 text-xs leading-snug text-ink-faint">{t("settings.appearance.seedSignalHint")}</p>
+              <p className="mt-0.5 text-xs leading-snug text-ink-faint">Must stay a green: it is the only colour that means the agent is working.</p>
             )}
           </div>
         ))}
@@ -355,13 +347,13 @@ export function ThemeEditor(props: {
 
       <Disclosure
         className="mt-3"
-        summary={<span className="text-sm font-semibold">{t("settings.appearance.seedSyntax")}</span>}
+        summary={<span className="text-sm font-semibold">Code colours</span>}
       >
         <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-2">
-          {SYNTAX_FIELDS.map(({ seed, label: key }) => (
+          {SYNTAX_FIELDS.map(({ seed, label: fieldLabel }) => (
             <ColourField
               key={seed}
-              label={t(key)}
+              label={fieldLabel}
               value={seeds.syntax[seed] ?? "#000000"}
               onChange={(hex) => setSyntax(seed, hex)}
             />
@@ -369,12 +361,12 @@ export function ThemeEditor(props: {
         </div>
       </Disclosure>
 
-      <h4 className="mt-3 text-sm font-semibold text-ink">{t("settings.appearance.editorBackdrop")}</h4>
+      <h4 className="mt-3 text-sm font-semibold text-ink">Backdrop</h4>
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        <Button onClick={() => picker.current?.click()}>{t("settings.appearance.backdropChoose")}</Button>
+        <Button onClick={() => picker.current?.click()}>Choose image or scene…</Button>
         {backdrop !== null && (
           <Button variant="ghost" onClick={() => setBackdrop(null)}>
-            {t("settings.appearance.backdropRemove")}
+            Remove backdrop
           </Button>
         )}
       </div>
@@ -397,7 +389,7 @@ export function ThemeEditor(props: {
         <div className="mt-2 grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm text-ink-mid">
             <span>
-              {t("settings.appearance.backdropBlur")} <span className="font-mono text-xs text-ink-dim">{blur}px</span>
+              Blur <span className="font-mono text-xs text-ink-dim">{blur}px</span>
             </span>
             <input
               type="range"
@@ -408,37 +400,34 @@ export function ThemeEditor(props: {
               onChange={(event) => setBlur(Number(event.target.value))}
             />
             <span className="text-xs leading-snug text-ink-faint">
-              {t("settings.appearance.backdropFloorNote", {
-                reading: String(floors.reading),
-                sunken: String(floors.sunken),
-              })}
+              {`Text panels stay at least ${String(floors.reading)}% solid; sidebar ${String(floors.sunken)}%.`}
             </span>
           </label>
         </div>
       )}
 
-      <h4 className="mt-3 text-sm font-semibold text-ink">{t("settings.appearance.editorPreview")}</h4>
+      <h4 className="mt-3 text-sm font-semibold text-ink">Preview</h4>
       <div data-testid="theme-editor-sample" className="mt-1.5">
         <ThemeSpecimen theme={draftTheme} variant="card" asset={asset} />
       </div>
       <div className="mt-2 flex items-center gap-3">
         <span className="min-w-0 flex-1 text-sm text-ink-mid">
-          {t("settings.appearance.previewInApp")}
+          Preview in app
           {failures.length > 0 && (
-            <span className="block text-xs text-ink-faint">{t("settings.appearance.previewBlocked")}</span>
+            <span className="block text-xs text-ink-faint">Fix the problems below to preview the theme in the app.</span>
           )}
         </span>
         <Switch
           on={previewActive}
           disabled={failures.length > 0}
           onChange={setPreviewOn}
-          label={t("settings.appearance.previewInApp")}
+          label="Preview in app"
         />
       </div>
 
       {failures.length > 0 && (
         <div data-testid="theme-editor-problems" className="mt-2 text-sm text-rose">
-          <p>{t("settings.appearance.editorProblems", { count: String(failures.length) })}</p>
+          <p>{`Not ready to save: ${String(failures.length)} colour checks fail.`}</p>
           <GateFailureList failures={failures} />
         </div>
       )}
@@ -447,21 +436,21 @@ export function ThemeEditor(props: {
       )}
       {result?.ok === false && result.reason === "invalid" && (
         <p role="alert" className="mt-2 text-sm text-rose">
-          {t("settings.appearance.saveFailed", { message: result.message })}
+          {`Could not save: ${result.message}`}
         </p>
       )}
       {error !== null && (
         <p role="alert" className="mt-2 text-sm text-rose">
-          {t("settings.appearance.saveFailed", { message: error })}
+          {`Could not save: ${error}`}
         </p>
       )}
 
       <div className="mt-3 flex items-center justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
-          {t("settings.appearance.cancel")}
+          Cancel
         </Button>
         <Button variant="solid" disabled={!canSave} onClick={() => void save()}>
-          {t("settings.appearance.save")}
+          Save
         </Button>
       </div>
     </div>

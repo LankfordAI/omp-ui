@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useT } from "../lib/i18n";
 import type { RenderItem } from "../lib/transcript";
 import { requestTranscriptReveal } from "../lib/transcript-reveal";
 import { touchedVaultNotes } from "../lib/vault-notes";
@@ -17,14 +16,13 @@ const NO_ITEMS: RenderItem[] = [];
  * lists what the cards show. Subagent buffers are not read.
  */
 export function VaultNotesSection({ tabId, onJump }: { tabId: string; onJump?: () => void }) {
-  const t = useT();
   const items = useStore((s) => s.rpc[tabId]?.items ?? NO_ITEMS);
   const multiVault = useStore((s) => (s.state?.vaultRegistry.vaults.length ?? 0) > 1);
   const notes = useMemo(() => touchedVaultNotes(items), [items]);
   return (
-    <Section title={t("rail.vault.title")} action={notes.length > 0 ? <Chip mono>{notes.length}</Chip> : undefined}>
+    <Section title="Vault notes" action={notes.length > 0 ? <Chip mono>{notes.length}</Chip> : undefined}>
       {notes.length === 0 ? (
-        <p className="text-xs text-ink-faint">{t("rail.vault.empty")}</p>
+        <p className="text-xs text-ink-faint">No vault notes yet</p>
       ) : (
         <ul className="space-y-1">
           {notes.map((note) => (

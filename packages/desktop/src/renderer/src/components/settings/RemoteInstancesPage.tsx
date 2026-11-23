@@ -4,8 +4,7 @@ import { FLEET_RUNGS, type FleetGrantRaiseOutcome, type FleetGrantRecord, type F
 import { defaultNickname, normalizeInstanceUrl } from "@omp-ui/core/remote-instances";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
-import { useT, type MessageKey } from "../../lib/i18n";
-import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../../lib/remote-instance-status";
+import { remoteInstanceStatusLabel, remoteInstanceStatusTone } from "../../lib/remote-instance-status";
 import { useStore } from "../../store";
 import { Button, Chip, ChoiceCapsule, Dot, Empty, Label, Panel, Switch } from "../ui";
 import { CommitField, FIELD, Row, SecretField } from "./rows";
@@ -37,14 +36,13 @@ function SecretKindCapsule({
   value: SecretKind;
   onChange: (kind: SecretKind) => void;
 }) {
-  const t = useT();
   return (
     <ChoiceCapsule
-      label={t("remoteinstances.field.secretKind")}
+      label="Sign in with"
       value={value}
       options={[
-        { value: "password", label: t("remoteinstances.field.password") },
-        { value: "token", label: t("remoteinstances.field.token") },
+        { value: "password", label: "Password" },
+        { value: "token", label: "Access token" },
       ] as const}
       onChange={onChange}
       optionClassName="tab-label px-2"
@@ -58,7 +56,6 @@ function SecretKindCapsule({
  * saves explicitly — nothing to pre-fill, the stored credential never returns.
  */
 function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
-  const t = useT();
   const updateRemoteInstance = useStore((s) => s.updateRemoteInstance);
   const [secretKind, setSecretKind] = useState<SecretKind>("password");
   const [secret, setSecret] = useState("");
@@ -92,29 +89,29 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
 
   return (
     <div className="mt-3 divide-y divide-line-soft border-t border-line-soft">
-      <Row title={t("remoteinstances.field.nickname")}>
+      <Row title="Nickname">
         <CommitField
           current={instance.nickname}
           kind="text"
-          label={t("remoteinstances.field.nickname")}
+          label="Nickname"
           disabled={false}
           className="w-48"
           onCommit={(raw) => void updateRemoteInstance(instance.id, { nickname: raw })}
         />
       </Row>
-      <Row title={t("remoteinstances.field.url")} hint={urlError ?? undefined}>
+      <Row title="Connection URL" hint={urlError ?? undefined}>
         <CommitField
           current={instance.url}
           kind="text"
-          label={t("remoteinstances.field.url")}
+          label="Connection URL"
           disabled={false}
           className="w-64"
           onCommit={commitUrl}
         />
       </Row>
       <Row
-        title={secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")}
-        hint={t("remoteinstances.field.secretKeep")}
+        title={secretKind === "token" ? "Access token" : "Password"}
+        hint="Leave blank to keep the stored credential."
         stacked
       >
         <div className="flex flex-wrap items-center gap-1.5">
@@ -123,15 +120,15 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
             value={secret}
             label={
               secretKind === "token"
-                ? t("remoteinstances.field.token")
-                : t("remoteinstances.field.password")
+                ? "Access token"
+                : "Password"
             }
             className="min-w-[8rem] flex-1 basis-40"
             onChange={setSecret}
             onSave={saveSecret}
           />
           <Button size="xs" disabled={secret.trim() === ""} onClick={saveSecret}>
-            {t("remoteinstances.action.save")}
+            Save
           </Button>
         </div>
       </Row>
@@ -140,7 +137,6 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
 }
 
 function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
-  const t = useT();
   const reconnectRemoteInstance = useStore((s) => s.reconnectRemoteInstance);
   const refreshRemoteInstanceState = useStore((s) => s.refreshRemoteInstanceState);
   const confirmRemoveRemoteInstance = useStore((s) => s.confirmRemoveRemoteInstance);
@@ -160,16 +156,16 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
               {instance.nickname}
             </p>
             <span className="shrink-0 text-xs text-ink-dim">
-              {t(remoteInstanceStatusKey(instance.status))}
+              {remoteInstanceStatusLabel(instance.status)}
             </span>
             {instance.version !== null && (
               <Chip
                 mono
                 truncate
                 className="max-w-[12rem]"
-                title={t("remoteinstances.page.version", { version: instance.version })}
+                title={`omp-ui ${instance.version}`}
               >
-                {t("remoteinstances.page.version", { version: instance.version })}
+                {`omp-ui ${instance.version}`}
               </Chip>
             )}
           </div>
@@ -186,22 +182,22 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <Button size="xs" onClick={() => void reconnectRemoteInstance(instance.id)}>
-            {t("remoteinstances.action.reconnect")}
+            Reconnect
           </Button>
           {instance.status === "joined" && (
             <>
               {/* Re-reads the member's session list (#658); this panel is its
                   only home since the sidebar's instance group header went. */}
               <Button size="xs" variant="ghost" onClick={() => void refreshRemoteInstanceState(instance.id)}>
-                {t("remoteinstances.action.refreshState")}
+                Refresh state
               </Button>
               <Button size="xs" variant="ghost" onClick={() => setRequesting((v) => !v)}>
-                {t("settings.remoteinstances.grant.request")}
+                Request access
               </Button>
             </>
           )}
           <Button size="xs" variant="ghost" onClick={() => setEditing((v) => !v)}>
-            {editing ? t("remoteinstances.action.cancel") : t("remoteinstances.action.edit")}
+            {editing ? "Cancel" : "Edit"}
           </Button>
           <Button
             size="xs"
@@ -209,7 +205,7 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
             tone="rose"
             onClick={() => confirmRemoveRemoteInstance(instance.id, instance.nickname)}
           >
-            {t("remoteinstances.action.remove")}
+            Remove
           </Button>
         </div>
       </div>
@@ -220,12 +216,12 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
 }
 
 /** The five ladder rungs, ladder order; labels ride the Fleet view's keys. */
-const RUNG_LABEL: Record<FleetRung, MessageKey> = {
-  observe: "fleet.rung.observe",
-  dispatch: "fleet.rung.dispatch",
-  manage: "fleet.rung.manage",
-  full: "fleet.rung.full",
-  terminal: "fleet.rung.terminal",
+const RUNG_LABEL: Record<FleetRung, string> = {
+  observe: "Observe",
+  dispatch: "Dispatch",
+  manage: "Manage projects",
+  full: "Full control",
+  terminal: "Terminal",
 };
 
 /** What a manager can ask a member for: the rungs above the join default. */
@@ -239,7 +235,6 @@ const RAISE_RUNGS = ["manage", "full", "terminal"] as const satisfies readonly F
  * is an explanation, not an error notice.
  */
 function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; onDone: () => void }) {
-  const t = useT();
   const requestFleetGrant = useStore((s) => s.requestFleetGrant);
   const [rung, setRung] = useState<(typeof RAISE_RUNGS)[number]>("manage");
   const [secretKind, setSecretKind] = useState<SecretKind>("password");
@@ -263,30 +258,30 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
   return (
     <div className="mt-3 space-y-2 border-t border-line-soft pt-3">
       <p className="text-sm leading-relaxed text-ink-faint">
-        {t("settings.remoteinstances.grant.ceremony", { machine: instance.nickname })}
+        {`Ask ${instance.nickname} for more access. Re-type its password or access token — ${instance.nickname} checks it, and its own ceiling, before granting.`}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <ChoiceCapsule
-          label={t("settings.remoteinstances.grant.cap", { machine: instance.nickname })}
+          label={`Access for ${instance.nickname}`}
           value={rung}
-          options={RAISE_RUNGS.map((r) => ({ value: r, label: t(RUNG_LABEL[r]) }))}
+          options={RAISE_RUNGS.map((r) => ({ value: r, label: RUNG_LABEL[r] }))}
           onChange={setRung}
           optionClassName="tab-label px-2"
         />
         <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
         <SecretField
           value={secret}
-          label={secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")}
+          label={secretKind === "token" ? "Access token" : "Password"}
           disabled={busy}
           className="min-w-[8rem] flex-1 basis-40"
           onChange={setSecret}
           onSave={submit}
         />
         <Button size="xs" variant="solid" disabled={secret.trim() === "" || busy} onClick={submit}>
-          {busy ? t("settings.remoteinstances.grant.raising") : t("settings.remoteinstances.grant.raise")}
+          {busy ? "Asking…" : "Ask"}
         </Button>
         <Button size="xs" variant="ghost" onClick={onDone}>
-          {t("remoteinstances.action.cancel")}
+          Cancel
         </Button>
       </div>
       {outcome !== null && (
@@ -295,8 +290,8 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
           className={cn("text-sm leading-relaxed", outcome.ok ? "text-ink-mid" : "text-rose")}
         >
           {outcome.ok
-            ? t("settings.remoteinstances.grant.granted", { rung: t(RUNG_LABEL[outcome.rung]) })
-            : t("settings.remoteinstances.grant.refused", { reason: outcome.reason })}
+            ? `Granted ${RUNG_LABEL[outcome.rung]}.`
+            : `Refused: ${outcome.reason}`}
         </p>
       )}
     </div>
@@ -309,7 +304,6 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
  * at this machine is the authority. Reset drops the record back to Dispatch.
  */
 function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; record: FleetGrantRecord }) {
-  const t = useT();
   const ceiling = useStore((s) => s.state?.fleetExecCeiling ?? "dispatch");
   const setFleetGrant = useStore((s) => s.setFleetGrant);
   const name = record.label === "" ? dispatcherId : record.label;
@@ -324,21 +318,21 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
         </p>
         <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {record.rung === undefined
-            ? t("settings.remoteinstances.grant.defaulted", { rung: t(RUNG_LABEL[held]) })
+            ? `Join default: ${RUNG_LABEL[held]}`
             : effective === held
-              ? t("settings.remoteinstances.grant.stored", { rung: t(RUNG_LABEL[held]) })
-              : t("settings.remoteinstances.grant.capped", { rung: t(RUNG_LABEL[held]), effective: t(RUNG_LABEL[effective]) })}
+              ? `Granted ${RUNG_LABEL[held]}`
+              : `Granted ${RUNG_LABEL[held]}; the ceiling holds it at ${RUNG_LABEL[effective]}`}
         </p>
       </div>
       <ChoiceCapsule
-        label={t("settings.remoteinstances.grant.cap", { machine: name })}
+        label={`Access for ${name}`}
         value={held}
-        options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
+        options={FLEET_RUNGS.map((rung) => ({ value: rung, label: RUNG_LABEL[rung] }))}
         onChange={(rung) => void setFleetGrant(dispatcherId, rung)}
         optionClassName="tab-label px-2"
       />
       <Button size="xs" variant="ghost" disabled={record.rung === undefined} onClick={() => void setFleetGrant(dispatcherId, null)}>
-        {t("settings.remoteinstances.grant.reset")}
+        Reset
       </Button>
     </div>
   );
@@ -350,7 +344,6 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
  * and one row per dispatcher that has reached this machine.
  */
 function FleetAccessSection() {
-  const t = useT();
   const execEnabled = useStore((s) => s.state?.fleetExecEnabled === true);
   const ceiling = useStore((s) => s.state?.fleetExecCeiling ?? "dispatch");
   const roots = useStore((s) => s.state?.fleetProjectRoots ?? []);
@@ -369,27 +362,27 @@ function FleetAccessSection() {
 
   return (
     <div className="space-y-1">
-      <Row title={t("settings.remoteinstances.execTitle")} hint={t("settings.remoteinstances.execHint")}>
+      <Row title="Allow fleet exec" hint="Lets a dispatcher run one bounded command on this machine's shell, or open a terminal here at the Terminal rung. Off by default; also needs the ceiling and a grant.">
         <Switch
           on={execEnabled}
           onChange={(next) => void setFleetExecEnabled(next)}
-          label={t("settings.remoteinstances.execTitle")}
+          label="Allow fleet exec"
         />
       </Row>
-      <Row title={t("settings.remoteinstances.ceilingTitle")} hint={t("settings.remoteinstances.ceilingHint")}>
+      <Row title="Fleet exec ceiling" hint="The highest rung any dispatcher can hold here, whatever its grant says.">
         <ChoiceCapsule
-          label={t("settings.remoteinstances.ceilingTitle")}
+          label="Fleet exec ceiling"
           value={ceiling}
-          options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
+          options={FLEET_RUNGS.map((rung) => ({ value: rung, label: RUNG_LABEL[rung] }))}
           onChange={(rung) => void setFleetExecCeiling(rung)}
           optionClassName="tab-label px-2"
         />
       </Row>
       <div className="py-2">
-        <Label>{t("settings.remoteinstances.rootsTitle")}</Label>
-        <p className="mb-1.5 text-sm leading-relaxed text-ink-faint">{t("settings.remoteinstances.rootsHint")}</p>
+        <Label>Fleet project roots</Label>
+        <p className="mb-1.5 text-sm leading-relaxed text-ink-faint">Absolute folders the fleet may clone into or register checkouts from. With none declared, project management is refused.</p>
         {roots.length === 0 && (
-          <p className="text-xs text-ink-dim">{t("settings.remoteinstances.roots.empty")}</p>
+          <p className="text-xs text-ink-dim">No roots declared — clone and register are refused.</p>
         )}
         <ul className="space-y-1">
           {roots.map((root) => (
@@ -403,7 +396,7 @@ function FleetAccessSection() {
                 tone="rose"
                 onClick={() => void setFleetProjectRoots(roots.filter((r) => r !== root))}
               >
-                {t("settings.remoteinstances.roots.remove")}
+                Remove
               </Button>
             </li>
           ))}
@@ -414,7 +407,7 @@ function FleetAccessSection() {
             value={draftRoot}
             spellCheck={false}
             placeholder="/srv/repos"
-            aria-label={t("settings.remoteinstances.rootsTitle")}
+            aria-label="Fleet project roots"
             className={cn(FIELD, "flex-1")}
             onChange={(e) => setDraftRoot(e.target.value)}
             onKeyDown={(e) => {
@@ -425,13 +418,13 @@ function FleetAccessSection() {
             }}
           />
           <Button size="xs" disabled={draftRoot.trim() === ""} onClick={addRoot}>
-            {t("settings.remoteinstances.roots.add")}
+            Add
           </Button>
         </div>
       </div>
-      <Label>{t("settings.remoteinstances.grantTitle")}</Label>
+      <Label>Dispatchers on this computer</Label>
       {grants !== null && Object.keys(grants).length === 0 && (
-        <p className="py-2 text-xs text-ink-dim">{t("settings.remoteinstances.grant.empty")}</p>
+        <p className="py-2 text-xs text-ink-dim">No fleet dispatcher has reached this computer yet.</p>
       )}
       {grants !== null && Object.keys(grants).length > 0 && (
         <div className="divide-y divide-line-soft">
@@ -445,7 +438,6 @@ function FleetAccessSection() {
 }
 
 function AddForm() {
-  const t = useT();
   const addRemoteInstance = useStore((s) => s.addRemoteInstance);
   const [url, setUrl] = useState("");
   const [nickname, setNickname] = useState("");
@@ -494,12 +486,12 @@ function AddForm() {
 
   return (
     <div className="divide-y divide-line-soft">
-      <Row title={t("remoteinstances.field.url")} hint={carriedToken !== null ? t("remoteinstances.field.urlToken") : undefined} stacked>
+      <Row title="Connection URL" hint={carriedToken !== null ? "The pasted link carries an access token; no password is needed." : undefined} stacked>
         <input
           type="text"
           value={url}
-          aria-label={t("remoteinstances.field.url")}
-          placeholder={t("remoteinstances.field.urlPlaceholder")}
+          aria-label="Connection URL"
+          placeholder="http://host:4677 or a pasted token link"
           spellCheck={false}
           autoComplete="off"
           disabled={busy}
@@ -509,13 +501,13 @@ function AddForm() {
         />
       </Row>
       <Row
-        title={t("remoteinstances.field.nickname")}
-        hint={host === "" ? undefined : t("remoteinstances.field.nicknameHint", { host })}
+        title="Nickname"
+        hint={host === "" ? undefined : `Defaults to ${host}`}
       >
         <input
           type="text"
           value={nickname}
-          aria-label={t("remoteinstances.field.nickname")}
+          aria-label="Nickname"
           placeholder={host}
           spellCheck={false}
           autoComplete="off"
@@ -527,7 +519,7 @@ function AddForm() {
       </Row>
       {carriedToken === null && (
         <Row
-          title={secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")}
+          title={secretKind === "token" ? "Access token" : "Password"}
           stacked
         >
           <div className="flex items-center gap-1.5">
@@ -536,8 +528,8 @@ function AddForm() {
               value={secret}
               label={
                 secretKind === "token"
-                  ? t("remoteinstances.field.token")
-                  : t("remoteinstances.field.password")
+                  ? "Access token"
+                  : "Password"
               }
               disabled={busy}
               className="flex-1"
@@ -554,7 +546,7 @@ function AddForm() {
           </p>
         )}
         <Button variant="solid" size="xs" className="ml-auto" disabled={!canSubmit} onClick={submit}>
-          {busy ? t("remoteinstances.action.adding") : t("remoteinstances.action.add")}
+          {busy ? "Joining…" : "Join"}
         </Button>
       </div>
     </div>
@@ -562,7 +554,6 @@ function AddForm() {
 }
 
 export function RemoteInstancesPage() {
-  const t = useT();
   const instances = useStore((s) => s.state?.remoteInstances ?? null);
   const fleetAgentDispatch = useStore((s) => s.state?.fleetAgentDispatch === true);
   const setFleetAgentDispatch = useStore((s) => s.setFleetAgentDispatch);
@@ -571,9 +562,9 @@ export function RemoteInstancesPage() {
 
   return (
     <div className="space-y-3 px-4 py-3">
-      <p className="text-sm leading-relaxed text-ink-faint">{t("remoteinstances.page.intro")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">Join other omp-ui apps that have Remote access enabled. Their projects and sessions appear in the sidebar under the nickname you choose.</p>
       {instances !== null && instances.length === 0 && (
-        <Empty title={t("remoteinstances.empty.instances")} hint={t("remoteinstances.empty.instancesHint")} />
+        <Empty title="No remote instances joined" hint="Paste the connection URL of another omp-ui app below to see its projects here." />
       )}
       {instances !== null && instances.length > 0 && (
         <div className="space-y-2">
@@ -583,28 +574,28 @@ export function RemoteInstancesPage() {
         </div>
       )}
       <Row
-        title={t("settings.remoteinstances.fleetAgentTitle")}
-        hint={t("settings.remoteinstances.fleetAgentHint")}
+        title="Let agents dispatch fleet work"
+        hint="Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do. Off, an agent that spawns omp by hand orphans a child session: invisible to omp-ui and spending money untracked."
       >
         <Switch
           on={fleetAgentDispatch}
           onChange={(next) => void setFleetAgentDispatch(next)}
-          label={t("settings.remoteinstances.fleetAgentTitle")}
+          label="Let agents dispatch fleet work"
         />
       </Row>
-      <Row title={t("settings.remoteinstances.vsCodeTitle")} hint={t("settings.remoteinstances.vsCodeHint")}>
+      <Row title="Open remote projects in VS Code over SSH" hint="Adds Open in VS Code to a remote project's page and a remote session's title menu. VS Code on this computer connects with its Remote-SSH extension, your ssh config, and your ssh agent; omp-ui holds no keys. On by default.">
         <Switch
           on={remoteVsCodeEnabled}
           onChange={(next) => void setRemoteVsCodeEnabled(next)}
-          label={t("settings.remoteinstances.vsCodeTitle")}
+          label="Open remote projects in VS Code over SSH"
         />
       </Row>
       <div>
-        <Label>{t("settings.remoteinstances.fleetAccessTitle")}</Label>
+        <Label>Fleet access</Label>
         <FleetAccessSection />
       </div>
       <div>
-        <Label>{t("remoteinstances.action.add")}</Label>
+        <Label>Join</Label>
         <AddForm />
       </div>
     </div>
@@ -612,6 +603,5 @@ export function RemoteInstancesPage() {
 }
 
 export function RemoteInstancesFooter() {
-  const t = useT();
-  return <p>{t("remoteinstances.page.footer")}</p>;
+  return <p>A joined instance grants this app full control of that host's sessions and files. Credentials are stored encrypted by the OS credential store.</p>;
 }

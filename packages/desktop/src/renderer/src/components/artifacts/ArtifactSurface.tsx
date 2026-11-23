@@ -3,14 +3,12 @@ import type { ArtifactPreparedSurface, ArtifactSurfaceSource } from "../../../..
 import { composeHtmlArtifactDocument, htmlArtifactThemeCss, htmlArtifactDataUrl, HTML_ARTIFACT_PARTITION, HEIGHT_HASH_PREFIX } from "@omp-ui/core/html-artifact";
 import { useStore } from "../../store";
 import { useTheme } from "../../lib/themes";
-import { useT } from "../../lib/i18n";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui";
 
 /** Only managed URLs carry main-issued authority; plain documents retain the legacy guest. */
 export function ArtifactSurface({ source, html, title, className, style, onReload, managed = true, historical = false, inline = false, onMeasured, onEscape }: { source?: ArtifactSurfaceSource; html: string; title: string; className?: string; style?: React.CSSProperties; onReload?: () => void; managed?: boolean; historical?: boolean; inline?: boolean; onMeasured?: (height: number) => void; onEscape?: () => void }) {
-  const t = useT();
   const theme = useTheme();
   const enabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
   const scripts = useStore((s) => s.state?.htmlArtifactScripts !== false);
@@ -90,9 +88,9 @@ export function ArtifactSurface({ source, html, title, className, style, onReloa
   // Preload tickets are installed at attachment, while themes/expansion keep the same surface.
   return <div className={cn("flex min-h-0 min-w-0 flex-col", className)} style={style}>
     {(source || historical) && <div ref={chromeRef} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-2 py-1 text-xs text-ink-dim" role="status" aria-live="polite">
-      <span>{t(historical ? "artifacts.historicalPreview" : status === "saving" ? "artifacts.saving" : status === "saved" ? "artifacts.saved" : status === "not-saved" ? "artifacts.notSaved" : status === "loading" ? "artifacts.loading" : "artifacts.readOnly")}</span>
-      {(!scripts || !window.ompArtifactHost) && <span>{t("artifacts.staticHint")}</span>}
-      {reloadRequired && !historical && <><span>{t("artifacts.reloadHint")}</span><Button onClick={() => { if (onReload) { onReload(); return; } setPrepared(null); setReload((n) => n + 1); }}>{t("artifacts.reload")}</Button></>}
+      <span>{historical ? "Historical preview — open in library to use saved data" : status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "not-saved" ? "Not saved" : status === "loading" ? "Loading…" : "Read only"}</span>
+      {(!scripts || !window.ompArtifactHost) && <span>Static preview. Data and version history remain available.</span>}
+      {reloadRequired && !historical && <><span>A newer version is available or this writer was revoked. Reload to continue.</span><Button onClick={() => { if (onReload) { onReload(); return; } setPrepared(null); setReload((n) => n + 1); }}>Reload</Button></>}
       {error && <span className="text-rose">{error}</span>}
     </div>}
     {legacyUrl || prepared ? createElement("webview", { key: legacyUrl ? "legacy" : prepared!.surfaceId, ref: guestRef, src: legacyUrl ?? prepared!.url, partition: legacyUrl ? HTML_ARTIFACT_PARTITION : prepared!.partition, title, className: "block min-h-0 w-full flex-1", style: { display: "flex", minHeight: inline ? 0 : 280 } }) : <iframe title={title} sandbox="" srcDoc={staticDocument} className="block min-h-0 w-full flex-1 border-0" style={{ minHeight: inline ? 0 : 280 }} />}

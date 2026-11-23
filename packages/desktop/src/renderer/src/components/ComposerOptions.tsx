@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
@@ -40,9 +39,8 @@ export function ComposerOptions({
     onOpen: (branchRequest?: BranchChipExternalRequest) => void;
   };
 }) {
-  const t = useT();
   const commits = (count: number): string =>
-    `${count} ${count === 1 ? t("composer.branch.commit") : t("composer.branch.commits")}`;
+    `${count} ${count === 1 ? "commit" : "commits"}`;
   const {
     planEnabled, defaultAgentMode, model, held, thinkingLevel, auto,
     levelColour, branchVisible, info,
@@ -154,14 +152,14 @@ export function ComposerOptions({
     }
   };
   const mode = planEnabled ? "plan" : "build";
-  const autoTitle = t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" });
-  const levelText = thinkingLevel ?? t("composer.thinking.fallback");
+  const autoTitle = `auto — omp classifies each prompt; this turn: ${thinkingLevel ?? "—"}`;
+  const levelText = thinkingLevel ?? "think —";
   // Round-7 judge, Clarity 1: a bare `low` beside the model read as priority,
   // budget, or quota. The pill spells out what the word answers for.
   const pillThinking =
     thinkingLevel === null && !auto
       ? levelText
-      : t("composer.thinking.pill", { level: auto ? t("composer.thinking.auto") : levelText });
+      : `think: ${auto ? "auto" : levelText}`;
   const dot = <span aria-hidden className="text-ink-faint">·</span>;
 
   return (
@@ -172,7 +170,7 @@ export function ComposerOptions({
         disabled={compact !== undefined && disabled}
         aria-haspopup="dialog"
         aria-expanded={compact?.open ?? open}
-        title={t("composer.options.title")}
+        title="prompt options"
         onClick={() => compact !== undefined ? compact.onOpen() : setOpen((o) => !o)}
         className={cn(
           // 14px like the placeholder above it (round-4 judge, Typography 1):
@@ -201,7 +199,7 @@ export function ComposerOptions({
           title={model !== null && !held ? `${model.provider}/${model.id}` : undefined}
           className={cn("min-w-0 truncate", compact !== undefined && "max-w-full flex-1 basis-24", held && "text-copper")}
         >
-          {held ? t("composer.model.held") : model === null ? t("composer.model.fallback") : model.name || model.id}
+          {held ? "pick a model" : model === null ? "no model" : model.name || model.id}
         </span>
         {dot}
         <span
@@ -221,7 +219,7 @@ export function ComposerOptions({
                   mono island mid-pill read as code that wasn't. The `⎇` glyph
                   matches every other branch mark in the app (issue #1046). */}
               <span className={cn("truncate", compact !== undefined ? "max-w-40" : "max-w-32")}>
-                ⎇ {workspace?.mode === "worktree" ? workspace.branch : info?.current ?? t("composer.branch.detachedChip")}
+                ⎇ {workspace?.mode === "worktree" ? workspace.branch : info?.current ?? "detached"}
               </span>
             </span>
           </>
@@ -235,20 +233,20 @@ export function ComposerOptions({
           disabled={pullCapDisabled}
           aria-label={
             pulling
-              ? t("composer.branch.pulling")
+              ? "Pulling…"
               : diverged && info?.upstreamRef != null
-                ? t("composer.branch.diverged", { ahead, behind, upstream: info.upstreamRef })
-                : t("composer.branch.pull", { commits: commits(behind) })
+                ? `${ahead} ahead, ${behind} behind ${info.upstreamRef} — merge or rebase first`
+                : `pull ${commits(behind)}`
           }
           title={
             pulling
-              ? t("composer.branch.pulling")
+              ? "Pulling…"
               : mergeInProgress
-                ? t("composer.branch.mergeInProgress")
+                ? "a merge is in progress in this checkout — conflicts are waiting"
                 : diverged && info?.upstreamRef != null
-                  ? t("composer.branch.diverged", { ahead, behind, upstream: info.upstreamRef })
+                  ? `${ahead} ahead, ${behind} behind ${info.upstreamRef} — merge or rebase first`
                   : info?.upstreamRef != null
-                    ? `${t("composer.branch.pull", { commits: commits(behind) })} (${t("composer.branch.behind", { commits: commits(behind), upstream: info.upstreamRef })})`
+                    ? `${`pull ${commits(behind)}`} (${`${commits(behind)} behind ${info.upstreamRef}`})`
                     : undefined
           }
           onClick={() => void handlePullCapClick()}
@@ -266,7 +264,7 @@ export function ComposerOptions({
         ref={panelRef}
         hidden={compact !== undefined || !open}
         role={compact === undefined ? "dialog" : undefined}
-        aria-label={compact === undefined ? t("composer.options.title") : undefined}
+        aria-label={compact === undefined ? "prompt options" : undefined}
         // Desktop nested menus can extend above the panel; sheet content
         // adapts those same menus to its native scroller instead.
         className={compact === undefined ? "animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-visible rounded-md border border-line-strong bg-overlay p-1" : undefined}

@@ -432,10 +432,6 @@ outcomes rather than prompt text or embedded source strings.
 
 ## Feature seams
 
-### UI locale
-
-The registry's `localeId` is broadcast in `BackendState`, and each renderer applies it through the same locale module after initial hydration and later state updates. English is the source catalog; Korean is selected only for the `ko` locale, with per-key English fallback for forward compatibility and unknown saved locale ids resolving to English. The renderer uses a zero-dependency, plain-text `t()` layer with flat three-segment keys and placeholder substitution; desktop notification copy selects from the same two locale choices in main. This seam translates application chrome only: session and plan content, PTY bytes, code and paths, names, backend errors, KaTeX/Mermaid output, versions, URLs, and duration tokens remain untouched.
-
 ### Provider credentials
 
 [`ProviderKeys`](../packages/core/src/provider-keys.ts) resolves catalogued environment variables from stored values, the inherited environment, and a captured login shell. Project `.env` files are report-only because OMP loads them itself. Desktop main supplies the OS `safeStorage` cipher, refuses storage when it cannot encrypt securely, installs resolved values into its own `process.env` before any spawn, and returns source labels, masked tails, and unreadable saved-variable names to renderers. Key material never crosses IPC or WebSocket. See [ADR-0010](adr/0010-provider-credentials-supplied-to-every-spawn.md).

@@ -3,23 +3,18 @@
 import type { GoalState } from "@omp-ui/core/goal";
 import { formatDuration } from "./duration";
 import { exactNum } from "./format";
-import { t } from "./i18n";
 
 /** Objective, status, token usage, and elapsed time — four lines. */
 export function goalDetails(state: GoalState): string {
   const { goal } = state;
   const tokens =
     goal.tokenBudget === null
-      ? t("composer.goal.detailTokensUnbounded", { used: exactNum(goal.tokensUsed) })
-      : t("composer.goal.detailTokens", {
-          used: exactNum(goal.tokensUsed),
-          budget: exactNum(goal.tokenBudget),
-          remaining: exactNum(Math.max(0, goal.tokenBudget - goal.tokensUsed)),
-        });
+      ? `Tokens: ${exactNum(goal.tokensUsed)} used (no budget)`
+      : `Tokens: ${exactNum(goal.tokensUsed)} of ${exactNum(goal.tokenBudget)} used, ${exactNum(Math.max(0, goal.tokenBudget - goal.tokensUsed))} remaining`;
   return [
-    t("composer.goal.detailObjective", { objective: goal.objective }),
-    t("composer.goal.detailStatus", { status: goal.status }),
+    `Objective: ${goal.objective}`,
+    `Status: ${goal.status}`,
     tokens,
-    t("composer.goal.detailElapsed", { duration: formatDuration(goal.timeUsedSeconds * 1000) }),
+    `Elapsed: ${formatDuration(goal.timeUsedSeconds * 1000)}`,
   ].join("\n");
 }

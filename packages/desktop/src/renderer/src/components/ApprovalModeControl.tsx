@@ -4,8 +4,6 @@ import { APPROVAL_SETTING_KEY } from "@omp-ui/core/omp-settings-keys";
 import { APPROVAL_MODES } from "@omp-ui/core/approval";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
-import type { MessageKey } from "../lib/i18n/types";
 import { ASK_AND_REMEMBER_MIN_OMP, supportsAskAndRemember } from "../lib/ask-and-remember";
 import { findOwner, findRecord, useStore } from "../store";
 import { Capsule, Label } from "./ui";
@@ -22,12 +20,12 @@ import { Capsule, Label } from "./ui";
  * its own embedded TUI; both facts are hint copy, not behavior.
  */
 
-const MODE_TITLE: Record<ApprovalMode | "inherit", MessageKey> = {
-  inherit: "hud.approval.inheritTitle",
-  "always-ask": "hud.approval.alwaysAskTitle",
-  "always-ask-cached": "hud.approval.alwaysAskCachedTitle",
-  write: "hud.approval.writeTitle",
-  yolo: "hud.approval.yoloTitle",
+const MODE_TITLE: Record<ApprovalMode | "inherit", string> = {
+  inherit: "inherit — omp's own config decides",
+  "always-ask": "always-ask — every tool waits for your approval",
+  "always-ask-cached": "always-ask-cached — Ask and remember: file reads wait too, and an answer can remember the file or folder",
+  write: "write — mutating tools wait for your approval",
+  yolo: "yolo — nothing waits for approval except restricted folders",
 };
 
 export function ApprovalModeControl({
@@ -39,7 +37,6 @@ export function ApprovalModeControl({
   layout?: "inline" | "sheet";
   className?: string;
 }) {
-  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const setSessionApprovalMode = useStore((s) => s.setSessionApprovalMode);
@@ -77,7 +74,7 @@ export function ApprovalModeControl({
   return (
     <Capsule
       tone="copper"
-      title={t("hud.approval.chipTitle", { mode })}
+      title={`approval mode pinned to ${mode} · change it under session modes`}
       className={cn("h-6", className)}
     >
       <span className="px-1.5 font-mono text-xs">{mode}</span>
@@ -102,7 +99,6 @@ function ApprovalSheet({
   className?: string;
   onPick: (next: ApprovalMode | null) => void;
 }) {
-  const t = useT();
   // Read on open, never while closed: what omp's own config resolves to when
   // this session inherits (the snapshot's `value` is already layer-resolved).
   // A remote session's global layer cannot be read from here, so it shows no
@@ -128,16 +124,16 @@ function ApprovalSheet({
   return (
     <div className={cn("mt-2", className)} data-approval-mode-sheet>
       <div className="flex items-center justify-between gap-2">
-        <Label>{t("hud.approval.labelLong")}</Label>
+        <Label>approval mode</Label>
         {mode === null && effective !== null && (
           <span className="font-mono text-xs text-ink-faint">
-            {t("hud.approval.effective", { mode: effective })}
+            {`omp resolves: ${effective}`}
           </span>
         )}
       </div>
       <div
         role="group"
-        aria-label={t("hud.approval.labelLong")}
+        aria-label="approval mode"
         className="mt-1 flex items-center gap-0.5 rounded-md border border-line bg-void p-0.5"
       >
         {[null, ...APPROVAL_MODES].map((choice) => {
@@ -151,8 +147,8 @@ function ApprovalSheet({
               disabled={gated}
               title={
                 gated
-                  ? t("settings.omp.approvalCachedNeedsOmp", { version: ASK_AND_REMEMBER_MIN_OMP })
-                  : t(MODE_TITLE[choice ?? "inherit"])
+                  ? `always-ask-cached needs omp ${ASK_AND_REMEMBER_MIN_OMP} or later.`
+                  : MODE_TITLE[choice ?? "inherit"]
               }
               onClick={() => onPick(choice)}
               className={cn(
@@ -163,15 +159,15 @@ function ApprovalSheet({
                   : "text-ink-dim hover:bg-hover hover:text-ink-mid disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-ink-dim",
               )}
             >
-              {choice === null ? t("settings.omp.approvalInherit") : choice}
+              {choice === null ? "inherit" : choice}
             </button>
           );
         })}
       </div>
       <p className="mt-1 text-xs leading-snug text-ink-faint">
-        {t("hud.approval.relaunchHint")}
+        Changing the mode relaunches the session.
         {" "}
-        {isPty ? t("hud.approval.ptyHint") : t("hud.approval.subagentHint")}
+        {isPty ? "A terminal session shows its prompts in its own terminal." : "Subagents ignore the session mode — your tools.approval policy governs them."}
       </p>
     </div>
   );

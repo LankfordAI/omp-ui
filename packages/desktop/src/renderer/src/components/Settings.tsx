@@ -8,7 +8,6 @@ import {
 import type { OmpSettingValue } from "@omp-ui/core/types";
 import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useStore, type SettingsPage } from "../store";
 import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
@@ -56,25 +55,25 @@ interface PageContext {
 
 const PAGES: ReadonlyArray<{
   id: SettingsPage;
-  labelKey: MessageKey;
+  label: string;
   render: (ctx: PageContext) => ReactNode;
   footer?: ComponentType<FooterContext>;
 }> = [
-  { id: "general", labelKey: "settings.nav.general", render: () => <GeneralPage />, footer: GeneralFooter },
-  { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
-  { id: "keyboard", labelKey: "settings.nav.keyboard", render: () => <KeyboardPage /> },
-  { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
-  { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
-  { id: "webhooks", labelKey: "settings.nav.webhooks", render: () => <WebhooksPage /> },
+  { id: "general", label: "General", render: () => <GeneralPage />, footer: GeneralFooter },
+  { id: "appearance", label: "Appearance", render: () => <AppearancePage /> },
+  { id: "keyboard", label: "Keyboard", render: () => <KeyboardPage /> },
+  { id: "updates", label: "Updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
+  { id: "remote", label: "Remote access", render: () => <RemotePage />, footer: RemoteFooter },
+  { id: "webhooks", label: "Webhooks", render: () => <WebhooksPage /> },
   {
     id: "remote-instances",
-    labelKey: "settings.nav.remoteInstances",
+    label: "Remote instances",
     render: () => <RemoteInstancesPage />,
     footer: RemoteInstancesFooter,
   },
   {
     id: "providers",
-    labelKey: "settings.nav.providers",
+    label: "Providers",
     render: (ctx) => (
       <ProvidersPage
         projectCwd={ctx.projectCwd}
@@ -89,7 +88,7 @@ const PAGES: ReadonlyArray<{
   },
   {
     id: "memory",
-    labelKey: "settings.nav.memory",
+    label: "Memory",
     render: (ctx) => (
       <MemoryPage
         load={ctx.load}
@@ -103,10 +102,10 @@ const PAGES: ReadonlyArray<{
     ),
     footer: MemoryFooter,
   },
-  { id: "knowledge-vault", labelKey: "settings.nav.knowledgeVault", render: () => <KnowledgeVaultPage /> },
+  { id: "knowledge-vault", label: "Knowledge vault", render: () => <KnowledgeVaultPage /> },
   {
     id: "omp",
-    labelKey: "settings.nav.omp",
+    label: "omp",
     render: (ctx) => (
       <OmpPage
         load={ctx.load}
@@ -121,26 +120,25 @@ const PAGES: ReadonlyArray<{
   },
   {
     id: "council",
-    labelKey: "settings.nav.council",
+    label: "Council",
     render: () => <CouncilPage />,
     footer: CouncilFooter,
   },
   {
     id: "experimental",
-    labelKey: "settings.nav.experimental",
+    label: "Experimental",
     render: () => <ExperimentalPage />,
     footer: ExperimentalFooter,
   },
   {
     id: "advanced",
-    labelKey: "settings.nav.advanced",
+    label: "Advanced",
     render: () => <AdvancedPage />,
   },
-  { id: "about", labelKey: "settings.nav.about", render: (ctx) => <AboutPage load={ctx.load} /> },
+  { id: "about", label: "About", render: (ctx) => <AboutPage load={ctx.load} /> },
 ];
 
 export function Settings() {
-  const t = useT();
   const page = useStore((s) => s.settingsPage) ?? "general";
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
@@ -228,7 +226,7 @@ export function Settings() {
             id="settings-title"
             className="font-display text-xl font-semibold tracking-tight text-ink"
           >
-            {t("settings.shell.title")}
+            Settings
           </h2>
         </header>
 
@@ -246,7 +244,7 @@ export function Settings() {
                   page === p.id ? "bg-hover text-ink" : "text-ink-mid",
                 )}
               >
-                {t(p.labelKey)}
+                {p.label}
               </button>
             ))}
           </nav>

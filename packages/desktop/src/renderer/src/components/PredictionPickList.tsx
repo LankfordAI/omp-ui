@@ -1,6 +1,5 @@
 import { useImperativeHandle, type KeyboardEvent, type Ref } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { PaletteList, usePaletteNav } from "./palette";
 
 export interface PredictionPickListHandle {
@@ -36,7 +35,6 @@ export function PredictionPickList({
   onClose(): void;
   ref?: Ref<PredictionPickListHandle>;
 }) {
-  const t = useT();
   // resetKey keys the opening selection to the alternative the buffer equals.
   // rows carry the index: the palette nav hands back the row it holds.
   const rows = choices.map((choice, index) => ({ choice, index }));
@@ -77,12 +75,12 @@ export function PredictionPickList({
     <PaletteList
       data-prediction-picklist
       role="listbox"
-      aria-label={t("composer.predict.listTitle")}
+      aria-label="predicted next messages"
       className={cn(shell, "max-h-[min(14rem,calc(var(--app-viewport-height,100dvh)*0.35))] py-1")}
     >
       <div className="flex items-baseline gap-2 px-3 pb-1 pt-0.5">
-        <span className="text-xs text-ink-dim">{t("composer.predict.listTitle")}</span>
-        <span className="ml-auto text-xs text-ink-faint">{t("composer.predict.listKeys")}</span>
+        <span className="text-xs text-ink-dim">predicted next messages</span>
+        <span className="ml-auto text-xs text-ink-faint">↑↓ move · enter/tab swaps in · esc closes</span>
       </div>
       {choices.map((choice, i) => (
         <div

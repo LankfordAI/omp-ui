@@ -1,5 +1,4 @@
 import type { PullRequestLink } from "@omp-ui/core/types";
-import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { TONE_BORDER_OUTLINE_HOVER, TONE_CHIP, type Tone } from "./ui/tone";
 
@@ -8,19 +7,19 @@ import { TONE_BORDER_OUTLINE_HOVER, TONE_CHIP, type Tone } from "./ui/tone";
  * or draft state: that is the state that wants attention. A merged or closed
  * PR shows its state whatever its last checks said.
  */
-export function pullRequestFace(link: PullRequestLink): { tone: Tone; labelKey: MessageKey } {
+export function pullRequestFace(link: PullRequestLink): { tone: Tone; label: string } {
   if ((link.state === "open" || link.state === "draft") && link.checks === "failing") {
-    return { tone: "rose", labelKey: "pullRequest.state.failing" };
+    return { tone: "rose", label: "CI failing" };
   }
   switch (link.state) {
     case "open":
-      return { tone: "signal", labelKey: "pullRequest.state.open" };
+      return { tone: "signal", label: "open" };
     case "draft":
-      return { tone: "neutral", labelKey: "pullRequest.state.draft" };
+      return { tone: "neutral", label: "draft" };
     case "merged":
-      return { tone: "iris", labelKey: "pullRequest.state.merged" };
+      return { tone: "iris", label: "merged" };
     case "closed":
-      return { tone: "copper", labelKey: "pullRequest.state.closed" };
+      return { tone: "copper", label: "closed" };
   }
 }
 
@@ -43,17 +42,16 @@ export function PullRequestChip({
   interactive: boolean;
   className?: string;
 }) {
-  const t = useT();
   const first = links[0];
   if (first === undefined) return null;
   const face = pullRequestFace(first);
   const title = links
-    .map((link) => t("pullRequest.chip.title", { number: link.number, state: t(pullRequestFace(link).labelKey) }))
+    .map((link) => `pull request #${link.number}: ${pullRequestFace(link).label}`)
     .join("\n");
   const body = (
     <>
       <span className="tabular-nums">#{first.number}</span>
-      <span>{t(face.labelKey)}</span>
+      <span>{face.label}</span>
       {links.length > 1 && <span className="text-ink-faint">+{links.length - 1}</span>}
     </>
   );
@@ -73,8 +71,8 @@ export function PullRequestChip({
     <button
       type="button"
       className={cn(chipClass, "transition-colors", TONE_BORDER_OUTLINE_HOVER[face.tone])}
-      title={`${title}\n${t("pullRequest.chip.open")}`}
-      aria-label={t("pullRequest.chip.openNamed", { number: first.number, state: t(face.labelKey) })}
+      title={`${title}\n${"open it in the browser"}`}
+      aria-label={`Open pull request #${first.number} (${face.label})`}
       onClick={() => openPullRequest(first)}
     >
       {body}

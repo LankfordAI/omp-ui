@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { t } from "../lib/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 
@@ -170,7 +169,7 @@ describe("WorktreeChip (issue #260)", () => {
     expect(popover!.textContent).toContain("omp/feature");
     expect(popover!.textContent).toContain(worktree.path);
     const copies = [...popover!.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (el) => el.textContent === t("worktree.actions.copy"),
+      (el) => el.textContent === "Copy",
     );
     expect(copies).toHaveLength(2);
   });
@@ -316,7 +315,7 @@ describe("WorktreeChip (issue #260)", () => {
     expect(popover.textContent).toContain(worktree.path);
     expect(popover.textContent).toContain("cut from main");
     expect(
-      [...popover.querySelectorAll<HTMLButtonElement>("button")].filter((el) => el.textContent === t("worktree.actions.copy")),
+      [...popover.querySelectorAll<HTMLButtonElement>("button")].filter((el) => el.textContent === "Copy"),
     ).toHaveLength(2);
     expect(menuItem("finish worktree…")).toBeDefined();
     expect(menuItem("Open in VS Code")).toBeUndefined();

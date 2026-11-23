@@ -2,7 +2,6 @@ import { useImperativeHandle, type KeyboardEvent, type Ref } from "react";
 import { cn } from "../lib/cn";
 import type { StashedDraft } from "../lib/draft-stash";
 import { relativeTime } from "../lib/format";
-import { useT } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { PaletteList, usePaletteNav } from "./palette";
 import { Chip, IconButton, IconClose, Label } from "./ui";
@@ -31,7 +30,6 @@ export function StashPalette({
   onClose(): void;
   ref?: Ref<StashPaletteHandle>;
 }) {
-  const t = useT();
   const stashLabel = useKeybindingLabel("stashDraft");
   const nav = usePaletteNav({ items: drafts, resetKey: null, onPick: onApply, onClose });
   const { active, setActive, activeRef } = nav;
@@ -58,7 +56,7 @@ export function StashPalette({
   if (drafts.length === 0) {
     return (
       <div data-stash-palette className={cn(shell, "px-3 py-2.5")}>
-        <p className="text-xs text-ink-dim">{t("composer.stash.empty", { key: stashLabel })}</p>
+        <p className="text-xs text-ink-dim">{`no stashed drafts — ${stashLabel} with a draft stashes it`}</p>
       </div>
     );
   }
@@ -67,12 +65,12 @@ export function StashPalette({
     <PaletteList
       data-stash-palette
       role="listbox"
-      aria-label={t("composer.stash.title")}
+      aria-label="stashed drafts"
       className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] py-1")}
     >
       <div className="flex items-baseline gap-2 px-3 pb-1 pt-0.5">
-        <Label>{t("composer.stash.title")}</Label>
-        <span className="ml-auto text-xs text-ink-faint">{t("composer.stash.keys")}</span>
+        <Label>stashed drafts</Label>
+        <span className="ml-auto text-xs text-ink-faint">enter applies · del deletes</span>
       </div>
       {drafts.map((draft, i) => {
         // Refresh lines lead the preview (queue-chip vocabulary), then the text or
@@ -97,16 +95,16 @@ export function StashPalette({
               className="flex min-w-0 flex-1 items-baseline gap-2 py-1 text-left"
             >
               <span className={cn("min-w-0 flex-1 truncate text-xs", preview === "" ? "italic text-ink-faint" : "text-ink")}>
-                {preview === "" ? t("composer.stash.noText") : preview}
+                {preview === "" ? "attachments only" : preview}
               </span>
-              {attached > 0 && <Chip tone="iris">{t("composer.stash.attached", { n: attached })}</Chip>}
+              {attached > 0 && <Chip tone="iris">{`+${attached}`}</Chip>}
               <span className="shrink-0 text-xs text-ink-faint">
                 {relativeTime(new Date(draft.stashedAt).toISOString())}
               </span>
             </button>
             <span onMouseDown={(e) => e.preventDefault()}>
               <IconButton
-                label={t("composer.stash.delete")}
+                label="delete stashed draft"
                 tone="rose"
                 onClick={() => onDelete(draft)}
                 className="size-5 opacity-0 transition-opacity group-hover/stash:opacity-100 focus-visible:opacity-100"

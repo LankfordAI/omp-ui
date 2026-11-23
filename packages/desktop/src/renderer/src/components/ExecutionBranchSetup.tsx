@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { planSeedText } from "../lib/plan-seed";
 import { projectKey } from "../lib/project-key";
 import { findOwner, runningSessionTitleOnCheckout, useStore } from "../store";
@@ -75,7 +74,6 @@ export function useExecutionBranch({
   planText: string | null;
   planTitle: string | null;
 }): ExecutionBranch {
-  const t = useT();
   // The gate-blocked tab's owning instance (issue #416): its branch list and
   // checkout run on that host.
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
@@ -169,10 +167,10 @@ export function useExecutionBranch({
 
   const summary = isRepo
     ? branchChoice === "current"
-      ? branchInfo?.current ?? t("branch.setup.detachedHead")
+      ? branchInfo?.current ?? "detached HEAD"
       : branchChoice === "new"
-        ? newName.trim() || t("branch.setup.newBranch")
-        : existingName ?? t("branch.setup.chooseBranch")
+        ? newName.trim() || "new branch"
+        : existingName ?? "choose a branch"
     : null;
 
   const resolve = useCallback(async (): Promise<boolean> => {
@@ -237,16 +235,15 @@ export function ExecutionBranchSetup({
   branch: ExecutionBranch;
   onExecute: () => void;
 }) {
-  const t = useT();
   return (
     <fieldset className="mt-5 border-t border-line pt-4">
-      <legend className="text-xs font-medium text-ink">{t("branch.setup.gitBranch")}</legend>
+      <legend className="text-xs font-medium text-ink">Git branch</legend>
       <div className="mt-2 grid grid-cols-3 rounded-lg border border-line bg-void/40 p-1">
         {(
           [
-            { id: "current", label: t("branch.setup.currentBranch"), shortLabel: t("branch.setup.current") },
-            { id: "new", label: t("branch.setup.newBranch"), shortLabel: t("branch.setup.new") },
-            { id: "existing", label: t("branch.setup.existingBranch"), shortLabel: t("branch.setup.switch") },
+            { id: "current", label: "current branch", shortLabel: "current" },
+            { id: "new", label: "new branch", shortLabel: "new" },
+            { id: "existing", label: "existing branch", shortLabel: "switch" },
           ] as const
         ).map((option) => {
           const active = branch.branchChoice === option.id;
@@ -271,26 +268,26 @@ export function ExecutionBranchSetup({
       <div className="mt-2.5 rounded-lg border border-line bg-raised/70 p-3">
         {branch.branchChoice === "current" && (
           <div>
-            <span className="block text-xs text-ink-faint">{t("branch.setup.implementOn")}</span>
-            <span className="mt-1 block truncate font-mono text-xs text-ink" title={branch.currentBranch ?? t("branch.setup.detachedHead")}>
-              {branch.currentBranch ?? t("branch.setup.detachedHead")}
+            <span className="block text-xs text-ink-faint">Implement on</span>
+            <span className="mt-1 block truncate font-mono text-xs text-ink" title={branch.currentBranch ?? "detached HEAD"}>
+              {branch.currentBranch ?? "detached HEAD"}
             </span>
-            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">{t("branch.setup.noCheckoutHint")}</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">No checkout. Existing working-tree changes stay in place.</p>
           </div>
         )}
 
         {branch.branchChoice === "new" && (
           <div>
-            <label htmlFor="plan-new-branch" className="block text-xs text-ink-faint">{t("branch.setup.createAndSwitch")}</label>
+            <label htmlFor="plan-new-branch" className="block text-xs text-ink-faint">Create and switch to</label>
             <input
               id="plan-new-branch"
               value={branch.newName}
-              placeholder={t("branch.setup.namePlaceholder")}
-              aria-label={t("branch.setup.nameLabel")}
+              placeholder="new-branch-name"
+              aria-label="new branch name"
               onChange={(e) => branch.onNewNameChange(e.target.value)}
               className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
-            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">{t("branch.setup.uncommittedHint")}</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">Uncommitted work carries into the new branch.</p>
           </div>
         )}
 
@@ -298,8 +295,8 @@ export function ExecutionBranchSetup({
           <div>
             <input
               value={branch.branchFilter}
-              placeholder={t("branch.setup.filterPlaceholder")}
-              aria-label={t("branch.setup.filterLabel")}
+              placeholder="filter branches…"
+              aria-label="filter branches"
               onChange={(e) => branch.onBranchFilterChange(e.target.value)}
               className="w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
@@ -321,7 +318,7 @@ export function ExecutionBranchSetup({
                   >
                     <span className={cn("size-1 rounded-full", b === branch.existingName ? "bg-ink-mid" : "bg-line-strong")} />
                     <span className="truncate">{b}</span>
-                    {b === branch.currentBranch && <span className="ml-auto font-sans text-xs text-ink-faint">{t("branch.setup.current")}</span>}
+                    {b === branch.currentBranch && <span className="ml-auto font-sans text-xs text-ink-faint">current</span>}
                   </button>
                 ))}
             </div>
@@ -332,14 +329,14 @@ export function ExecutionBranchSetup({
       {branch.confirmBusy && (
         <div className="mt-2 rounded-lg border border-copper-dim/50 bg-copper-wash px-3 py-2.5">
           <p className="text-xs leading-snug text-copper">
-            {t("branch.setup.busyWarning", { title: branch.busyTitle ?? "" })}
+            {`“${branch.busyTitle ?? ""}” is mid-turn. Switching changes its working tree.`}
           </p>
           <div className="mt-2 flex gap-1.5">
             <Button size="xs" tone="copper" onClick={onExecute}>
-              {t("branch.setup.switchAnyway")}
+              switch anyway
             </Button>
             <Button size="xs" variant="ghost" onClick={branch.dismissConfirm}>
-              {t("branch.setup.cancel")}
+              cancel
             </Button>
           </div>
         </div>

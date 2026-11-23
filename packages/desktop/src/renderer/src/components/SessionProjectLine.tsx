@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { useT } from "../lib/i18n";
 import type { ProjectFace } from "../lib/repository-members";
 import { ProjectMonogram } from "./ProjectMonogram";
 
@@ -26,8 +25,7 @@ export function SessionProjectLine({
     onHoverChange?: (over: boolean) => void;
   } | null;
 }) {
-  const t = useT();
-  const machine = nickname ? t("sidebar.session.machine", { machine: nickname }) : null;
+  const machine = nickname ? `on ${nickname}` : null;
   return (
     <span data-session-project className="flex min-w-0 items-center gap-1.5 text-xs">
       {project !== null ? (
@@ -35,7 +33,7 @@ export function SessionProjectLine({
       ) : (
         <ChatMark />
       )}
-      <span className="min-w-0 truncate font-semibold text-ink-mid">{project?.name ?? t("sidebar.session.chat")}</span>
+      <span className="min-w-0 truncate font-semibold text-ink-mid">{project?.name ?? "chat"}</span>
       {machine !== null && (
         <span title={machine} className="min-w-0 max-w-[50%] shrink-0 truncate text-ink-faint">
           {machine}
@@ -45,8 +43,8 @@ export function SessionProjectLine({
         <span
           role="img"
           data-dispatched-by={dispatchedBy.tabId}
-          aria-label={t("sidebar.dispatch.dispatchedBy", { title: dispatchedBy.title })}
-          title={t("sidebar.dispatch.dispatchedBy", { title: dispatchedBy.title })}
+          aria-label={`Dispatched by “${dispatchedBy.title}”`}
+          title={`Dispatched by “${dispatchedBy.title}”`}
           onMouseEnter={() => dispatchedBy.onHoverChange?.(true)}
           onMouseLeave={() => dispatchedBy.onHoverChange?.(false)}
           className="flex shrink-0 items-center gap-0.5 text-ink-faint"

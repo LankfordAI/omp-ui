@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { formatBrowserClock } from "@omp-ui/core/browser-pane";
-import { currentLocaleId, useT } from "../../lib/i18n";
 
 /** The current time, re-read on each wall-clock minute boundary. */
 function useMinuteClock(): Date {
@@ -21,13 +20,12 @@ function useMinuteClock(): Date {
 
 /** The browser clock strip atop the pane (see CONTEXT.md "Browser clock"), GNOME top-bar style. */
 export function BrowserPaneClock() {
-  const t = useT();
   const now = useMinuteClock();
-  const { date, time } = formatBrowserClock(now, currentLocaleId());
+  const { date, time } = formatBrowserClock(now);
   return (
     <time
       dateTime={now.toISOString()}
-      aria-label={t("browser.clock.label")}
+      aria-label="System clock"
       className="flex h-5 shrink-0 items-center justify-center gap-4 bg-void text-xs font-semibold tabular-nums text-ink"
     >
       <span>{date}</span>

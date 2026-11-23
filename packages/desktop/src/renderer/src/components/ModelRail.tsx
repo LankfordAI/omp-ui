@@ -1,6 +1,5 @@
 import { useRef, type KeyboardEvent, type RefObject } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { StarIcon } from "./ui";
 
@@ -27,13 +26,12 @@ export function ModelRail({
   /** Focus the search input; a printable key from the rail appends itself. */
   onReturnToSearch: (append?: string) => void;
 }) {
-  const t = useT();
   const compact = useCompactShell();
   const buttons = useRef(new Map<string, HTMLButtonElement | null>());
   const tabs = ["favorites", ...providers];
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // IME composition (Korean locale, issue #363) and modifier chords belong
+    // IME composition and modifier chords belong
     // to the input/browser, never to pane navigation. Shift+printable stays
     // printable; shifted multi-char keys (Shift+arrows, Shift+Enter) do nothing.
     if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -131,11 +129,11 @@ export function ModelRail({
       ref={railRef}
       role="tablist"
       aria-orientation={compact ? "horizontal" : "vertical"}
-      aria-label={t("composer.model.providerRail")}
+      aria-label="model providers"
       onKeyDown={onKeyDown}
       className="model-provider-rail flex w-16 shrink-0 flex-col overflow-y-auto border-r border-line bg-sunken py-1"
     >
-      {tabButton("favorites", t("composer.model.favorites"), true)}
+      {tabButton("favorites", "Favorites", true)}
       {providers.map((provider) => tabButton(provider, provider, false))}
     </div>
   );

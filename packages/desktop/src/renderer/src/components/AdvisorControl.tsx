@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { cn } from "../lib/cn";
 import { shortModelLabel } from "../lib/format";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
@@ -37,7 +36,6 @@ const EMPTY: ModelInfo[] = [];
 
 
 export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
-  const t = useT();
   // The session's owning instance (issue #416): its project pins and advisor
   // defaults live on that host, keyed by projectKey in the store.
   const record = useStore((s) => findRecord(s.state, tabId));
@@ -131,31 +129,31 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   const pinNote =
     projectAdvisorPin !== undefined && projectAdvisorPin !== null
-      ? t("composer.advisor.projectDefault", { selector: projectAdvisorPin })
+      ? ` · project default ${projectAdvisorPin} applies to new sessions`
       : "";
   /** Honest provenance for the gated selector (issue #372): active on a live
    *  session, pending on a dormant one, and worded as not-yet-running while
    *  the advisor is off. */
   const gatedSentence = !live
-    ? t("advisor.override.resume", { selector: gateAdvisor ?? "" })
+    ? `On resume, this app instance overrides the advisor model with ${gateAdvisor ?? ""}. Saved choices are unchanged.`
     : on
-      ? t("advisor.override.active", { selector: gateAdvisor ?? "" })
-      : t("advisor.override.inactive", { selector: gateAdvisor ?? "" });
+      ? `This app instance overrides the advisor model with ${gateAdvisor ?? ""}. Saved session and project choices are unchanged.`
+      : `When the advisor is enabled, this app instance uses ${gateAdvisor ?? ""}. Saved choices are unchanged.`;
   const title = gated
     ? on
-      ? `${t("composer.advisor.on")} — ${effective} · ${gatedSentence}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
-      : `${gatedSentence}${t("composer.advisor.turnOn")}${pinNote}${t("composer.advisor.restarts")}`
+      ? `${"advisor on"} — ${effective} · ${gatedSentence}${" · click to turn off"}${pinNote}${" · restarts the session"}`
+      : `${gatedSentence}${"advisor off · click to turn on"}${pinNote}${" · restarts the session"}`
     : on
-      ? `${t("composer.advisor.on")}${
+      ? `${"advisor on"}${
           effective === null
-            ? t("composer.advisor.ompPicks")
+            ? " (omp picks the model)"
             : ` — ${effective}`
-        }${inherited && effective !== null ? t("composer.advisor.fromOmpConfig") : ""}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
-      : `${t("composer.advisor.turnOn")}${
+        }${inherited && effective !== null ? " (from omp config)" : ""}${" · click to turn off"}${pinNote}${" · restarts the session"}`
+      : `${"advisor off · click to turn on"}${
           defaults?.model === null || defaults?.model === undefined
             ? ""
-            : t("composer.advisor.withConfig", { selector: defaults.model })
-        }${pinNote}${t("composer.advisor.restarts")}`;
+            : ` with ${defaults.model} from omp config`
+        }${pinNote}${" · restarts the session"}`;
 
   return (
     <>
@@ -178,15 +176,12 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               disabled={disabled || gated}
               title={
                 gated
-                  ? `${t("advisor.override.label")}: ${effective}`
+                  ? `${"Dev/test advisor override"}: ${effective}`
                   : effective === null
-                    ? t("composer.advisor.noModel")
-                    : t("composer.advisor.modelTitle", {
-                        selector: effective,
-                        source: inherited
-                          ? t("composer.advisor.fromOmpConfig")
-                          : t("composer.advisor.pinned"),
-                      })
+                    ? "no advisor model configured — omp falls back to its `slow` model chain"
+                    : `advisor model: ${effective}${inherited
+                          ? " (from omp config)"
+                          : " (pinned to this session)"} · click to change`
               }
               onClick={() => {
                 if (gated) return;
@@ -200,7 +195,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             >
               <span className="min-w-0 truncate">
                 {effective === null
-                  ? t("composer.advisor.pickModel")
+                  ? "pick model"
                   : effectiveModel?.name || effectiveModel?.id || shortModelLabel(effective)}
               </span>
             </button>
@@ -217,7 +212,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 <button
                   type="button"
                   disabled
-                  title={`${t("advisor.override.label")}: ${effective}`}
+                  title={`${"Dev/test advisor override"}: ${effective}`}
                   className={cn(
                     CAPSULE_SEGMENT,
                     "shrink-0 rounded-r-md text-xs tabular-nums text-ink-mid",
@@ -234,7 +229,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                   type="button"
                   disabled={disabled}
                   aria-expanded={levelMenu}
-                  title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
+                  title={`advisor thinking level — click to pick (${efforts.join(", ")}) · restarts the session`}
                   onClick={() => setLevelMenu((m) => !m)}
                   className={cn(
                     CAPSULE_SEGMENT,
@@ -242,7 +237,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                     layout === "sheet" && "px-3",
                   )}
                 >
-                  {effectiveLevel ?? t("composer.thinking.fallback")}
+                  {effectiveLevel ?? "think —"}
                 </button>
                 {levelMenu && (
                   <div className={cn(
@@ -252,16 +247,16 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                     layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full right-0 mb-1 w-32",
                   )}>
                     <span className="px-1.5 pb-1 pt-0.5">
-                      <Label>{t("composer.advisor.thinkingLabel")}</Label>
+                      <Label>advisor thinking</Label>
                     </span>
                     {effectiveLevel !== null && (
                       <button
                         type="button"
                         onClick={() => setLevel("")}
                         className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover"
-                        title={t("composer.advisor.defaultLevel")}
+                        title="return to omp's default thinking level for this model"
                       >
-                        {t("composer.advisor.defaultLevelChoice")}
+                        default —
                       </button>
                     )}
                     {efforts.map((effort) => (
@@ -287,13 +282,13 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             instance provenance, never a user choice (issue #372). */}
         {gated && (
           <span
-            title={t("advisor.override.label")}
+            title="Dev/test advisor override"
             className={cn("shrink-0 rounded border px-1 py-0.5 font-mono text-xs uppercase tracking-wide", TONE_CHIP.neutral)}
           >
-            {t("advisor.override.badge")}
+            dev/test
           </span>
         )}
-        <Switch on={on} label={t("composer.advisor.label")} title={title} disabled={disabled} onChange={toggle} />
+        <Switch on={on} label="advisor" title={title} disabled={disabled} onChange={toggle} />
       </span>
 
       {picking && !gated && (

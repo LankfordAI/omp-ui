@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SttModelSnapshot } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import { AudioDevicePicker, type AudioDevicesLoad } from "./AudioDevicePicker";
@@ -11,9 +11,16 @@ import {
 import { useStore, type CompactionMethodsLoad } from "../../store";
 import { desktopPaneMedia, displayMessage } from "../../backend";
 import { ChoiceCapsule, Switch } from "../ui";
-import { currentLocaleId, UI_LOCALES, useT, type MessageKey } from "../../lib/i18n";
 import { FIELD, Row } from "./rows";
 
+const SESSION_MODE_OPTIONS = [
+  { value: "rpc-ui", label: "Native" },
+  { value: "pty", label: "Terminal" },
+] as const;
+const AGENT_MODE_OPTIONS = [
+  { value: "plan", label: "Plan" },
+  { value: "build", label: "Build" },
+] as const;
 const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
@@ -41,35 +48,35 @@ const HIBERNATE_IDLE_OPTIONS = [
  * Unknown ids fall back to the raw id with no description; never invent
  * text for a method omp does not document.
  */
-const COMPACTION_METHOD_META: Record<string, { label: string; description: MessageKey }> = {
+const COMPACTION_METHOD_META: Record<string, { label: string; description: string }> = {
   remote: {
     label: "OpenAI server compaction",
-    description: "settings.general.compaction.remote",
+    description: "Lets OpenAI-compatible providers compact on their side.",
   },
   // Round-4 judge, Clarity 4: the raw omp method names stay reachable via the
   // label; round-5 judge, Clarity 2: the label itself leads with the
   // plain-language meaning so the picker never reads as insider shorthand.
   snapcompact: {
     label: "Vision snapshots (Snapcompact)",
-    description: "settings.general.compaction.snapcompact",
+    description: "Saves old history as images the vision model reads back; no extra model call.",
   },
   handoff: {
     label: "Handoff document",
-    description: "settings.general.compaction.handoff",
+    description: "Writes a handoff document and continues the session from it.",
   },
   soft: {
     label: "Summarize in place (Soft)",
-    description: "settings.general.compaction.soft",
+    description: "A compaction model summarizes the history in place.",
   },
   shake: {
     label: "Drop heavy content (Shake)",
-    description: "settings.general.compaction.shake",
+    description: "Drops heavy content that can be recovered later; no model call.",
   },
 };
 
 /** The omp-default row's own explanation — plain words, one line, so the
  *  selected row stays single-line like its siblings (round-7 judge, Spacing 3). */
-const COMPACTION_DEFAULT_DESCRIPTION: MessageKey = "settings.general.compaction.default";
+const COMPACTION_DEFAULT_DESCRIPTION = "Uses omp's own order, falling back when a method fails.";
 
 /**
  * One visible row per compaction method, so every method's description is
@@ -85,7 +92,6 @@ function CompactionMethodPicker({
   load: CompactionMethodsLoad;
   onSelect: (method: string | null) => void;
 }) {
-  const t = useT();
   type Option = {
     id: string | null;
     label: string;
@@ -95,8 +101,8 @@ function CompactionMethodPicker({
   const options: Option[] = [
     {
       id: null,
-      label: t("settings.general.compactionOmpDefault"),
-      description: t(COMPACTION_DEFAULT_DESCRIPTION),
+      label: "Default (from omp settings)",
+      description: COMPACTION_DEFAULT_DESCRIPTION,
     },
   ];
   if (load.status === "loaded") {
@@ -106,8 +112,8 @@ function CompactionMethodPicker({
       const meta = COMPACTION_METHOD_META[value];
       options.push({
         id: value,
-        label: `${meta?.label ?? value}${t("settings.general.compactionOptionUnavailable")}`,
-        description: meta === undefined ? undefined : t(meta.description),
+        label: `${meta?.label ?? value}${" (unavailable)"}`,
+        description: meta?.description,
         disabled: true,
       });
     }
@@ -116,7 +122,7 @@ function CompactionMethodPicker({
       options.push({
         id: method,
         label: meta?.label ?? method,
-        description: meta === undefined ? undefined : t(meta.description),
+        description: meta?.description,
       });
     }
   }
@@ -124,7 +130,7 @@ function CompactionMethodPicker({
     <div className="flex min-w-0 flex-col gap-2">
       <div
         role="group"
-        aria-label={t("settings.general.compactionGroup")}
+        aria-label="default compaction method"
         // `line`, not `line-soft`: on Dark's raised modal the soft hairline is
         // invisible (rgb 36,36,36 on #2d2d30), so the same list read as divided
         // cards in Light and a borderless stack in Dark (round-7 judge,
@@ -172,7 +178,7 @@ function CompactionMethodPicker({
       </div>
       {load.status === "failed" && (
         <p className="text-xs text-ink-faint">
-          {t("settings.general.compactionLoadFailed", { message: load.message })}
+          {`Methods unavailable: ${load.message}`}
         </p>
       )}
     </div>
@@ -200,9 +206,8 @@ function DictationModelPicker({
   load: SttModelsLoad;
   onSelect: (selector: string | null) => void;
 }) {
-  const t = useT();
   if (load.status === "loading") {
-    return <p className="text-xs text-ink-faint">{t("settings.omp.reading")}</p>;
+    return <p className="text-xs text-ink-faint">Reading omp configuration…</p>;
   }
   const { snapshot } = load;
   // One option row: proportional prose (name, notes) with the selector kept
@@ -214,12 +219,12 @@ function DictationModelPicker({
     note?: string;
     disabled?: boolean;
   };
-  const options: Option[] = [{ id: null, label: t("settings.general.dictationAuto") }];
+  const options: Option[] = [{ id: null, label: "auto (first callable)" }];
   if (value !== null && !snapshot.models.some((m) => m.selector === value)) {
     options.push({
       id: value,
       label: value,
-      note: t("settings.general.dictationOptionOutside"),
+      note: " — not in OMP's current catalog",
     });
   }
   for (const model of snapshot.models) {
@@ -228,7 +233,7 @@ function DictationModelPicker({
       label: model.name,
       selector: model.selector,
       // Pressed-but-labelled, never hidden: the unavailable-compaction pattern.
-      note: model.callable ? undefined : t("settings.general.dictationOptionNotCallable"),
+      note: model.callable ? undefined : " — no credential for this provider",
       disabled: !model.callable && model.selector !== value,
     });
   }
@@ -237,7 +242,7 @@ function DictationModelPicker({
     <div className="flex min-w-0 flex-col gap-2">
       <div
         role="group"
-        aria-label={t("settings.general.dictationGroup")}
+        aria-label="dictation model"
         // Same visible-hairline rule as the compaction list above.
         className="divide-y divide-line rounded-md border border-line bg-raised"
       >
@@ -275,11 +280,11 @@ function DictationModelPicker({
         })}
       </div>
       {snapshot.discovered && noCallable && (
-        <p className="text-sm text-ink-faint">{t("settings.general.dictationNoModels")}</p>
+        <p className="text-sm text-ink-faint">No dictation model is callable — add a provider key in Settings → Providers first.</p>
       )}
       {!snapshot.discovered && (
         <p className="text-xs text-ink-faint">
-          {t("settings.general.dictationLoadFailed", { message: snapshot.error ?? "" })}
+          {`model discovery failed: ${snapshot.error ?? ""}`}
         </p>
       )}
     </div>
@@ -289,33 +294,6 @@ function DictationModelPicker({
 export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
-  const t = useT();
-  const localeId = currentLocaleId();
-  const sessionModeOptions = useMemo(
-    () => [
-      { value: "rpc-ui", label: t("settings.mode.native") },
-      { value: "pty", label: t("settings.mode.terminal") },
-    ] as const,
-    [localeId, t],
-  );
-  const agentModeOptions = useMemo(
-    () => [
-      { value: "plan", label: t("settings.mode.plan") },
-      { value: "build", label: t("settings.mode.build") },
-    ] as const,
-    [localeId, t],
-  );
-  const stallAbortOptions = useMemo(
-    () => STALL_ABORT_OPTIONS.map((option) =>
-      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
-    [localeId, t],
-  );
-  const hibernateIdleOptions = useMemo(
-    () => HIBERNATE_IDLE_OPTIONS.map((option) =>
-      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
-    [localeId, t],
-  );
-  const setLocaleId = useStore((s) => s.setLocaleId);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const compactionMethods = useStore((s) => s.compactionMethods);
@@ -397,44 +375,32 @@ export function GeneralPage() {
   return (
     <div className="divide-y divide-line-soft px-4">
       <Row
-        title={t("settings.general.language")}
-        hint={t("settings.general.languageHint")}
+        title="Default session mode"
+        hint="How a new session opens — an embedded terminal, or the native transcript."
       >
         <ChoiceCapsule
-          label={t("settings.general.language")}
-          value={state?.localeId ?? "en"}
-          options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
-          onChange={(value) => void setLocaleId(value)}
-          optionClassName="tab-label px-2"
-        />
-      </Row>
-      <Row
-        title={t("settings.general.defaultSessionMode")}
-        hint={t("settings.general.defaultSessionModeHint")}
-      >
-        <ChoiceCapsule
-          label={t("settings.general.defaultSessionModeLabel")}
+          label="default session mode"
           value={mode}
-          options={sessionModeOptions}
+          options={SESSION_MODE_OPTIONS}
           onChange={(value) => void setDefaultMode(value)}
           optionClassName="tab-label px-2"
         />
       </Row>
       <Row
-        title={t("settings.general.defaultAgentMode")}
-        hint={t("settings.general.defaultAgentModeHint")}
+        title="Default agent mode"
+        hint="How a new native session starts — read-only Plan, or write-enabled Build."
       >
         <ChoiceCapsule
-          label={t("settings.general.defaultAgentModeLabel")}
+          label="default agent mode"
           value={agentMode}
-          options={agentModeOptions}
+          options={AGENT_MODE_OPTIONS}
           onChange={(value) => void setDefaultAgentMode(value)}
           optionClassName="tab-label px-2"
         />
       </Row>
       <Row
-        title={t("settings.general.defaultCompactionMethod")}
-        hint={t("settings.general.defaultCompactionMethodHint")}
+        title="Default compaction method"
+        hint="New native sessions start with this method. Choosing the omp default hands the choice back to omp's own settings."
         stacked
       >
         <CompactionMethodPicker
@@ -444,11 +410,11 @@ export function GeneralPage() {
         />
       </Row>
       <Row
-        title={t("settings.general.planFormat")}
-        hint={t("settings.general.planFormatHint")}
+        title="Plan format"
+        hint="How the agent authors a plan for review — one self-contained HTML document rendered in the review modal, or markdown."
       >
         <ChoiceCapsule
-          label={t("settings.general.planFormatLabel")}
+          label="plan format"
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
@@ -456,167 +422,163 @@ export function GeneralPage() {
         />
       </Row>
       <Row
-        title={t("settings.general.hibernateIdle")}
-        hint={t("settings.general.hibernateIdleHint")}
+        title="Hibernate idle sessions"
+        hint="Off by default: a native session stays live until you stop it by hand. When a window is set, the agent process of a native session quiet this long is stopped. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it."
       >
         <ChoiceCapsule
-          label={t("settings.general.hibernateIdleLabel")}
+          label="hibernate idle sessions"
           value={state?.hibernateIdleMinutes ?? 0}
-          options={hibernateIdleOptions}
+          options={HIBERNATE_IDLE_OPTIONS}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="tab-label px-2"
         />
       </Row>
       <Row
-        title={t("settings.general.snoozedSection")}
-        hint={t("settings.general.snoozedSectionHint")}
+        title="Snoozed section in the sidebar"
+        hint="Group snoozed sessions under their own sidebar section. Off by default."
       >
         <Switch
           on={state?.snoozedSectionEnabled === true}
           onChange={(next) => void setSnoozedSectionEnabled(next)}
-          label={t("settings.general.snoozedSection")}
+          label="Snoozed section in the sidebar"
         />
       </Row>
       <Row
-        title={t("settings.general.autoSettleMerged")}
-        hint={t("settings.general.autoSettleMergedHint")}
+        title="Settle sessions when their pull requests merge"
+        hint="A worktree session whose pull requests are all merged moves to Settled, with Undo. omp-ui reads pull requests with your GitHub CLI (gh). Each session's title menu can turn this off for that session."
       >
         <Switch
           on={state?.autoSettleMergedPullRequests ?? true}
           onChange={(next) => void setAutoSettleMergedPullRequests(next)}
-          label={t("settings.general.autoSettleMerged")}
+          label="Settle sessions when their pull requests merge"
         />
       </Row>
       <Row
-        title={t("settings.general.streamStallWatchdog")}
-        hint={t("settings.general.streamStallWatchdogHint")}
+        title="Stream-stall watchdog"
+        hint="Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it."
       >
         <ChoiceCapsule
-          label={t("settings.general.streamStallWatchdogLabel")}
+          label="stall watchdog"
           value={state?.streamStallAbortSeconds ?? 180}
-          options={stallAbortOptions}
+          options={STALL_ABORT_OPTIONS}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
           optionClassName="tab-label px-2"
         />
       </Row>
       <Row
-        title={t("settings.general.stallAutoContinue")}
-        hint={t("settings.general.stallAutoContinueHint")}
+        title="Stall auto-continue"
+        hint="When a turn is aborted because the model stream stalled, or the server halted a turn because the model began repeating itself, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected."
       >
         <Switch
           on={state?.stallAutoContinue ?? true}
           onChange={(next) => void setStallAutoContinue(next)}
-          label={t("settings.general.stallAutoContinue")}
+          label="Stall auto-continue"
         />
       </Row>
       <Row
-        title={t("settings.general.desktopNotifications")}
-        hint={t("settings.general.desktopNotificationsHint")}
+        title="Desktop notifications"
+        hint="Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected."
       >
         <Switch
           on={state?.desktopNotifications ?? true}
           onChange={(next) => void setDesktopNotifications(next)}
-          label={t("settings.general.desktopNotifications")}
+          label="Desktop notifications"
         />
       </Row>
       <Row
-        title={t("settings.general.htmlArtifactScripts")}
-        hint={t("settings.general.htmlArtifactScriptsHint")}
+        title="Run scripts in HTML artifacts"
+        hint="Interactive documents the agent renders inline in the transcript run their scripts sandboxed, with no network, storage, popups, forms, or navigation. Off shows every artifact as a static document. Remote browser clients always show artifacts static."
       >
         <Switch
           on={state?.htmlArtifactScripts ?? true}
           onChange={(next) => void setHtmlArtifactScripts(next)}
-          label={t("settings.general.htmlArtifactScripts")}
+          label="Run scripts in HTML artifacts"
         />
       </Row>
       <Row
-        title={t("settings.general.deviceAgentAccess")}
-        hint={t("settings.general.deviceAgentAccessHint")}
+        title="Agents can use devices"
+        hint="Gives sessions started or resumed after this change the omp-ui_device tool, which drives the Android emulator in the device pane. Needs the Android SDK (adb and emulator)."
       >
         <Switch
           on={state?.deviceAgentAccess === true}
           onChange={(next) => void setDeviceAgentAccess(next)}
-          label={t("settings.general.deviceAgentAccess")}
+          label="Agents can use devices"
         />
       </Row>
       <Row
-        title={t("settings.general.themeAgentAccess")}
-        hint={t("settings.general.themeAgentAccessHint")}
+        title="Agents can change themes"
+        hint="Gives sessions started or resumed after this change the omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list tools. Agents can create a theme, switch the app between existing themes, change fixed/system mode, and toggle backdrop motion — every one reversible in Settings, Appearance. Agents cannot remove themes."
       >
         <Switch
           on={state?.themeAgentAccess === true}
           onChange={(next) => void setThemeAgentAccess(next)}
-          label={t("settings.general.themeAgentAccess")}
+          label="Agents can change themes"
         />
       </Row>
       <Row
-        title={t("settings.general.issueAgentAccess")}
-        hint={t("settings.general.issueAgentAccessHint")}
+        title="Agents can draft issues"
+        hint="Gives native-transcript sessions started or resumed after this change the omp-ui_issue_draft and omp-ui_issue_file tools, which recommend a GitHub issue in LankfordAI/omp-ui with your own gh CLI. An agent can file an issue only after you ask it to in the session; terminal tabs have no host tools."
       >
         <Switch
           on={state?.issueAgentAccess === true}
           onChange={(next) => void setIssueAgentAccess(next)}
-          label={t("settings.general.issueAgentAccess")}
+          label="Agents can draft issues"
         />
       </Row>
       <Row
-        title={t("settings.general.advisorAutoReply")}
-        hint={t("settings.general.advisorAutoReplyHint")}
+        title="Advisor auto-reply"
+        hint="An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript."
       >
         <Switch
           on={state?.advisorAutoReply ?? true}
           onChange={(next) => void setAdvisorAutoReply(next)}
-          label={t("settings.general.advisorAutoReply")}
+          label="Advisor auto-reply"
         />
       </Row>
       <Row
-        title={t("settings.general.defaultAdvisor")}
-        hint={t("settings.general.defaultAdvisorHint")}
+        title="Default advisor"
+        hint="Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state."
       >
         <Switch
           on={state?.defaultAdvisor === true}
           onChange={(next) => void setDefaultAdvisor(next)}
-          label={t("settings.general.defaultAdvisor")}
+          label="Default advisor"
         />
       </Row>
       <Row
-        title={t("settings.general.autoThinking")}
-        hint={t("settings.general.autoThinkingHint")}
+        title="Default auto thinking"
+        hint="While on, new sessions start on omp's automatic thinking selector, which resolves each prompt to a level in the model's own ladder, regardless of the thinking level the project remembers; a manual pick holds for that session only. Forked sessions start on auto too. With it off, the remembered level seeds new sessions again."
       >
         <Switch
           on={state?.defaultAutoThinking === true}
           onChange={(next) => void setDefaultAutoThinking(next)}
-          label={t("settings.general.autoThinking")}
+          label="Default auto thinking"
         />
       </Row>
       <Row
-        title={t("settings.general.subagentInherit")}
-        hint={t("settings.general.subagentInheritHint")}
+        title="Subagents inherit the session model"
+        hint="New sessions spawn every subagent on the session's own model unless a narrower choice says otherwise. Applies to sessions launched afterwards, and to running sessions whose per-agent choice is unset."
       >
         <Switch
           on={state?.subagentModelInheritByDefault ?? true}
           onChange={(next) => void setSubagentModelInheritByDefault(next)}
-          label={t("settings.general.subagentInherit")}
+          label="Subagents inherit the session model"
         />
       </Row>
       <Row
-        title={t("settings.general.voiceInput")}
-        hint={t("settings.general.voiceInputHint")}
+        title="Voice input"
+        hint="Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent."
       >
         <Switch
           on={state?.voiceInputEnabled === true}
           onChange={(next) => void setVoiceInputEnabled(next)}
-          label={t("settings.general.voiceInput")}
+          label="Voice input"
         />
       </Row>
       {IS_ELECTRON && (
         <Row
-          title={t("settings.general.audioDevice")}
-          hint={t(
-            audioDevices.status === "loaded" && !audioDevices.snapshot.supported
-              ? "settings.general.audioDeviceUnsupportedHint"
-              : "settings.general.audioDeviceHint",
-          )}
+          title="Audio device"
+          hint={audioDevices.status === "loaded" && !audioDevices.snapshot.supported ? "Device selection isn’t supported on this platform yet; the system default is used." : "Microphone and speakers for dictation and live voice. Sets the system-wide default for each role while active."}
           stacked
         >
           <AudioDevicePicker
@@ -628,8 +590,8 @@ export function GeneralPage() {
         </Row>
       )}
       <Row
-        title={t("settings.general.dictationModel")}
-        hint={t("settings.general.dictationModelHint")}
+        title="Dictation model"
+        hint="Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable."
         stacked
       >
         <DictationModelPicker
@@ -639,31 +601,31 @@ export function GeneralPage() {
         />
       </Row>
       <Row
-        title={t("settings.general.skipDeleteConfirmation")}
-        hint={t("settings.general.skipDeleteConfirmationHint")}
+        title="Skip the delete confirmation"
+        hint="Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks."
       >
         <Switch
           on={state?.skipDeleteConfirmation === true}
           onChange={(next) => void setSkipDeleteConfirmation(next)}
-          label={t("settings.general.skipDeleteConfirmation")}
+          label="Skip the delete confirmation"
         />
       </Row>
       <Row
-        title={t("settings.general.skipTerminateConfirmation")}
-        hint={t("settings.general.skipTerminateConfirmationHint")}
+        title="Skip the confirmation before settling a running session"
+        hint="Settling a session mid-turn stops its process and interrupts the turn; the session stays resumable. Skipping settles running sessions immediately."
       >
         <Switch
           on={state?.skipTerminateConfirmation === true}
           onChange={(next) => void setSkipTerminateConfirmation(next)}
-          label={t("settings.general.skipTerminateConfirmation")}
+          label="Skip the confirmation before settling a running session"
         />
       </Row>
       <Row
-        title={t("settings.general.transcriptTextSize")}
-        hint={t("settings.general.transcriptTextSizeHint")}
+        title="Transcript text size"
+        hint="Native transcripts only — the rest of the chrome is an app, not a document."
       >
         <select
-          aria-label={t("settings.general.transcriptTextSizeLabel")}
+          aria-label="transcript text size"
           value={String(scale)}
           onChange={(e) => setTranscriptScale(Number(e.target.value))}
           className={FIELD}
@@ -677,27 +639,27 @@ export function GeneralPage() {
       </Row>
       <section className="py-4" aria-labelledby="usage-telemetry-heading">
         <h3 id="usage-telemetry-heading" className="text-sm font-medium text-ink">
-          {t("settings.general.telemetryTitle")}
+          Privacy / Usage telemetry
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-ink-dim">
-          {t("settings.general.telemetryDisclosure")}
+          Packaged builds automatically report basic hourly activity to PostHog US; there is no in-app opt-out. Reports use a random installation ID, app version, OS family, architecture, and release channel. PostHog derives your country from the connecting IP address; the address itself is discarded. Model/provider usage below is on by default and can be switched off. No content, paths, or credentials are sent; unknown or private model/provider identifiers are bucketed as custom/other. Model history from before sharing starts or while it is off is never backfilled. Telemetry is disabled in development and is separate from OMP Telemetry export.
         </p>
-        <Row title={t("settings.general.telemetryApp")} hint={t("settings.general.telemetryAppHint")}>
+        <Row title="Basic app activity (required)" hint="Automatically sends one activity event per UTC hour while the desktop window is foregrounded, without backfilling past activity. This is not a count of background-process uptime or exact people.">
           {null}
         </Row>
-        <Row title={t("settings.general.telemetryModels")} hint={t("settings.general.telemetryModelsHint")}>
+        <Row title="Share hourly model/provider usage" hint="On by default; switch off to opt out. Sends public model/provider request and token aggregates after each UTC hour closes. Checks run every minute; Stats freshness can delay delivery, and later launches catch up. Turning this off does not stop basic app activity reporting.">
           <Switch
             on={state?.telemetryModelsEnabled ?? true}
             onChange={(next) => void setTelemetryModelsEnabled(next)}
-            label={t("settings.general.telemetryModels")}
+            label="Share hourly model/provider usage"
           />
         </Row>
         {desktopPaneMedia !== null && typeof state?.telemetryThemesEnabled === "boolean" && (
-          <Row title={t("settings.general.telemetryThemes")} hint={t("settings.general.telemetryThemesHint")}>
+          <Row title="Share theme usage" hint="On by default. In packaged desktop builds, shares the built-in or official repository theme in use, at most once per foreground hour, with the same installation ID as basic activity. Other themes are grouped without names or files. Turning this off stops future theme reports without changing other telemetry.">
             <Switch
               on={state.telemetryThemesEnabled}
               onChange={(next) => void setTelemetryThemesEnabled(next)}
-              label={t("settings.general.telemetryThemes")}
+              label="Share theme usage"
             />
           </Row>
         )}
@@ -707,8 +669,7 @@ export function GeneralPage() {
 }
 
 export function GeneralFooter() {
-  const t = useT();
   return (
-    <p>{t("settings.general.footnote")}</p>
+    <p>Default session and agent modes apply to new sessions; everything else applies immediately.</p>
   );
 }

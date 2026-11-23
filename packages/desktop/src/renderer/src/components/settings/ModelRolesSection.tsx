@@ -7,7 +7,6 @@ import {
 } from "@omp-ui/core/omp-settings-keys";
 import { useStore } from "../../store";
 import { displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { Button, Label } from "../ui";
 import { ModelPalette } from "../ModelSelector";
 import { JudgeRoleRow } from "./JudgeRoleRow";
@@ -41,7 +40,6 @@ export function ModelRolesSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   const readChatModels = useStore((s) => s.readChatModels);
   const [paletteRole, setPaletteRole] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ChatCatalogLoad>({ status: "idle" });
@@ -82,7 +80,7 @@ export function ModelRolesSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.modelRoles")}</Label>
+        <Label>Model roles</Label>
         {layerBadge(entry.layer)}
       </div>
       {entry.description !== "" && (
@@ -91,7 +89,7 @@ export function ModelRolesSection({
         </p>
       )}
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.modelRolesHint")}
+        browse picks a bare provider/id from omp's chat catalog and drops any :level suffix on that role; the field stays editable for suffixes and values outside the catalog.
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {OMP_MODEL_ROLE_IDS.map((role) => (
@@ -104,14 +102,14 @@ export function ModelRolesSection({
                 typeof rolesRecord[role] === "string" ? (rolesRecord[role] as string) : ""
               }
               kind="text"
-              label={t("settings.omp.modelRoleLabel", { role })}
-              placeholder={t("settings.omp.modelRolePlaceholder")}
+              label={`model role ${role}`}
+              placeholder="model[:level] — blank = unset"
               disabled={pending}
               className="flex-1"
               onCommit={(raw) => commitRole(role, raw)}
             />
             <Button size="xs" disabled={pending} onClick={() => browse(role)}>
-              {t("settings.omp.modelRoleBrowse")}
+              browse…
             </Button>
           </div>
         ))}
@@ -126,13 +124,13 @@ export function ModelRolesSection({
         />
       </div>
       {paletteRole !== null && catalog.status === "loading" && (
-        <p className="mt-1.5 text-sm text-ink-faint">{t("settings.omp.modelRoleReading")}</p>
+        <p className="mt-1.5 text-sm text-ink-faint">reading models…</p>
       )}
       {paletteRole !== null &&
         catalog.status === "loaded" &&
         !catalog.snapshot.discovered && (
           <p className="mt-1.5 text-xs text-ink-faint">
-            {t("settings.omp.modelRoleCatalogFailed", { message: catalog.snapshot.error ?? "" })}
+            {`model list failed: ${catalog.snapshot.error ?? ""} — the field stays editable`}
           </p>
         )}
       {paletteRole !== null && catalog.status === "loaded" && catalog.snapshot.discovered && (

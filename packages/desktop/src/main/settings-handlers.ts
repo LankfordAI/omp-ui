@@ -90,7 +90,6 @@ type SettingsHandlerChannels =
   | typeof CH.setFontFamilyId
   | typeof CH.setTranscriptWidth
   | typeof CH.setGlassChrome
-  | typeof CH.setLocaleId
   | typeof CH.setKeybindings
   | typeof CH.setAppUpdateCheckOnLaunch
   | typeof CH.setAppUpdateTrain
@@ -244,7 +243,6 @@ export function registerSettingsHandlers(
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),
     [CH.setGlassChrome]: (value: GlassChrome) => commit("glassChrome", value),
-    [CH.setLocaleId]: (value: string) => commit("localeId", value),
     // The codec already refused conflicts and reserved chords; defaults drop
     // so the registry stores only what the user changed.
     [CH.setKeybindings]: (value: KeybindingOverrides) =>

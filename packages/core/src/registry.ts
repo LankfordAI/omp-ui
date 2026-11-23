@@ -182,8 +182,6 @@ export interface RegistrySettings {
   glassChrome: GlassChrome;
   /** Lets a theme's scene animate (issue #1168); default on. */
   backdropMotion: boolean;
-  /** Active UI locale id; the renderer resolves it against its own locale table. */
-  localeId: string;
   /** Rebound app shortcuts (issue #998), action id → chord; absent actions keep their defaults. */
   keybindings: KeybindingOverrides;
   /** Check for a newer omp-ui release at launch. */
@@ -518,12 +516,6 @@ export const SETTINGS: SettingDescriptors = {
   backdropMotion: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
-  ),
-  // Any non-empty string is kept as-is: locale ids are validated by the
-  // renderer's own table, so registries written by newer builds remain intact.
-  localeId: validatedSetting(
-    () => "en",
-    (value): value is string => typeof value === "string" && value !== "",
   ),
   // Fresh object every parse: setSetting no-ops on Object.is equality.
   keybindings: { fallback: () => ({}), parse: parseKeybindingOverrides },

@@ -35,17 +35,16 @@ import { StatusLineSection } from "./StatusLineSection";
 import { ComposerPredictionSection } from "./ComposerPredictionSection";
 import { UnpausedProvidersSection } from "./UnpausedProvidersSection";
 import { AgentPrewalkAutoSection } from "./AgentPrewalkAutoSection";
-import { useT, type MessageKey } from "../../lib/i18n";
 
 // Localized hints that replace omp's own description for rows whose copy the
 // UI must state regardless of the installed binary's wording (#1063).
-const ROW_HINT_KEYS: Partial<Record<string, MessageKey>> = {
-  textVerbosity: "settings.omp.rowHint.textVerbosity",
-  "task.workerThreads": "settings.omp.rowHint.task.workerThreads",
-  "edit.mode": "settings.omp.rowHint.edit.mode",
+const ROW_HINTS: Partial<Record<string, string>> = {
+  textVerbosity: "How long omp's written answers run. omp 18.17 flipped the default to low, and it now applies to Codex too — shorter answers that finish sooner. medium restores the previous answer length. Changes apply to sessions started afterwards.",
+  "task.workerThreads": "Caps the worker THREADS subagents run on (default 4), not how many subagents may run at once. Up to 8 concurrent subagents stay on the main thread; a worker joins at 9 and one more at each doubling (18, 36, 72). 0 keeps every subagent on the main thread — it does not mean unlimited. Changes apply to sessions started afterwards.",
+  "edit.mode": "Selects the edit tool's dialect. none removes only the edit tool; bash stays available and is force-enabled even when bash.enabled is off. This is not a read-only or safety mode. With none, whole-file rewrites via write carry no structured diff, so change receipts and diff cards degrade; review depends on later repository diffs. Changes apply to sessions started afterwards.",
   // omp's own description cannot say this is transport, not live steering.
   "providers.openaiResponsesWebsockets":
-    "settings.omp.rowHint.providers.openaiResponsesWebsockets",
+    "Sends catalog-supported standard Responses traffic over WebSockets instead of HTTP/SSE, falling back to HTTP/SSE automatically when a connection fails. This is TRANSPORT only — it is not live steering, which stays on its own row. A model or request that sets it false is unaffected. Changes apply to sessions started afterwards.",
 };
 
 export function OmpPage({
@@ -69,12 +68,11 @@ export function OmpPage({
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
-  const t = useT();
   if (load.status === "loading") {
     return (
       <Empty
-        title={t("settings.omp.reading")}
-        hint={t("settings.omp.readingHint")}
+        title="Reading omp configuration…"
+        hint="Values, layers, and enum members come from omp's own config CLI."
       />
     );
   }
@@ -93,16 +91,16 @@ export function OmpPage({
     const missing = failure === OMP_MISSING;
     return (
       <Empty
-        title={t("settings.omp.readFailed")}
+        title="Could not read omp's configuration"
         hint={
           missing
-            ? t("settings.omp.ompMissingHint")
+            ? "omp is not installed, so there is nothing to configure yet."
             : (failure ?? undefined)
         }
         action={
           <div className="flex items-center gap-2">
             <Button size="xs" onClick={retry}>
-              {t("settings.omp.retry")}
+              retry
             </Button>
             {missing && (
               <Button
@@ -110,7 +108,7 @@ export function OmpPage({
                 variant="ghost"
                 onClick={() => openSettings("updates")}
               >
-                {t("settings.omp.installFromUpdates")}
+                install omp from the Updates page
               </Button>
             )}
           </div>
@@ -138,7 +136,7 @@ export function OmpPage({
     <div className="pb-1.5">
       {projectCwd === null && (
         <p className="px-4 pt-3 text-xs text-ink-faint">
-          {t("settings.omp.noSessionFocused")}
+          No session focused — showing omp's global configuration.
         </p>
       )}
       {writeError !== null && (
@@ -256,9 +254,7 @@ export function OmpPage({
                   key={entry.key}
                   title={entry.key}
                   hint={
-                    ROW_HINT_KEYS[entry.key] !== undefined
-                      ? t(ROW_HINT_KEYS[entry.key]!)
-                      : entry.description
+                    ROW_HINTS[entry.key] ?? entry.description
                   }
                   badge={layerBadge(entry.layer)}
                 >
@@ -276,13 +272,13 @@ export function OmpPage({
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <p className="text-xs text-ink-faint">
-          {t("settings.omp.mcpNote")}
+          MCP servers resolve per project from native and translated tool configs (issue #36); the global list applies to every project.
         </p>
         <div className="flex items-center gap-2">
           <Button
             size="xs"
             disabled={!mcpReady}
-            title={mcpReady ? undefined : t("settings.omp.mcpFocusFirst")}
+            title={mcpReady ? undefined : "focus a session tab first — the viewer pins to it"}
             onClick={() => {
               if (tab === undefined || scopeCwd === undefined) return;
               // One modal at a time: stacked Escape listeners would close both.
@@ -290,10 +286,10 @@ export function OmpPage({
               openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp");
             }}
           >
-            {t("settings.omp.sessionCapabilities")}
+            Session capabilities
           </Button>
           <Button size="xs" onClick={() => { closeSettings(); openCapabilitiesViewer(null, undefined, "mcp"); }}>
-            {t("settings.omp.globalMcpServers")}
+            Global MCP servers…
           </Button>
         </div>
       </div>
@@ -302,21 +298,20 @@ export function OmpPage({
 }
 
 export function OmpFooter({ agentDir, anyLive }: FooterContext) {
-  const t = useT();
   // Load-bearing per ADR-0005: where writes land, which layer wins, and when
   // they take effect. omp regenerates its YAML on write, so hand-written
   // comments in config.yml do not survive an edit from here.
   return (
     <p>
-      {t("settings.omp.footerIntro")}
+      Writes go to omp's global config (
       <span className="font-mono">{agentDir ?? "…"}/config.yml</span>
-      {t("settings.omp.footerProjectPrefix")}
+      {"); a project's "}
       <span className="font-mono">.omp/config.yml</span>
-      {t("settings.omp.footerStillWins")}
+      {" still wins and is shown as "}
       <span className="font-mono">project</span>
-      {t("settings.omp.footerRoles")}
-      {anyLive && t("settings.omp.footerRestart")}
-      {t("settings.omp.footerYaml")}
+      . omp binds model roles and the advisor at process start — changes take effect on the next session spawn.
+      {anyLive && " Restart a session from its MCP panel to apply now."}
+      {" omp regenerates its YAML on write, so comments in config.yml are dropped."}
     </p>
   );
 }

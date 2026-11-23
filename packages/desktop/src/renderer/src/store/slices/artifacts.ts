@@ -1,7 +1,6 @@
 import type { ArtifactDescribeRequest } from "@omp-ui/core/artifacts";
 import type { GetState, SetState } from "./shared";
 import { bumpNavigationGeneration, findOwner, getNavigationGeneration } from "./view";
-import { t } from "../../lib/i18n";
 
 export interface ArtifactsSlice {
   artifacts: ({ artifactId: string | null; codeRevisionId?: string; dataSnapshotId?: string; captureId?: string; panel?: "preview" | "data" | "history" }) | null;
@@ -20,12 +19,12 @@ export function createArtifactsSlice(set: SetState, get: GetState): ArtifactsSli
     artifactSourceFocus: null,
     async openArtifactSource(target) {
       const owner = findOwner(get().state, target.tabId);
-      if (owner === undefined || owner.instanceId !== null || target.sessionId === null || owner.record.sessionId !== target.sessionId) { get().reportError(new Error(t("artifacts.sourceUnavailable"))); return; }
+      if (owner === undefined || owner.instanceId !== null || target.sessionId === null || owner.record.sessionId !== target.sessionId) { get().reportError(new Error("The exact source session is unavailable. Kept code and data remain available.")); return; }
       const navigation = bumpNavigationGeneration();
       try { await get().openSession(target.tabId, { activate: false, forkCheck: false }); }
       catch (reason) { get().reportError(reason); return; }
       if (getNavigationGeneration() !== navigation) return;
-      if (!get().tabs.some((tab) => tab.tabId === target.tabId) || findOwner(get().state, target.tabId)?.record.sessionId !== target.sessionId) { get().reportError(new Error(t("artifacts.sourceUnavailable"))); return; }
+      if (!get().tabs.some((tab) => tab.tabId === target.tabId) || findOwner(get().state, target.tabId)?.record.sessionId !== target.sessionId) { get().reportError(new Error("The exact source session is unavailable. Kept code and data remain available.")); return; }
       set((s) => ({ artifactSourceFocus: { ...target, nonce: (s.artifactSourceFocus?.nonce ?? 0) + 1 } }));
       get().focusTab(target.tabId);
     },

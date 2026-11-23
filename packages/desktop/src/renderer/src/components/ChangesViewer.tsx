@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { useT } from "../lib/i18n";
 import { diffCounts, type DiffRow } from "../lib/omp-diff";
 import { useStore } from "../store";
 import { DiffViewer } from "./DiffViewer";
@@ -61,7 +60,6 @@ function ChangesViewer({
   detail: ChangesOpenDetail;
   onClose: () => void;
 }) {
-  const t = useT();
   const titleId = useId();
   const { cards, tabId } = detail;
   // One card opens by default (a lone diff should not hide); many stay closed
@@ -110,7 +108,7 @@ function ChangesViewer({
     >
       <div className="flex items-center justify-between gap-3 pr-10">
         <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-ink">
-          {t("changes.header", { files, edits: cards.length })}
+          {`${files} changed files · ${cards.length} edits`}
         </h2>
         <span className="flex shrink-0 items-center gap-2 text-xs">
           {/* Add/delete colors match the DiffViewer headers below (ADR-0004). */}
@@ -130,7 +128,7 @@ function ChangesViewer({
                 )
               }
             >
-              {allOpen ? t("changes.collapseAll") : t("changes.expandAll")}
+              {allOpen ? "collapse all" : "expand all"}
             </Button>
           )}
         </span>
@@ -165,7 +163,7 @@ function ChangesViewer({
               onClose();
             }}
           >
-            {t("changes.workingTree")}
+            working-tree diff
           </Button>
         </div>
       )}

@@ -6,7 +6,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime, type SessionStats } from "../lib/rpc-types";
-import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import type { RpcTabState } from "../store";
 import { backendState } from "../test/fixtures";
 
@@ -236,20 +235,19 @@ function button(label: string): HTMLButtonElement | null {
 /** Test shorthands map to the rail.tabs.* keys (round-3 judge moved member
  *  tabs to sentence case, so tests resolve labels through the catalog instead
  *  of pinning lowercase literals). */
-const PANE_KEY: Record<string, "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.session"> = {
-  todos: "rail.tabs.todos",
-  agents: "rail.tabs.agents",
-  jobs: "rail.tabs.jobs",
-  plans: "rail.tabs.plans",
-  diffs: "rail.tabs.diffs",
-  "side questions": "rail.tabs.btw",
-  session: "rail.tabs.session",
+const PANE_LABEL: Record<string, string> = {
+  todos: "Todos",
+  agents: "Agents",
+  jobs: "Jobs",
+  plans: "Plans",
+  diffs: "Diffs",
+  "side questions": "Side questions",
+  session: "Session",
 };
 
-/** The catalog label for a test shorthand. */
+/** The display label for a test shorthand. */
 function paneLabel(label: string): string {
-  const key = PANE_KEY[label];
-  return key ? t(key) : label;
+  return PANE_LABEL[label] ?? label;
 }
 
 const GROUP_OF: Record<string, string> = {
@@ -259,11 +257,16 @@ const GROUP_OF: Record<string, string> = {
   session: "info",
 };
 
-/** Strip buttons carry the translated group label as their aria-label
- *  (rail.groups.* is the source of truth; tests follow wording changes).
- *  A function, not a constant: some cases switch locale mid-suite. */
+const GROUP_LABELS: Record<"work" | "review" | "ask" | "info", string> = {
+  work: "Work",
+  review: "Review",
+  ask: "Ask",
+  info: "Info",
+};
+
+/** Strip buttons carry the group label as their aria-label. */
 function GROUP_LABEL(group: "work" | "review" | "ask" | "info"): string {
-  return t(`rail.groups.${group}` as const);
+  return GROUP_LABELS[group];
 }
 
 /** A member tab in the open pane's tab row. */
@@ -282,7 +285,7 @@ function openPane(label: string): void {
 /** The session subagent-model popover, wherever it is mounted. */
 function modelsPopover(): HTMLElement | null {
   return document.body.querySelector<HTMLElement>(
-    `[role="dialog"][aria-label="${t("rail.agents.modelsTitle")}"]`,
+    `[role="dialog"][aria-label="${"Subagent models — this session"}"]`,
   );
 }
 
@@ -306,8 +309,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Locale state is module-global; every test starts from the default.
-  applyLocale(resolveLocale("en"));
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
@@ -383,7 +384,7 @@ describe("desktop InspectorRail", () => {
     // the whole session, so the group titles itself as such — "run-only" is the
     // stats fallback's promise, not this one's.
     expect(spend.querySelector<HTMLElement>("[title]")?.getAttribute("title")).toBe(
-      t("hud.metrics.sessionTotalTitle"),
+      "Whole session — every turn, main and subagents, counted from the session's journal.",
     );
 
     act(() => useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0.25) }) } }));
@@ -547,10 +548,10 @@ describe("desktop InspectorRail", () => {
     const headline = rows.find(
       (dt) => dt.nextElementSibling?.querySelector(".text-ink") !== null,
     );
-    expect(headline?.textContent).toBe(t("rail.stats.cost"));
+    expect(headline?.textContent).toBe("this run");
     expect(spend.textContent).toContain("$0.1694");
-    const stale = rows.find((dt) => dt.getAttribute("title") === t("rail.stats.sessionStaleTitle"));
-    expect(stale?.textContent).toBe(t("rail.stats.sessionCost"));
+    const stale = rows.find((dt) => dt.getAttribute("title") === "Whole-session read is still catching up with this run; it will not go below the figure above.");
+    expect(stale?.textContent).toBe("session");
   });
 
   it("names the remainder beyond user + assistant on the surface (round-7 judge)", () => {
@@ -560,7 +561,7 @@ describe("desktop InspectorRail", () => {
     renderRail();
     openPane("session");
     const messages = railSection("messages")!;
-    expect(messages.textContent).toContain(t("rail.stats.other"));
+    expect(messages.textContent).toContain("other");
     // 2 + 2 + other 1 = total 5, all visible.
     expect(messages.textContent).toMatch(/other\s*1/);
   });
@@ -581,17 +582,17 @@ describe("desktop InspectorRail", () => {
         .nextElementSibling as HTMLElement;
     // Queue modes sit behind a disclosure (round-3 judge, Hierarchy 1); open it.
     const queueToggle = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent?.includes(t("rail.session.queue")),
+      (b) => b.textContent?.includes("queue"),
     )!;
     act(() => queueToggle.click());
     // Mono lives on the inner value span, not the dd wrapper.
-    expect(valueFor(t("rail.session.steering")).querySelector(".font-mono")).toBeNull();
-    expect(valueFor(t("rail.session.interrupt")).querySelector(".font-mono")).toBeNull();
-    expect(valueFor(t("rail.session.provider")).querySelector(".font-mono")).toBeNull();
+    expect(valueFor("steering").querySelector(".font-mono")).toBeNull();
+    expect(valueFor("interrupt").querySelector(".font-mono")).toBeNull();
+    expect(valueFor("provider").querySelector(".font-mono")).toBeNull();
     // Identifiers keep mono (they are copy targets); counts do not — the
     // round-3 pass moved every count to proportional tabular numerals.
-    expect(valueFor(t("rail.session.id")).querySelector(".font-mono")).not.toBeNull();
-    expect(valueFor(t("rail.session.file")).querySelector(".font-mono")).not.toBeNull();
+    expect(valueFor("id").querySelector(".font-mono")).not.toBeNull();
+    expect(valueFor("file").querySelector(".font-mono")).not.toBeNull();
   });
 
   it("shows four labelled groups and opens one pane at a time (issues #48, #75, #940)", () => {
@@ -639,7 +640,7 @@ describe("desktop InspectorRail", () => {
     renderRail();
     act(() => button(GROUP_LABEL("info"))!.click());
     expect(document.body.querySelector('[role="tablist"]')).toBeNull();
-    expect(document.body.textContent).toContain(t("rail.session.title"));
+    expect(document.body.textContent).toContain("session");
     expect(button("collapse inspector")!.parentElement!.firstElementChild?.textContent).toBe(GROUP_LABEL("info"));
   });
 
@@ -773,7 +774,7 @@ describe("desktop InspectorRail", () => {
       renderRail();
       openPane("plans");
       const dismiss = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-        (b) => b.title === t("rail.plans.dismissPendingTitle"),
+        (b) => b.title === "Decline this plan — the agent's turn ends without executing or revising it; the file stays on disk",
       );
       expect(dismiss).toBeDefined();
 
@@ -788,26 +789,18 @@ describe("desktop InspectorRail", () => {
     }
   });
 
-  it("renders Todos pane chrome from the catalog under both locales (issue #581)", () => {
+  it("renders Todos pane chrome (issue #581)", () => {
     // A phase with no `phase` name: the fallback heading is one of the strings under test.
     const unnamed = runtime({ todos: [{ tasks: [{ content: "First task", status: "pending" }] }] });
-    for (const id of ["en", "ko"] as const) {
-      act(() => applyLocale(resolveLocale(id)));
-      // beforeEach runs per test, not per lap: reset dismissal state so the click always opens.
-      useStore.setState({ rpc: { [TAB]: unnamed }, inspectorOpen: false });
-      renderRail();
-      // The strip's aria-label is itself catalog text; resolve it under the lap's locale.
-      act(() => button(t("rail.groups.work"))!.click());
-      const todos = memberTab(t("rail.tabs.todos"))!;
-      if (todos.getAttribute("aria-selected") !== "true") act(() => todos.click());
-      expect(document.body.querySelector("h3")?.textContent).toBe(t("todo.panel.phase", { n: 1 }));
-      const titles = [...document.body.querySelectorAll("[title]")].map((el) => (el as HTMLElement).title);
-      expect(titles).toContain(t("todo.panel.progress", { done: 0, total: 1 }));
-      expect(titles).toContain(t("todo.panel.advance", { status: t("todo.status.pending") }));
-      act(() => root!.unmount());
-      root = null;
-      document.body.replaceChildren();
-    }
+    useStore.setState({ rpc: { [TAB]: unnamed }, inspectorOpen: false });
+    renderRail();
+    act(() => button("Work")!.click());
+    const todos = memberTab("Todos")!;
+    if (todos.getAttribute("aria-selected") !== "true") act(() => todos.click());
+    expect(document.body.querySelector("h3")?.textContent).toBe(`Phase ${1}`);
+    const titles = [...document.body.querySelectorAll("[title]")].map((el) => (el as HTMLElement).title);
+    expect(titles).toContain(`${0} of ${1} complete`);
+    expect(titles).toContain(`${"pending"} — click to advance`);
   });
 
   it("visibly labels the session subagent-model control (#563)", () => {
@@ -1007,7 +1000,7 @@ describe("desktop InspectorRail", () => {
     openPane("agents");
     expect(document.body.textContent).toContain("42%");
     expect(
-      document.body.querySelector(`[title="${t("rail.agents.estimateTitle")}"]`),
+      document.body.querySelector(`[title="${"agent's own completion estimate"}"]`),
     ).not.toBeNull();
   });
 
@@ -1038,7 +1031,7 @@ describe("desktop InspectorRail", () => {
     expect(document.body.textContent).not.toContain("42%");
     expect(document.body.textContent).not.toContain("0%");
     expect(
-      document.body.querySelector(`[title="${t("rail.agents.estimateTitle")}"]`),
+      document.body.querySelector(`[title="${"agent's own completion estimate"}"]`),
     ).toBeNull();
   });
   it("re-reads an open project diff only when that project's revision changes", async () => {
@@ -1798,7 +1791,7 @@ describe("Side questions pane (issue #775)", () => {
     renderRail();
     openPane("side questions");
     expect(document.body.querySelector('[role="tablist"]')).toBeNull();
-    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
+    expect(document.body.textContent).toContain("No side questions yet");
     expect(document.body.textContent).not.toContain("First task");
     expect(btwCommands("get_btw_history")).toBe(1);
   });
@@ -1808,11 +1801,11 @@ describe("Side questions pane (issue #775)", () => {
     renderRail();
     openPane("side questions");
     // Floor plan §6: the gate reads as a requirement, not a generic refusal.
-    expect(document.body.textContent).toContain(t("rail.btw.needsNewerOmp", { version: "18.6.3" }));
+    expect(document.body.textContent).toContain(`this omp has no side questions — update omp to ${"18.6.3"} or later`);
     expect(btwCommands("get_btw_history")).toBe(0);
     expect(btwCommands("btw")).toBe(0);
     expect(
-      document.body.querySelector<HTMLInputElement>(`input[aria-label="${t("rail.btw.askPlaceholder")}"]`)?.disabled,
+      document.body.querySelector<HTMLInputElement>(`input[aria-label="${"Ask a side question…"}"]`)?.disabled,
     ).toBe(true);
   });
 
@@ -1845,8 +1838,8 @@ describe("Side questions pane (issue #775)", () => {
     renderRail();
     openPane("side questions");
     expect(document.body.textContent).toContain("why is the sky blue?");
-    expect(document.body.textContent).toContain(t("rail.btw.statusComplete"));
-    expect(document.body.textContent).toContain(t("rail.btw.statusError"));
+    expect(document.body.textContent).toContain("answered");
+    expect(document.body.textContent).toContain("error");
     expect(document.body.textContent).not.toContain("Rayleigh scattering");
     const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
       b.textContent?.includes("why is the sky blue?"),
@@ -1868,9 +1861,9 @@ describe("Side questions pane (issue #775)", () => {
     openPane("side questions");
     expect(document.body.textContent).toContain("in flight");
     expect(document.body.textContent).toContain("partial words");
-    expect(document.body.querySelector<HTMLInputElement>(`input[aria-label="${t("rail.btw.askPlaceholder")}"]`)?.disabled).toBe(true);
+    expect(document.body.querySelector<HTMLInputElement>(`input[aria-label="${"Ask a side question…"}"]`)?.disabled).toBe(true);
     const cancel = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === t("rail.btw.cancel"),
+      (b) => b.textContent === "cancel",
     )!;
     act(() => cancel.click());
     expect(btwCommands("btw_cancel")).toBe(1);
@@ -1967,7 +1960,7 @@ describe("Side questions pane (issue #775)", () => {
       });
     const injectButton = (): HTMLButtonElement | undefined =>
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-        (b) => b.textContent === t("rail.btw.injectAction"),
+        (b) => b.textContent === "inject into main session",
       );
     function expandTopic(question: string): void {
       const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find(
@@ -2008,7 +2001,7 @@ describe("Side questions pane (issue #775)", () => {
       expect(frames[0]).toMatchObject({ message: "Stop retrying the build.", streamingBehavior: "steer" });
       ackPrompt(frames[0]!, true);
       await flush();
-      expect(document.body.textContent).toContain(t("rail.btw.injected"));
+      expect(document.body.textContent).toContain("injected into main session");
       expect(injectButton()).toBeUndefined();
       // Once per answer at the store level too: a direct re-send is refused.
       let ok = true;
@@ -2041,7 +2034,7 @@ describe("Side questions pane (issue #775)", () => {
       ackPrompt(frames[0]!, false);
       await flush();
       // Back to pending with the failure notice, and retrying sends a new frame.
-      expect(document.body.textContent).toContain(t("rail.btw.injectFailed"));
+      expect(document.body.textContent).toContain("The steering prompt was not sent — try again.");
       const retry = injectButton();
       expect(retry).toBeDefined();
       act(() => retry!.click());
@@ -2073,7 +2066,7 @@ describe("Side questions pane (issue #775)", () => {
     act(() => useStore.getState().focusRailPane(TAB, "btw"));
     expect(button("collapse inspector")).not.toBeNull();
     expect(button(GROUP_LABEL("ask"))?.getAttribute("aria-pressed")).toBe("true");
-    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
+    expect(document.body.textContent).toContain("No side questions yet");
   });
 });
 
@@ -2097,8 +2090,8 @@ describe("Voice recordings section (issue #810)", () => {
 
   it("renders nothing when no recordings exist", async () => {
     await openSessionPane();
-    expect(document.body.textContent).toContain(t("rail.session.title"));
-    expect(document.body.textContent).not.toContain(t("rail.session.voiceSection"));
+    expect(document.body.textContent).toContain("session");
+    expect(document.body.textContent).not.toContain("Voice recordings");
   });
 
   it("lists entries newest-first and wires Play to the entry target", async () => {
@@ -2110,8 +2103,8 @@ describe("Voice recordings section (issue #810)", () => {
     const playLiveRecording = vi.fn(async (): Promise<void> => {});
     useStore.setState({ playLiveRecording });
     await openSessionPane();
-    expect(document.body.textContent).toContain(t("rail.session.voiceSection"));
-    const play = button(t("rail.session.voicePlay"));
+    expect(document.body.textContent).toContain("Voice recordings");
+    const play = button("play recording");
     expect(play).not.toBeNull();
     act(() => play!.click());
     expect(playLiveRecording).toHaveBeenCalledWith(TAB, { kind: "entry", entry: entries[0] });
@@ -2133,10 +2126,10 @@ describe("Voice recordings section (issue #810)", () => {
       rpc: { [TAB]: runtime({ live: { phase: "speaking", levels: null, turns: [], ended: false, error: null, connectionId: "conn-c" } }) },
     });
     await openSessionPane();
-    expect(button(t("rail.session.voicePause"))).not.toBeNull();
+    expect(button("pause recording")).not.toBeNull();
     // The other row refuses honestly: disabled with the busy reason.
-    expect(button(t("rail.session.voicePlay"))).toBeNull();
-    const busy = button(t("composer.live.replayLiveBusy"));
+    expect(button("play recording")).toBeNull();
+    const busy = button("live voice is speaking — replay waits");
     expect(busy).not.toBeNull();
     expect(busy?.disabled).toBe(true);
   });

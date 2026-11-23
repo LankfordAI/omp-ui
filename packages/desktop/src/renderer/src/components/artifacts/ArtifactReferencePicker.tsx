@@ -2,12 +2,10 @@ import { useId, useState } from "react";
 import type { ArtifactDescription } from "@omp-ui/core/artifacts";
 import { backend, displayMessage } from "../../backend";
 import { useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { Button, IconButton, IconClose, Modal, Switch } from "../ui";
 import { getNavigationGeneration } from "../../store/slices/view";
 
 export function ArtifactReferencePicker({ description, mode = "reference", onClose, onRefreshStarted }: { description: ArtifactDescription; mode?: "reference" | "refresh"; onClose(): void; onRefreshStarted?(): void }) {
-  const t = useT();
   const titleId = useId();
   const state = useStore((s) => s.state);
   // "run" is Refresh now (ADR-0091): a fresh background session, sent at once.
@@ -35,13 +33,13 @@ export function ArtifactReferencePicker({ description, mode = "reference", onClo
           title: description.artifact.title,
           projectCwd: runProject?.project.path ?? null,
         });
-        if (started === null) throw new Error(t("artifacts.refreshNotStarted"));
+        if (started === null) throw new Error("The refresh session could not start.");
         onRefreshStarted?.();
         onClose();
         return;
       }
       const tabId = target;
-      if (!tabId) throw new Error(t("artifacts.noTarget"));
+      if (!tabId) throw new Error("The session could not be opened. Choose another session.");
       const exact = { targetTabId: tabId, artifactId: description.artifact.artifactId, codeRevisionId: description.code.codeRevisionId, dataSnapshotId: description.snapshot.dataSnapshotId };
       if (mode === "refresh") {
         const prepared = await backend.artifactPrepareRefresh({ ...exact, datasetIds });
@@ -62,13 +60,13 @@ export function ArtifactReferencePicker({ description, mode = "reference", onClo
     finally { setBusy(false); }
   };
   return <Modal onClose={() => { if (!busy) onClose(); }} labelledBy={titleId} width="w-[min(34rem,96vw)]" className="flex max-h-[90dvh] flex-col">
-    <header className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3"><h2 id={titleId} className="min-w-0 flex-1 text-base font-semibold">{t(mode === "refresh" ? "artifacts.refresh" : "artifacts.reference")}</h2><IconButton label={t("common.overlay.close")} onClick={onClose} disabled={busy}><IconClose /></IconButton></header>
+    <header className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3"><h2 id={titleId} className="min-w-0 flex-1 text-base font-semibold">{mode === "refresh" ? "Refresh data" : "Reference in session"}</h2><IconButton label="close dialog" onClick={onClose} disabled={busy}><IconClose /></IconButton></header>
     <div className="min-h-0 space-y-4 overflow-y-auto p-4">
       <p className="break-words text-sm text-ink-mid">{description.artifact.title}</p>
-      <label className="block space-y-1 text-sm"><span>{t(mode === "refresh" ? "artifacts.refreshRunIn" : "artifacts.targetSession")}</span><select autoFocus className="block w-full min-w-0 rounded border border-line bg-raised p-2" value={target} onChange={(event) => setTarget(event.target.value)} disabled={busy}>{mode === "refresh" ? <option value="run">{runProject ? t("artifacts.refreshNewProject", { project: runProject.project.name }) : t("artifacts.refreshNewChat")}</option> : <option value="">{t("artifacts.chooseSession")}</option>}{sessions.map((session) => <option key={session.tabId} value={session.tabId}>{session.title || session.tabId}</option>)}</select></label>
-      {mode === "reference" ? <><div className="flex items-center justify-between gap-3 text-sm"><span>{t("artifacts.includeData")}</span><Switch on={includeData} onChange={setIncludeData} label={t("artifacts.includeData")} /></div><p className="text-sm text-ink-dim">{t("artifacts.consentWarning")}</p></> : <><fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">{t("artifacts.chooseDatasets")}</legend>{description.snapshot.datasets.map((dataset) => <label key={dataset.id} className="flex items-start gap-2 text-sm"><input type="checkbox" checked={datasetIds.includes(dataset.id)} onChange={(event) => setDatasetIds((old) => event.target.checked ? [...old, dataset.id] : old.filter((id) => id !== dataset.id))} /><span className="min-w-0 break-words">{dataset.title}</span></label>)}</fieldset><p className="text-sm text-ink-dim">{t(runNow ? "artifacts.refreshNowHint" : "artifacts.refreshDraftHint")}</p></>}
+      <label className="block space-y-1 text-sm"><span>{mode === "refresh" ? "Run refresh in" : "Session on this machine"}</span><select autoFocus className="block w-full min-w-0 rounded border border-line bg-raised p-2" value={target} onChange={(event) => setTarget(event.target.value)} disabled={busy}>{mode === "refresh" ? <option value="run">{runProject ? `A new background session in ${runProject.project.name}` : "A new background Chat"}</option> : <option value="">Choose an existing session</option>}{sessions.map((session) => <option key={session.tabId} value={session.tabId}>{session.title || session.tabId}</option>)}</select></label>
+      {mode === "reference" ? <><div className="flex items-center justify-between gap-3 text-sm"><span>Include saved data</span><Switch on={includeData} onChange={setIncludeData} label="Include saved data" /></div><p className="text-sm text-ink-dim">Off shares the definition only. HTML itself can contain sensitive information or bundled data. With consent, this exact saved data snapshot is also readable by the session.</p></> : <><fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">Datasets to refresh</legend>{description.snapshot.datasets.map((dataset) => <label key={dataset.id} className="flex items-start gap-2 text-sm"><input type="checkbox" checked={datasetIds.includes(dataset.id)} onChange={(event) => setDatasetIds((old) => event.target.checked ? [...old, dataset.id] : old.filter((id) => id !== dataset.id))} /><span className="min-w-0 break-words">{dataset.title}</span></label>)}</fieldset><p className="text-sm text-ink-dim">{runNow ? "Starts a new session in the background and sends the refresh request now. Project sessions start in Plan mode; Chats run in Build mode. Captured data waits under Data until you choose Apply." : "Adds a removable reference and a removable refresh request to that session's draft. Nothing is sent until you send it."}</p></>}
       {error && <p role="alert" className="text-sm text-rose">{error}</p>}
     </div>
-    <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line p-3"><Button onClick={onClose} disabled={busy}>{t("artifacts.cancel")}</Button><Button variant="solid" disabled={busy || !target || (mode === "refresh" && datasetIds.length === 0)} onClick={() => void submit()}>{t(busy ? "artifacts.loading" : runNow ? "artifacts.refreshNow" : "artifacts.addToDraft")}</Button></footer>
+    <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line p-3"><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="solid" disabled={busy || !target || (mode === "refresh" && datasetIds.length === 0)} onClick={() => void submit()}>{busy ? "Loading…" : runNow ? "Refresh now" : "Add to draft"}</Button></footer>
   </Modal>;
 }

@@ -9,7 +9,6 @@ import {
   FORGET_APPROVALS_COMMAND,
   supportsAskAndRemember,
 } from "../../lib/ask-and-remember";
-import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { Button, Label } from "../ui";
 import { FIELD, layerBadge } from "./rows";
@@ -48,7 +47,6 @@ export function ApprovalModeSection({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   // A focused session defaults to its project layer: the narrower, safer
   // edit target. With no session focused, only Global is available.
   const [scope, setScope] = useState<"global" | "project">(
@@ -152,12 +150,12 @@ export function ApprovalModeSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.approval")}</Label>
+        <Label>Tool approval</Label>
         {layerBadge(entry.layer)}
         <span
           className="ml-auto flex items-center gap-1"
           role="group"
-          aria-label={t("settings.omp.subagentScope")}
+          aria-label="edit scope"
         >
           {(["global", "project"] as const).map((choice) => (
             <button
@@ -167,7 +165,7 @@ export function ApprovalModeSection({
               title={
                 choice === "project" && !projectEditable
                   ? projectCwd === null
-                    ? t("settings.omp.noSessionFocused")
+                    ? "No session focused — showing omp's global configuration."
                     : (unsupported?.reason ?? "")
                   : undefined
               }
@@ -180,18 +178,18 @@ export function ApprovalModeSection({
               )}
             >
               {choice === "global"
-                ? t("settings.omp.subagentScopeGlobal")
-                : t("settings.omp.subagentScopeProject")}
+                ? "Global"
+                : "Project"}
             </button>
           ))}
         </span>
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.approvalHint")}
+        Which omp tools ask for approval. always-ask gates every tool that writes or runs commands, always-ask-cached (Ask and remember) also asks before file reads and can remember a file or folder for this session or every session, write gates the ones that run commands, yolo gates none — except restricted folders, which ask in every tier. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.
       </p>
       {unsupported !== null && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.approvalUnsupported", { reason: unsupported.reason })}
+          {`This project's tools.approvalMode can't be edited here: ${unsupported.reason}`}
         </p>
       )}
       {localError !== null && (
@@ -210,11 +208,11 @@ export function ApprovalModeSection({
         >
           {scopedValue === "" && (
             <option value="" disabled>
-              {t("settings.rows.unset")}
+              unset
             </option>
           )}
           {scope === "project" && (
-            <option value="inherit">{t("settings.omp.approvalInherit")}</option>
+            <option value="inherit">inherit</option>
           )}
           {APPROVAL_MODES.map((mode) => (
             <option
@@ -231,7 +229,7 @@ export function ApprovalModeSection({
       </div>
       {!askAndRemember && (
         <p className="text-xs text-ink-faint">
-          {t("settings.omp.approvalCachedNeedsOmp", { version: ASK_AND_REMEMBER_MIN_OMP })}
+          {`always-ask-cached needs omp ${ASK_AND_REMEMBER_MIN_OMP} or later.`}
         </p>
       )}
       <div className="flex items-center gap-3 py-1.5">
@@ -248,14 +246,14 @@ export function ApprovalModeSection({
             });
           }}
         >
-          {t("settings.omp.approvalForget")}
+          forget remembered approvals
         </Button>
         <span className="text-sm leading-snug text-ink-faint">
           {forgetTab === null
-            ? t("settings.omp.approvalForgetUnavailable")
+            ? "Focus a running session on this computer to forget remembered approvals."
             : forgetSentFor === forgetTab
-              ? t("settings.omp.approvalForgetSent")
-              : t("settings.omp.approvalForgetHint")}
+              ? "Sent — omp's reply is in the focused session's transcript."
+              : "Runs /forget-approvals in the focused session. omp forgets the approvals remembered for every session and the ones this session remembered; other running sessions keep their own until they end."}
         </span>
       </div>
     </section>

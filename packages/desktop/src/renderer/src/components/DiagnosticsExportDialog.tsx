@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { DiagnosticsPreview } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
 import { IS_ELECTRON } from "../lib/platform";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 
@@ -22,7 +21,6 @@ function humanSize(bytes: number): string {
 const DEFAULT_BASENAME = "omp-ui-diagnostics.zip";
 
 export function DiagnosticsExportDialog() {
-  const t = useT();
   const close = useStore((s) => s.closeDiagnosticsDialog);
   const reportError = useStore((s) => s.reportError);
   const [preview, setPreview] = useState<DiagnosticsPreview | null>(null);
@@ -70,13 +68,13 @@ export function DiagnosticsExportDialog() {
   if (donePath !== null) {
     return (
       <ConfirmDialog
-        kicker={t("dialog.diagnostics.kicker")}
-        title={t("dialog.diagnostics.done")}
+        kicker="Diagnostics"
+        title="Bundle written"
         tone="signal"
         onClose={close}
         actions={
           <Button size="sm" onClick={close}>
-            {t("common.overlay.close")}
+            close dialog
           </Button>
         }
       >
@@ -89,18 +87,18 @@ export function DiagnosticsExportDialog() {
 
   return (
     <ConfirmDialog
-      kicker={t("dialog.diagnostics.kicker")}
-      title={t("dialog.diagnostics.title")}
+      kicker="Diagnostics"
+      title="Diagnostic bundle"
       tone="neutral"
       onClose={close}
       actions={
         <>
           <Button size="sm" onClick={close}>
-            {t("dialog.diagnostics.cancel")}
+            Cancel
           </Button>
           {previewFailed ? (
             <Button size="sm" onClick={() => void load()}>
-              {t("dialog.diagnostics.retry")}
+              Retry
             </Button>
           ) : (
             <Button
@@ -108,7 +106,7 @@ export function DiagnosticsExportDialog() {
               disabled={preview === null || busy}
               onClick={() => void save()}
             >
-              {busy ? t("dialog.diagnostics.busy") : IS_ELECTRON ? t("dialog.diagnostics.save") : t("dialog.diagnostics.saveWeb")}
+              {busy ? "Writing…" : IS_ELECTRON ? "Save bundle…" : "Create bundle"}
             </Button>
           )}
         </>
@@ -116,7 +114,7 @@ export function DiagnosticsExportDialog() {
     >
       {preview === null && !previewFailed && (
         <div className="space-y-2" aria-busy="true">
-          <p className="text-xs text-ink-mid">{t("dialog.diagnostics.loading")}</p>
+          <p className="text-xs text-ink-mid">Measuring what the bundle would contain…</p>
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-5 animate-pulse rounded bg-raised" />
           ))}
@@ -126,7 +124,7 @@ export function DiagnosticsExportDialog() {
         <div className="space-y-3">
           <div>
             <h3 className="mb-1.5 font-mono text-xs uppercase tracking-[0.16em] text-ink-dim">
-              {t("dialog.diagnostics.sectionsHeading")}
+              Sections
             </h3>
             <ul className="space-y-1">
               {preview.sections
@@ -144,9 +142,7 @@ export function DiagnosticsExportDialog() {
                 ))}
             </ul>
             <p className="mt-2 text-xs text-ink-mid">
-              {t("dialog.diagnostics.totalLabel", {
-                size: humanSize(preview.totalBytes),
-              })}
+              {`Total: ${humanSize(preview.totalBytes)}`}
             </p>
           </div>
           {preview.warnings.length > 0 && (
@@ -163,11 +159,11 @@ export function DiagnosticsExportDialog() {
               onChange={(event) => setIncludeTranscripts(event.target.checked)}
               className="size-3.5 accent-current"
             />
-            {t("dialog.diagnostics.includeTranscripts")}
+            Include transcripts
           </label>
           {includeTranscripts && (
             <p className="text-xs leading-relaxed text-rose">
-              {t("dialog.diagnostics.transcriptsWarning")}
+              Warning: the zip will contain the full conversation text of every tracked session lineage. Review it before sharing.
             </p>
           )}
         </div>

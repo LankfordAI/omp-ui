@@ -1,6 +1,5 @@
 import { useEffect, useId, useState } from "react";
 import { backend } from "../backend";
-import { useT } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Button, Modal } from "./ui";
 
@@ -12,7 +11,6 @@ import { Button, Modal } from "./ui";
  * confirming only unblocks the slash-command forward.
  */
 export function ShareSessionDialog({ tabId }: { tabId: string }) {
-  const t = useT();
   const titleId = useId();
   const confirm = useStore((s) => s.confirmSharePrivacy);
   const cancel = useStore((s) => s.cancelSharePrivacy);
@@ -61,37 +59,37 @@ export function ShareSessionDialog({ tabId }: { tabId: string }) {
 
   const redactLine =
     targets.redact === true
-      ? t("dialog.share.redactOn")
+      ? "secrets are redacted before upload (share.redactSecrets: on)"
       : targets.redact === false
-        ? t("dialog.share.redactOff")
-        : t("dialog.share.redactDefault");
+        ? "secrets are NOT redacted (share.redactSecrets: off)"
+        : "secrets are redacted by default";
   const targetLine =
     targets.store === "gist"
-      ? t("dialog.share.targetGist")
+      ? "upload goes to a secret GitHub gist when gh is authenticated, else the share server"
       : targets.store === "blob" && targets.serverUrl !== null
-        ? t("dialog.share.targetServer", { url: targets.serverUrl })
-        : t("dialog.share.targetDefault");
+        ? `upload goes to the share server at ${targets.serverUrl}`
+        : "upload goes to the share server, or a secret GitHub gist when gh is authenticated";
 
   return (
     <Modal onClose={cancel} labelledBy={titleId} width="w-[32rem]">
       <div className="border-b border-line px-5 pb-4 pt-5">
         <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
-          {t("dialog.share.title")}
+          Share this session?
         </h2>
-        <p className="mt-0.5 text-xs text-ink-dim">{t("dialog.share.intro")}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">omp publishes an end-to-end-encrypted snapshot. Before the first share:</p>
       </div>
       <ul className="space-y-2.5 px-5 py-4 text-xs leading-relaxed text-ink-mid">
         <li className="flex gap-2">
           <span aria-hidden className="text-ink-faint">
             •
           </span>
-          <span>{t("dialog.share.encryption")}</span>
+          <span>the snapshot is sealed with a fresh key before upload</span>
         </li>
         <li className="flex gap-2">
           <span aria-hidden className="text-ink-faint">
             •
           </span>
-          <span>{t("dialog.share.key")}</span>
+          <span>the key lives only in the link’s fragment — no server or gist ever sees it</span>
         </li>
         <li className="flex gap-2">
           <span aria-hidden className="text-ink-faint">
@@ -108,10 +106,10 @@ export function ShareSessionDialog({ tabId }: { tabId: string }) {
       </ul>
       <footer className="flex justify-end gap-2 border-t border-line px-5 py-3">
         <Button size="sm" variant="ghost" onClick={cancel}>
-          {t("dialog.share.cancel")}
+          cancel
         </Button>
         <Button size="sm" variant="solid" onClick={() => void confirm(tabId)}>
-          {t("dialog.share.confirm")}
+          share
         </Button>
       </footer>
     </Modal>

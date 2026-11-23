@@ -14,18 +14,17 @@ import {
 import { CommitField, FIELD, Row } from "./rows";
 import { PairingQr } from "../PairingQr";
 import { McpEndpointSection } from "./McpEndpointSection";
-import { t, useT } from "../../lib/i18n";
 
 function remoteStatusLine(r: RemoteState): string {
   switch (r.status) {
     case "starting":
-      return t("settings.remote.starting");
+      return "starting…";
     case "listening":
-      return t("settings.remote.listening", { port: r.port });
+      return `listening on ${r.port}`;
     case "error":
-      return r.error ?? t("settings.remote.startFailed");
+      return r.error ?? "the server could not start";
     default:
-      return t("settings.remote.stopped");
+      return "stopped";
   }
 }
 
@@ -44,7 +43,6 @@ function remoteStatusTone(
  * Escape cancels without closing the modal.
  */
 function PasswordRow() {
-  const t = useT();
   const hasPassword = useStore((s) => s.remote.hasPassword);
   const setRemotePassword = useStore((s) => s.setRemotePassword);
   const clearRemotePassword = useStore((s) => s.clearRemotePassword);
@@ -73,25 +71,25 @@ function PasswordRow() {
     <div className="py-2.5">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-ink">{t("settings.remote.password")}</p>
+          <p className="text-sm font-medium text-ink">Password</p>
           <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-            {t("settings.remote.passwordHint")}
+            Primary sign-in for remote devices. Stored as a salted hash — it cannot be revealed, only changed or cleared.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {!editing && !hasPassword && (
             <Button size="xs" onClick={() => setEditing(true)}>
-              {t("settings.remote.setPassword")}
+              Set password
             </Button>
           )}
           {!editing && hasPassword && (
             <>
-              <span className="text-xs text-ink-mid">{t("settings.remote.passwordSet")}</span>
+              <span className="text-xs text-ink-mid">password set</span>
               <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
-                {t("settings.remote.change")}
+                Change
               </Button>
               <Button size="xs" onClick={() => void clearRemotePassword()}>
-                {t("settings.remote.clear")}
+                Clear
               </Button>
             </>
           )}
@@ -103,8 +101,8 @@ function PasswordRow() {
             ref={input}
             type="password"
             value={draft}
-            aria-label={t("settings.remote.passwordAria")}
-            placeholder={t("settings.remote.passwordPlaceholder")}
+            aria-label="remote access password"
+            placeholder="at least 8 characters"
             spellCheck={false}
             autoComplete="new-password"
             onChange={(e) => setDraft(e.target.value)}
@@ -122,10 +120,10 @@ function PasswordRow() {
             className={cn(FIELD, "flex-1")}
           />
           <Button size="xs" disabled={draft.trim() === ""} onClick={save}>
-            {t("settings.remote.save")}
+            Save
           </Button>
           <Button size="xs" variant="ghost" onClick={cancel}>
-            {t("settings.remote.cancel")}
+            cancel
           </Button>
         </div>
       )}
@@ -134,7 +132,6 @@ function PasswordRow() {
 }
 
 export function RemotePage() {
-  const t = useT();
   const remote = useStore((s) => s.remote);
   const setRemoteEnabled = useStore((s) => s.setRemoteEnabled);
   const setRemoteBind = useStore((s) => s.setRemoteBind);
@@ -158,7 +155,7 @@ export function RemotePage() {
         </div>
         {remote.webBundleMissing && (
           <p className="mt-1.5 text-sm leading-relaxed text-copper">
-            {t("settings.remote.webBundleMissing")}
+            {"the browser bundle was missing at server startup — if it is still missing, run "}
             <span className="font-mono">npm run build:web</span>
           </p>
         )}
@@ -166,26 +163,26 @@ export function RemotePage() {
 
       <div className="divide-y divide-line-soft">
         <Row
-          title={t("settings.remote.enable")}
-          hint={t("settings.remote.enableHint")}
+          title="Enable remote access"
+          hint="Off by default. A connected client can do everything you can, including editing files and running commands."
         >
           <Switch
             on={remote.enabled}
             onChange={(next) => void setRemoteEnabled(next)}
-            label={t("settings.remote.enableLabel")}
+            label="enable remote access"
           />
         </Row>
         <div>
           <Row
-            title={t("settings.remote.bind")}
-            hint={t("settings.remote.bindHint")}
+            title="Bind address"
+            hint="Which interface the server listens on."
           >
             <ChoiceCapsule
-              label={t("settings.remote.bindLabel")}
+              label="bind address"
               value={remote.bind}
               options={[
                 { value: "localhost", label: "localhost" },
-                { value: "lan", label: t("settings.remote.bindLocalNetwork") },
+                { value: "lan", label: "local network" },
               ] as const}
               onChange={(value) => void setRemoteBind(value)}
               optionClassName="tab-label px-2"
@@ -193,15 +190,15 @@ export function RemotePage() {
           </Row>
           {remote.bind === "lan" && (
             <p className="pb-2.5 text-sm leading-relaxed text-rose">
-              {t("settings.remote.lanWarning")}
+              Anyone on this network with your password or a token link can drive your agent. Plain HTTP, so the connection is not encrypted.
             </p>
           )}
         </div>
-        <Row title={t("settings.remote.port")} hint={t("settings.remote.portHint")}>
+        <Row title="Port" hint="A whole number between 1024 and 65535.">
           <CommitField
             current={String(remote.port)}
             kind="number"
-            label={t("settings.remote.portAria")}
+            label="remote access port"
             disabled={false}
             className="w-24"
             onCommit={(raw) => void setRemotePort(Number(raw))}
@@ -209,8 +206,8 @@ export function RemotePage() {
         </Row>
         <PasswordRow />
         <Row
-          title={t("settings.remote.accessToken")}
-          hint={t("settings.remote.accessTokenHint")}
+          title="Access token (fallback)"
+          hint="Still works while a password is set. Regenerating disconnects every client using it."
         >
           <div className="flex items-center gap-1.5">
             <span
@@ -225,20 +222,20 @@ export function RemotePage() {
               variant="ghost"
               onClick={() => setRevealed((v) => !v)}
             >
-              {revealed ? t("settings.remote.hide") : t("settings.remote.reveal")}
+              {revealed ? "hide" : "reveal"}
             </Button>
             <CopyButton text={remote.token} />
             <Button size="xs" onClick={() => void regenerateRemoteToken()}>
-              {t("settings.remote.regenerate")}
+              Regenerate
             </Button>
           </div>
         </Row>
         <Row
-          title={t("settings.remote.connectionUrl")}
+          title="Connection URL"
           hint={
             remote.hasPassword
-              ? t("settings.remote.connectionUrlHintPassword")
-              : t("settings.remote.connectionUrlHintToken")
+              ? "Open this on the other device, then sign in with your password."
+              : "Open this on the other device — the token rides along."
           }
         >
           <div className="flex items-center gap-1.5">
@@ -254,8 +251,8 @@ export function RemotePage() {
         </Row>
         {remote.hasPassword && (
           <Row
-            title={t("settings.remote.tokenLink")}
-            hint={t("settings.remote.tokenLinkHint")}
+            title="Token link (fallback)"
+            hint="Full-access URL with the embedded token, for devices where typing a password is impractical."
           >
             <div className="flex items-center gap-1.5">
               <span
@@ -275,7 +272,7 @@ export function RemotePage() {
 
       {remote.urls.length > 1 && (
         <div className="space-y-0.5">
-          <Label>{t("settings.remote.alsoReachable")}</Label>
+          <Label>Also reachable at</Label>
           {remote.urls.slice(1).map((url) => (
             <p
               key={url}
@@ -291,8 +288,8 @@ export function RemotePage() {
       {remote.status === "listening" && primaryUrl !== null && (
         <PairingQr
           url={primaryUrl}
-          title={t("settings.remote.scanToPair")}
-          caption={remote.hasPassword ? t("settings.remote.pairPassword") : t("settings.remote.pairToken")}
+          title="Scan to pair"
+          caption={remote.hasPassword ? "Opens omp-ui in the phone's browser; it will ask for your password." : "Opens omp-ui in the phone's browser with the token already attached."}
         />
       )}
 
@@ -307,13 +304,12 @@ export function RemoteFooter() {
   // token stays a JSX literal: catalog values may not contain angle brackets (i18n.test.ts
   // "keeps every catalog value plain text"), same as the .env / config.yml tokens in the
   // other Settings footers.
-  const t = useT();
   return (
     <p>
-      {t("settings.remote.footerOriginPrefix")}
+      {"Over localhost the app is a full browser app. Over your local network it works as a responsive web app, but browsers reserve installability and offline support for secure origins — plain "}
       <span className="font-mono">http://&lt;lan-ip&gt;</span>
-      {t("settings.remote.footerOriginSuffix")}
-      {t("settings.remote.footerRestart")}
+      {" is not one, so there is no install prompt until you front this with your own HTTPS (a TLS terminator, or Tailscale serve)."}
+      {" Changing anything here restarts only the server; sessions keep running."}
     </p>
   );
 }

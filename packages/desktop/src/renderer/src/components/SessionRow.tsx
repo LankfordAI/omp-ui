@@ -3,7 +3,6 @@ import { relativeTime } from "../lib/format";
 import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { withTitleCard } from "./TitleCardChip";
-import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
@@ -23,13 +22,13 @@ import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice
 /** One session state's sidebar face; the Fleet view's dispatch rows reuse it (issue #899). */
 export const SESSION_FACE: Record<
   SidebarSessionState,
-  { tone: Tone; pulse: boolean; labelKey: MessageKey; titleKey: MessageKey; textClass: string }
+  { tone: Tone; pulse: boolean; label: string; title: string; textClass: string }
 > = {
   working: {
     tone: "copper",
     pulse: true,
-    labelKey: "sidebar.status.workingLabel",
-    titleKey: "sidebar.status.workingTitle",
+    label: "working",
+    title: "Agent is working",
     textClass: "text-copper",
   },
   // Run open, paused on background work (issue #1204): copper like working —
@@ -38,95 +37,103 @@ export const SESSION_FACE: Record<
   "awaiting-work": {
     tone: "copper",
     pulse: false,
-    labelKey: "sidebar.status.awaitingWorkLabel",
-    titleKey: "sidebar.status.awaitingWorkTitle",
+    label: "waiting on work",
+    title: "Run paused — background jobs, subagents, or queued messages will resume it",
     textClass: "text-copper",
   },
   "awaiting-answer": {
     tone: "iris",
     pulse: false,
-    labelKey: "sidebar.status.answerLabel",
-    titleKey: "sidebar.status.answerTitle",
+    label: "answer needed",
+    title: "Agent is waiting for your answer",
     textClass: "text-iris",
   },
   stalled: {
     tone: "copper",
     pulse: false,
-    labelKey: "sidebar.status.stalledLabel",
-    titleKey: "sidebar.status.stalledTitle",
+    label: "stalled",
+    title: "omp-ui aborted a turn whose model stream went silently dead — stall auto-continue or a prompt resumes it; the badge clears when the next turn starts",
     textClass: "text-copper",
   },
   ready: {
     tone: "signal",
     pulse: false,
-    labelKey: "sidebar.status.readyLabel",
-    titleKey: "sidebar.status.readyTitle",
+    label: "ready",
+    title: "Agent finished output and is ready",
     textClass: "text-signal",
   },
   starting: {
     tone: "neutral",
     pulse: true,
-    labelKey: "sidebar.status.startingLabel",
-    titleKey: "sidebar.status.startingTitle",
+    label: "starting",
+    title: "Native session is starting",
     textClass: "text-ink-mid",
   },
   error: {
     tone: "rose",
     pulse: false,
-    labelKey: "sidebar.status.errorLabel",
-    titleKey: "sidebar.status.errorTitle",
+    label: "error",
+    title: "Native session hit an error",
     textClass: "text-rose",
   },
   live: {
     tone: "signal",
     pulse: false,
-    labelKey: "sidebar.status.liveLabel",
-    titleKey: "sidebar.status.liveTitle",
+    label: "live",
+    title: "Session process is live; detailed activity is unavailable",
     textClass: "text-signal",
   },
   dormant: {
     tone: "neutral",
     pulse: false,
-    labelKey: "sidebar.status.dormantLabel",
-    titleKey: "sidebar.status.dormantTitle",
+    label: "no process",
+    title: "No running process — click to resume it",
     textClass: "text-ink-mid",
   },
   archived: {
     tone: "copper",
     pulse: false,
-    labelKey: "sidebar.status.archivedLabel",
-    titleKey: "sidebar.status.archivedTitle",
+    label: "archived",
+    title: "Session is archived",
     textClass: "text-copper",
   },
   missing: {
     tone: "rose",
     pulse: false,
-    labelKey: "sidebar.status.missingLabel",
-    titleKey: "sidebar.session.missingHint",
+    label: "missing",
+    title: "session files are gone from disk — delete the record",
     textClass: "text-rose",
   },
 };
 
 // The saved transcript's exit word (issue #1042): the wire `SessionStatus`
 // decoded into reader language instead of a raw enum on the row.
-const EXIT_WORD: Record<string, MessageKey> = {
-  complete: "sidebar.exit.complete",
-  interrupted: "sidebar.exit.interrupted",
-  aborted: "sidebar.exit.aborted",
-  error: "sidebar.exit.error",
-  pending: "sidebar.exit.pending",
-  unknown: "sidebar.exit.unknown",
+const EXIT_WORD: Record<string, string> = {
+  complete: "finished",
+  interrupted: "cut off mid-reply",
+  aborted: "stopped",
+  error: "ended on an error",
+  pending: "no reply yet",
+  unknown: "unknown end",
 };
 
 // Live voice output (issue #807): phase → the existing composer phase label.
-const LIVE_PHASE_TITLE: Record<LiveDisplayPhase, MessageKey> = {
-  connecting: "composer.live.phaseConnecting",
-  listening: "composer.live.phaseListening",
-  working: "composer.live.phaseWorking",
-  speaking: "composer.live.phaseSpeaking",
-  ready: "composer.live.phaseReady",
-  error: "composer.live.phaseError",
-};
+function livePhaseTitle(phase: LiveDisplayPhase, key: string): string {
+  switch (phase) {
+    case "connecting":
+      return "connecting…";
+    case "listening":
+      return "listening";
+    case "working":
+      return "working";
+    case "speaking":
+      return "speaking";
+    case "ready":
+      return `hold ${key} to talk`;
+    case "error":
+      return "error";
+  }
+}
 
 function absoluteTime(iso: string | null): string {
   if (!iso) return "";
@@ -269,7 +276,6 @@ export function SessionRow({
    *  gesture, so the row does not open its session. */
   onModifierClick?: (event: ReactMouseEvent<HTMLButtonElement>) => boolean;
 }) {
-  const t = useT();
   const holdLabel = useKeybindingLabel("holdToTalk");
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
@@ -341,11 +347,11 @@ export function SessionRow({
   const planTitle = (orphanSource ?? s.planImplementationSource)?.planTitle ?? null;
   const implementsNote =
     source !== null && planTitle !== null
-      ? t("sidebar.session.implementsFrom", { planTitle, sourceTitle: source.title })
+      ? `Implements “${planTitle}” from ${source.title}`
       : orphanSource !== null
-        ? t("sidebar.session.implementsUnavailable", { planTitle: orphanSource.planTitle })
+        ? `Implements “${orphanSource.planTitle}” — source unavailable`
         : null;
-  const forkNote = forkSource === null ? null : t("sidebar.session.forkOf", { title: forkSource.title });
+  const forkNote = forkSource === null ? null : `Fork of “${forkSource.title}”`;
 
   // Issue #938: the tile's extra lines. Slim rows skip the derivations.
   const slim = density === "slim";
@@ -366,8 +372,8 @@ export function SessionRow({
   const lockMark = s.private ? (
     <span
       role="img"
-      aria-label={t("session.badge.private")}
-      title={t("session.badge.private")}
+      aria-label="private — this session writes no memories or lessons"
+      title="private — this session writes no memories or lessons"
       className="shrink-0 self-center text-ink-faint"
     >
       <IconLock />
@@ -378,8 +384,8 @@ export function SessionRow({
     typeof s.pinnedAtMs === "number" ? (
       <span
         role="img"
-        aria-label={t("sidebar.session.pinned")}
-        title={t("sidebar.session.pinned")}
+        aria-label="Pinned"
+        title="Pinned"
         className="shrink-0 self-center text-ink-faint"
       >
         <IconPin />
@@ -389,14 +395,14 @@ export function SessionRow({
   // host publishes no scheduledPrompt — absent is none.
   const nextRunAtMs = s.scheduledPrompt?.nextRunAtMs ?? null;
   const scheduleLabel =
-    nextRunAtMs === null ? null : t("sidebar.session.nextRun", { when: formatSnoozeUntil(nextRunAtMs, new Date(), localeTag()) });
+    nextRunAtMs === null ? null : `next run ${formatSnoozeUntil(nextRunAtMs, new Date())}`;
   const clockMark =
     s.scheduledPrompt != null ? (
       <span
         role="img"
         data-schedule-mark
-        aria-label={scheduleLabel ?? t("sidebar.session.scheduled")}
-        title={scheduleLabel ?? t("sidebar.session.scheduled")}
+        aria-label={scheduleLabel ?? "scheduled prompt"}
+        title={scheduleLabel ?? "scheduled prompt"}
         className="shrink-0 self-center text-ink-faint"
       >
         <IconClock />
@@ -408,17 +414,17 @@ export function SessionRow({
         role="img"
         aria-label={
           liveBadge === "armed"
-            ? t("sidebar.session.liveVoiceArmed")
+            ? "live voice: ready — resume by viewing"
             : liveBadge === "pending"
-              ? t("sidebar.session.liveVoicePending")
-              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge], { key: holdLabel }) })
+              ? "live voice: results waiting"
+              : `Live voice: ${livePhaseTitle(liveBadge, holdLabel)}`
         }
         title={
           liveBadge === "armed"
-            ? t("sidebar.session.liveVoiceArmed")
+            ? "live voice: ready — resume by viewing"
             : liveBadge === "pending"
-              ? t("sidebar.session.liveVoicePending")
-              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge], { key: holdLabel }) })
+              ? "live voice: results waiting"
+              : `Live voice: ${livePhaseTitle(liveBadge, holdLabel)}`
         }
         className={cn(
           "shrink-0 self-center",
@@ -444,7 +450,7 @@ export function SessionRow({
   // and the exit word says what it describes on hover.
   const exitWord =
     showPersistedStatus && s.status !== null
-      ? { label: t(EXIT_WORD[s.status] ?? "sidebar.exit.unknown"), title: t("sidebar.exit.title") }
+      ? { label: EXIT_WORD[s.status] ?? "unknown end", title: "Every settled session resumes where it left off. This is how the last saved turn ended." }
       : null;
 
   // The one meta line (round-2 judge): both densities read a single 12px
@@ -457,14 +463,14 @@ export function SessionRow({
     // judge): the absence of a live tile is the fact, and Settled says it.
     // Only a coloured state earns a word on a slim row; the neutral one is
     // exactly what the section heading already conveys.
-    if (face.tone !== "neutral") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
+    if (face.tone !== "neutral") meta.push(<span className={face.textClass}>{face.label}</span>);
     if (when !== "") meta.push(<span title={absoluteTime(s.cachedModified)}>{when}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
-    if (forkNote !== null) meta.push(<span title={forkNote}>{t("sidebar.session.forkChip")}</span>);
+    if (forkNote !== null) meta.push(<span title={forkNote}>fork</span>);
     if (dispatchParent !== null) {
       meta.push(
-        <span title={t("sidebar.dispatch.dispatchedBy", { title: dispatchParent.session.title })}>
-          {t("sidebar.dispatch.slimMeta")}
+        <span title={`Dispatched by “${dispatchParent.session.title}”`}>
+          ↳ dispatched
         </span>,
       );
     }
@@ -472,16 +478,16 @@ export function SessionRow({
     // A dormant record surfaced as a tile (Snoozed) is still "no process";
     // that word never prints on the meta line (round-2 judge). Every other
     // state keeps its coloured word — the state channel is colour, not size.
-    if (sidebarState !== "dormant") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
+    if (sidebarState !== "dormant") meta.push(<span className={face.textClass}>{face.label}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
   }
   if (slim) {
-    meta.push(project?.name ?? t("sidebar.session.chat"));
+    meta.push(project?.name ?? "chat");
   }
   if (s.worktree) meta.push(<span title={s.worktree.path}>⎇ {s.worktree.branch}</span>);
   if (slim && instanceNickname) {
     meta.push(
-      <span title={t("sidebar.session.machine", { machine: instanceNickname })}>{instanceNickname}</span>,
+      <span title={`on ${instanceNickname}`}>{instanceNickname}</span>,
     );
   }
   // The model rides the meta line, proportional like every display name
@@ -495,8 +501,8 @@ export function SessionRow({
   // separates it from the model name.
   if (!slim && s.thinkingLevel !== null) {
     meta.push(
-      <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : undefined}>
-        {t("sidebar.session.thinkingMeta", { level: s.thinkingLevel })}
+      <span title={thinkingAuto ? "omp classifies each prompt's thinking depth (auto)" : undefined}>
+        {`${s.thinkingLevel} thinking`}
       </span>,
     );
   }
@@ -505,8 +511,8 @@ export function SessionRow({
     s.snoozed !== true
       ? null
       : s.snoozedUntilMs === null
-        ? t("sidebar.session.snoozed")
-        : t("sidebar.session.snoozedUntil", { when: formatSnoozeUntil(s.snoozedUntilMs, new Date(), localeTag()) });
+        ? "snoozed"
+        : `snoozed until ${formatSnoozeUntil(s.snoozedUntilMs, new Date())}`;
   if (snoozedLabel !== null) meta.push(snoozedLabel);
   if (scheduleLabel !== null) meta.push(scheduleLabel);
 
@@ -552,7 +558,7 @@ export function SessionRow({
       {!slim && (
         <span
           aria-hidden
-          title={t(face.titleKey)}
+          title={face.title}
           className={cn(
             "absolute inset-y-1.5 left-0 w-0.5 rounded-full transition-colors",
             TONE_DOT[face.tone],
@@ -582,7 +588,7 @@ export function SessionRow({
         data-multi-selected={multiSelected ? "true" : undefined}
         title={
           missing && !strandedSettle
-            ? t("sidebar.session.missingHint")
+            ? "session files are gone from disk — delete the record"
             : [s.title, implementsNote, forkNote].filter((x) => x !== null).join(" — ")
         }
         // Shift+click extends the selection: keep the browser from also
@@ -662,17 +668,17 @@ export function SessionRow({
         {!slim && (planMode || impl || forkSource !== null || orphanSource !== null || handoff?.hasDescendants) && (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
             {planMode && (
-              <Chip tone="iris" title={t("hud.mode.planDescription")}>
-                {t("sidebar.session.planChip")}
+              <Chip tone="iris" title="plan mode: read-only exploration — a plan is drafted and reviewed only when you ask">
+                plan
               </Chip>
             )}
-            {impl && <Chip title={implementsNote ?? undefined}>{t("sidebar.session.implChip")}</Chip>}
-            {forkSource !== null && <Chip title={forkNote ?? undefined}>{t("sidebar.session.forkChip")}</Chip>}
+            {impl && <Chip title={implementsNote ?? undefined}>impl</Chip>}
+            {forkSource !== null && <Chip title={forkNote ?? undefined}>fork</Chip>}
             {orphanSource !== null && (
-              <span className="shrink-0 text-ink-faint">{t("sidebar.session.sourceUnavailable")}</span>
+              <span className="shrink-0 text-ink-faint">source unavailable</span>
             )}
             {handoff?.hasDescendants ? (
-              <span className="shrink-0 text-ink-faint">{t("sidebar.session.planSource")}</span>
+              <span className="shrink-0 text-ink-faint">plan source</span>
             ) : null}
           </span>
         )}
@@ -683,7 +689,7 @@ export function SessionRow({
             className="mt-1.5 line-clamp-2 break-words border-l-2 border-iris-dim/60 pl-2 text-xs leading-snug text-ink-mid"
           >
             <span className="mr-1 text-xs uppercase tracking-wide text-iris">
-              {t(quote.kind === "plan" ? "sidebar.session.quotePlan" : "sidebar.session.quoteQuestion")}
+              {quote.kind === "plan" ? "plan ready" : "question"}
             </span>
             {quote.text}
           </span>
@@ -696,7 +702,7 @@ export function SessionRow({
       <div className="pointer-events-none absolute top-1 right-1 flex items-center gap-0.5 rounded-md border border-line bg-raised p-0.5 opacity-0 transition-opacity duration-150 group-hover/row:pointer-events-auto group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
         {source !== null && (
           <IconButton
-            label={t("sidebar.session.openPlanning")}
+            label="open planning session"
             onClick={() => void openSession(source.tabId)}
           >
             <IconPlan />
@@ -704,7 +710,7 @@ export function SessionRow({
         )}
         {forkSource !== null && (
           <IconButton
-            label={t("sidebar.session.openForkSource")}
+            label="open original session"
             onClick={() => void openSession(forkSource.tabId)}
           >
             <IconFork />
@@ -712,7 +718,7 @@ export function SessionRow({
         )}
         {dispatchParent !== null && (
           <IconButton
-            label={t("sidebar.dispatch.openParent")}
+            label="open dispatching session"
             onClick={() => {
               void openSession(dispatchParent.session.tabId);
               onActivate?.();
@@ -723,14 +729,14 @@ export function SessionRow({
         )}
         {firstPr !== undefined && (
           <IconButton
-            label={t("pullRequest.chip.openNamed", { number: firstPr.number, state: t(pullRequestFace(firstPr).labelKey) })}
+            label={`Open pull request #${firstPr.number} (${pullRequestFace(firstPr).label})`}
             onClick={() => openPullRequest(firstPr)}
           >
             <IconPullRequest />
           </IconButton>
         )}
         {settleable && (
-          <IconButton label={t("sidebar.session.settle")} onClick={() => void settleSessions([s.tabId])}>
+          <IconButton label="settle (done with this — moves to Settled)" onClick={() => void settleSessions([s.tabId])}>
             <IconSettle />
           </IconButton>
         )}
@@ -740,18 +746,18 @@ export function SessionRow({
             tone="signal"
             variant="outline"
             onClick={() => void resumeDead(s.tabId)}
-            title={t("sidebar.session.resumeTitle", { title: s.title })}
+            title={`resume ${s.title}`}
           >
-            {t("sidebar.session.resume")}
+            Resume
           </Button>
         ) : null}
         <IconButton
           label={
             s.live === "live"
-              ? t("sidebar.session.stopDelete")
+              ? "stop the agent and delete this session"
               : noFiles
-                ? t("sidebar.session.deleteRecord")
-                : t("sidebar.session.deleteFiles")
+                ? "delete this session's record"
+                : "delete session and its files"
           }
           tone="rose"
           onClick={() => void deleteSession(s.tabId)}

@@ -33,7 +33,7 @@ export function snoozePresets(now: Date): { preset: SnoozePreset; untilMs: numbe
  * The row's "until …" label: weekday and 24-hour time inside the coming
  * week ("Tue 09:00"), month and day beyond it ("Nov 12 09:00").
  */
-export function formatSnoozeUntil(untilMs: number, now: Date, locale: string): string {
+export function formatSnoozeUntil(untilMs: number, now: Date, locale = "en"): string {
   const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(untilMs);
   const withinWeek = untilMs - now.getTime() < 6 * 86_400_000;
   const day = new Intl.DateTimeFormat(

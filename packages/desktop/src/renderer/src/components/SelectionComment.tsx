@@ -7,7 +7,6 @@ import {
   type Annotation,
 } from "../lib/annotations";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { Button, IconPencil, Panel } from "./ui";
 
@@ -63,7 +62,6 @@ export function SelectionCommentButton({
   anchor: SelectionButtonAnchor;
   onComment: () => void;
 }) {
-  const t = useT();
   const button = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -111,8 +109,8 @@ export function SelectionCommentButton({
       ref={button}
       type="button"
       data-selection-comment
-      aria-label={t("annotation.comment.button")}
-      title={t("annotation.comment.button")}
+      aria-label="comment"
+      title="comment"
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onComment}
@@ -120,7 +118,7 @@ export function SelectionCommentButton({
       style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position === null ? "hidden" : undefined }}
     >
       <IconPencil className="size-3" />
-      {t("annotation.comment.button")}
+      comment
     </button>,
     document.body,
   );
@@ -139,7 +137,6 @@ export function SelectionCommentPopover({
   onSave: (annotation: Annotation) => void;
   onClose: () => void;
 }) {
-  const t = useT();
   const panel = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [comment, setComment] = useState("");
@@ -167,7 +164,7 @@ export function SelectionCommentPopover({
     <div
       ref={panel}
       role="dialog"
-      aria-label={t("annotation.comment.title")}
+      aria-label="comment on the selection"
       className={cn(
         "fixed z-50 mt-1 w-80 max-w-[calc(100vw-1rem)]",
         anchor.x > window.innerWidth / 2 && "-translate-x-full",
@@ -186,18 +183,18 @@ export function SelectionCommentPopover({
           ref={field}
           rows={2}
           value={comment}
-          placeholder={t("annotation.comment.placeholder")}
-          aria-label={t("annotation.comment.title")}
+          placeholder="your comment (optional) — enter saves, shift+enter adds a line"
+          aria-label="comment on the selection"
           onChange={(event) => setComment(event.target.value)}
           onKeyDown={onKeyDown}
           className="block w-full resize-none rounded border border-line bg-raised px-2 py-1.5 text-xs leading-relaxed text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none"
         />
         <div className="flex items-center justify-end gap-1.5">
           <Button size="xs" variant="ghost" onClick={onClose}>
-            {t("annotation.comment.cancel")}
+            cancel
           </Button>
           <Button size="xs" variant="solid" tone="signal" onClick={save}>
-            {t("annotation.comment.save")}
+            add
           </Button>
         </div>
       </Panel>

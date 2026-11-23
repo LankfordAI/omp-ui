@@ -1,7 +1,6 @@
 import { Fragment, useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
 import { MAX_PROJECT_FILES } from "@omp-ui/core/project-files-limit";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { deriveDirs } from "../lib/mentions";
 import { Chip, Label } from "./ui";
@@ -86,7 +85,6 @@ export function MentionPalette({
   onClose(): void;
   ref?: Ref<MentionPaletteHandle>;
 }) {
-  const t = useT();
 
   const rows = useMemo(() => {
     const sessionRows: Row[] = [];
@@ -150,7 +148,7 @@ export function MentionPalette({
     return (
       <div className={cn(shell, "px-3 py-2.5")}>
         <p className="text-xs text-ink-dim">
-          {t("composer.mention.noMatch")} <span className="font-mono text-ink-mid">@{query}</span>
+          no file matches <span className="font-mono text-ink-mid">@{query}</span>
         </p>
       </div>
     );
@@ -164,7 +162,7 @@ export function MentionPalette({
         <Fragment key={row.kind === "file" ? row.path : `${row.kind}:${row.tabId}`}>
           {row.kind !== "file" && (i === 0 || rows[i - 1]!.kind !== row.kind) && (
             <div className="px-3 pb-0.5 pt-1">
-              <Label>{t(row.kind === "artifact" ? "composer.mention.artifacts" : "composer.mention.sessions")}</Label>
+              <Label>{row.kind === "artifact" ? "Artifacts" : "sessions"}</Label>
             </div>
           )}
           {i === firstFile && firstFile > 0 && <div className="my-1 border-t border-line" />}
@@ -189,13 +187,13 @@ export function MentionPalette({
                 </span>
               ))}
             </span>
-            {row.isDir && <Chip>{t("composer.mention.dir")}</Chip>}
+            {row.isDir && <Chip>dir</Chip>}
           </button>
         </Fragment>
       ))}
       {truncated && (
         <div className="border-t border-line px-3 pb-1 pt-1.5">
-          <Label>{t("composer.mention.capped", { n: CAP_LABEL })}</Label>
+          <Label>{`listing capped at ${CAP_LABEL} files — keep typing to narrow`}</Label>
         </div>
       )}
     </PaletteList>

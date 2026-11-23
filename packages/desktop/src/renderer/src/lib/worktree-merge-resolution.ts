@@ -1,6 +1,5 @@
 import type { UiStore } from "../store/types";
 import { findOwner, sessionCwd } from "../store/slices/view";
-import { t } from "./i18n";
 
 /** The Finish dialog and dispatch action share the same live-checkout guard. */
 export function worktreeMergeResolutionState(
@@ -23,7 +22,7 @@ export function worktreeMergeResolutionState(
       rpc?.planReview != null || rpc?.approvalPrompt != null ||
       rpc?.experimentProposal != null || (rpc?.extensionQueue.length ?? 0) > 0
     ) {
-      return { route, blockedReason: t("finish.resolution.blockedAnswer") };
+      return { route, blockedReason: "This session is waiting for a human answer — answer it before asking the agent to resolve the merge." };
     }
     if (
       tab?.mode !== "rpc-ui" || tab.instanceId !== instanceId || tab.projectCwd !== record.projectCwd ||
@@ -31,14 +30,14 @@ export function worktreeMergeResolutionState(
       rpc.busy || rpc.compacting !== undefined || rpc.session.isStreaming ||
       rpc.session.isCompacting || rpc.session.queuedMessageCount > 0
     ) {
-      return { route, blockedReason: t("finish.resolution.blockedSource") };
+      return { route, blockedReason: "This session is busy or not ready to accept a resolution request — wait until it is ready." };
     }
   }
   for (const tab of s.tabs) {
     if (tab.tabId === tabId || tab.mode !== "rpc-ui" || s.rpc[tab.tabId]?.status !== "running") continue;
     const target = findOwner(s.state, tab.tabId);
     if (target?.instanceId === instanceId && sessionCwd(target.record) === record.projectCwd) {
-      return { route, blockedReason: t("finish.resolution.blockedTarget", { title: target.record.title }), blockedByTabId: tab.tabId };
+      return { route, blockedReason: `Session “${target.record.title}” is mid-turn in the project checkout — wait for it to finish or stop that turn before resolving its merge.`, blockedByTabId: tab.tabId };
     }
   }
   return { route, blockedReason: null };

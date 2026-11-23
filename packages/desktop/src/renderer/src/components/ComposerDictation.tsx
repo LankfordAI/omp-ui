@@ -1,6 +1,5 @@
 import { IconButton, IconClose, IconMic } from "./ui";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import type { Dictation } from "../lib/use-dictation";
 
@@ -20,18 +19,17 @@ export function DictationControl({
   /** The hook instance owned by the Composer, shared with its Escape branch. */
   voice: Dictation;
 }) {
-  const t = useT();
   const holdLabel = useKeybindingLabel("holdToTalk");
   if (!voice.supported) return null;
   const recording = voice.phase === "recording";
   const label =
     voice.phase === "requesting"
-      ? t("composer.dictation.requesting")
+      ? "opening the microphone…"
       : voice.phase === "transcribing"
-        ? t("composer.dictation.transcribing")
+        ? "transcribing…"
         : recording
-          ? t("composer.dictation.recording", { seconds: voice.seconds, key: holdLabel })
-          : t("composer.dictation.start", { key: holdLabel });
+          ? `recording — ${voice.seconds}s, release ${holdLabel} or click to stop`
+          : `dictate a message (hold ${holdLabel})`;
   return (
     <IconButton
       label={label}
@@ -48,7 +46,6 @@ export function DictationControl({
 
 /** The inline strip beside the composer's other error rows. */
 export function DictationStrip({ voice }: { voice: Dictation }) {
-  const t = useT();
   if (voice.phase !== "error" || voice.error === null) return null;
   return (
     <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
@@ -59,7 +56,7 @@ export function DictationStrip({ voice }: { voice: Dictation }) {
       <span className="min-w-0 flex-1 break-words" data-selectable>
         {voice.error}
       </span>
-      <IconButton label={t("composer.dictation.dismiss")} onClick={voice.dismissError}>
+      <IconButton label="dismiss dictation message" onClick={voice.dismissError}>
         <IconClose className="size-3" />
       </IconButton>
     </div>

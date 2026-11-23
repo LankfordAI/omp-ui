@@ -7,7 +7,6 @@ import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { useActionHotkeys, useKeybindingOverrides } from "../lib/keybindings";
 import { effectiveChord } from "@omp-ui/core/keybindings";
-import { currentLocaleId, useT } from "../lib/i18n";
 import { canSettle, deriveSidebarSessionState, findOwner, findRecord, isChatTab, sessionCwd, useStore, type SidebarSessionState } from "../store";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
@@ -123,8 +122,6 @@ export function CommandPalette() {
   const openArtifacts = useStore((s) => s.openArtifacts);
   const openRoutines = useStore((s) => s.openRoutines);
   const openNewSessionDialog = useStore((s) => s.openNewSessionDialog);
-  const t = useT();
-  const localeId = currentLocaleId();
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -168,7 +165,7 @@ export function CommandPalette() {
       sessions.push({
         action: {
           id: `session:${s.tabId}`,
-          group: t("palette.group.sessions"),
+          group: "Sessions",
           name: s.title,
           desc,
           dot: face.tone,
@@ -182,7 +179,7 @@ export function CommandPalette() {
     for (const group of state?.projects ?? []) {
       for (const s of group.sessions) pushSession(s, group.project.name);
     }
-    for (const s of state?.chats ?? []) pushSession(s, t("palette.chat.desc"));
+    for (const s of state?.chats ?? []) pushSession(s, "Chat");
     // Stable sort: rank wins, then newest open; equal stamps keep source
     // order. Never subtract: -Infinity - -Infinity is NaN (the sidebar's rule).
     sessions.sort((a, b) =>
@@ -199,8 +196,8 @@ export function CommandPalette() {
     for (const group of state?.projects ?? []) {
       out.push({
         id: `new:${group.project.path}`,
-        group: t("palette.group.projects"),
-        name: t("palette.action.newSession", { name: group.project.name }),
+        group: "Projects",
+        name: `New session in ${group.project.name}`,
         desc: group.project.path,
         run: () => void newSession(group.project.path),
       });
@@ -211,8 +208,8 @@ export function CommandPalette() {
       for (const group of state?.projects ?? []) {
         out.push({
           id: `project:experiment:${group.project.path}`,
-          group: t("palette.group.projects"),
-          name: t("palette.action.newExperiment", { name: group.project.name }),
+          group: "Projects",
+          name: `New experiment in ${group.project.name}`,
           desc: group.project.path,
           run: () => openExperimentDialog(group.project.path, null),
         });
@@ -220,22 +217,22 @@ export function CommandPalette() {
     }
     out.push({
       id: "add-project",
-      group: t("palette.group.projects"),
-      name: t("palette.action.addProject"),
-      desc: t("palette.action.addProjectDesc"),
+      group: "Projects",
+      name: "Add project…",
+      desc: "pick a directory to track",
       run: () => openProjectPicker(),
     });
     out.push(
       {
         id: "chat:new",
-        group: t("palette.group.chats"),
-        name: t("palette.action.newChat"),
+        group: "Chats",
+        name: "New chat",
         run: () => void newChat(),
       },
       {
         id: "chat:new-private",
-        group: t("palette.group.chats"),
-        name: t("palette.action.newPrivateChat"),
+        group: "Chats",
+        name: "New private chat",
         run: () => void newChat({ private: true }),
       },
     );
@@ -244,50 +241,50 @@ export function CommandPalette() {
     // open it unpinned.
     out.push({
       id: "app:capabilities",
-      group: t("palette.group.app"),
-      name: t("palette.action.capabilities"),
-      desc: t("palette.action.capabilitiesDesc"),
+      group: "App",
+      name: "View capabilities",
+      desc: "global MCP servers, skills, and tools settings",
       run: () => openCapabilitiesViewer(null, undefined, "mcp"),
     });
     if (experimentsEnabled) {
       out.push({
         id: "app:lab",
-        group: t("palette.group.app"),
-        name: t("palette.action.lab"),
-        desc: t("palette.action.labDesc"),
+        group: "App",
+        name: "Open the Lab",
+        desc: "every project's autoresearch experiments",
         run: () => openLab(null, null),
       });
     }
-    if (state?.artifactLibraryEnabled === true) out.push({ id: "app:artifacts", group: t("palette.group.app"), name: t("artifacts.title"), desc: t("artifacts.paletteHint"), run: () => openArtifacts() });
+    if (state?.artifactLibraryEnabled === true) out.push({ id: "app:artifacts", group: "App", name: "Artifacts", desc: "Browse kept artifacts, exact versions, and saved data", run: () => openArtifacts() });
     if (state?.routinesEnabled === true) {
       out.push({
         id: "app:routines",
-        group: t("palette.group.app"),
-        name: t("palette.action.routines"),
-        desc: t("palette.action.routinesDesc"),
+        group: "App",
+        name: "Open Routines",
+        desc: "host-local scheduled sessions and tool policies",
         run: () => openRoutines(),
       });
     }
     out.push({
       id: "app:stats",
-      group: t("palette.group.app"),
-      name: t("palette.action.stats"),
-      desc: t("palette.action.statsDesc"),
+      group: "App",
+      name: "Open Stats",
+      desc: "cross-session model, tool, and Project usage",
       run: () => openStats(),
     });
     out.push({
       id: "app:fleet",
-      group: t("palette.group.app"),
-      name: t("palette.action.fleet"),
-      desc: t("palette.action.fleetDesc"),
+      group: "App",
+      name: "Open Fleet",
+      desc: "this app and every joined instance as places to start work",
       run: () => openFleet(),
     });
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     out.push({
       id: "app:fleetDispatch",
-      group: t("palette.group.app"),
-      name: t("palette.action.fleetDispatch"),
-      desc: t("palette.action.fleetDispatchDesc"),
+      group: "App",
+      name: "Dispatch fleet work",
+      desc: "start fresh sessions on one or more fleet machines",
       run: () => {
         openFleet();
         openNewSessionDialog({ where: "fleet" });
@@ -295,34 +292,34 @@ export function CommandPalette() {
     });
     out.push({
       id: "app:newSession",
-      group: t("palette.group.app"),
-      name: t("palette.action.newSessionDialog"),
-      desc: t("palette.action.newSessionDialogDesc"),
+      group: "App",
+      name: "New session…",
+      desc: "start a session here or on the fleet, with an optional first prompt",
       run: () => openNewSessionDialog({ projectCwd: tab?.projectCwd ?? null, instanceId: tab?.instanceId ?? null }),
     });
     // Undo settle (issue #980): the palette twin of the toast's Undo button.
     if (settleUndoCount > 0) {
       out.push({
         id: "app:undoSettle",
-        group: t("palette.group.app"),
-        name: t("palette.action.undoSettle"),
-        desc: t("palette.action.undoSettleDesc"),
+        group: "App",
+        name: "Undo settle",
+        desc: "resume the most recently settled session(s)",
         hint: effectiveChord(keybindings, "undoSettle"),
         run: () => void undoSettle(),
       });
     }
 
     if (tab) {
-      const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
+      const title = findRecord(state, tab.tabId)?.title ?? "this session";
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
       // Settle (#980, #1005): any live session; a running turn confirms first.
       const rec = findRecord(state, tab.tabId);
       if (rec !== undefined && canSettle(rec, state?.snoozedSectionEnabled === true)) {
         out.push({
           id: "session:settle",
-          group: t("palette.group.session"),
-          name: t("palette.action.settle"),
-          desc: t("palette.action.settleDesc", { title }),
+          group: "Session",
+          name: "Settle session",
+          desc: `${title} — done with it; moves to Settled`,
           run: () => void settleSessions([tab.tabId]),
         });
       }
@@ -330,9 +327,9 @@ export function CommandPalette() {
       if (rec?.mode === "rpc-ui") {
         out.push({
           id: "session:schedule",
-          group: t("palette.group.session"),
-          name: t(rec.scheduledPrompt != null ? "palette.action.editSchedule" : "palette.action.schedule"),
-          desc: t("palette.action.scheduleDesc", { title }),
+          group: "Session",
+          name: rec.scheduledPrompt != null ? "Edit scheduled prompt…" : "Schedule a prompt…",
+          desc: `${title} — send a prompt at a time or on a recurring schedule`,
           run: () => openScheduleDialog(tab.tabId),
         });
       }
@@ -340,9 +337,9 @@ export function CommandPalette() {
       if (!isChatTab(state, tab.tabId)) {
         out.push({
           id: "session:mode",
-          group: t("palette.group.session"),
-          name: t("palette.action.switchMode", { mode: other === "pty" ? "terminal" : "native" }),
-          desc: t("palette.action.switchModeDesc", { title }),
+          group: "Session",
+          name: `Switch to ${other === "pty" ? "terminal" : "native"} mode`,
+          desc: `${title} — restarts the process`,
           run: () => void switchMode(tab.tabId, other),
         });
       }
@@ -352,35 +349,35 @@ export function CommandPalette() {
         out.push(
           {
             id: "session:retitle",
-            group: t("palette.group.session"),
-            name: t("palette.action.retitle"),
-            desc: t("palette.action.retitleDesc", { title }),
+            group: "Session",
+            name: "Regenerate session title",
+            desc: `${title} — re-titled from the transcript`,
             run: () => void regenerateSessionTitle(tab.tabId),
           },
           // The browser pane (issue #519) is native-only too: a terminal tab
           // has no rpc channel for main to attach the page to.
           {
             id: "session:browser-pane",
-            group: t("palette.group.session"),
-            name: t("palette.action.browserPane"),
-            desc: t("palette.action.browserPaneDesc", { title }),
+            group: "Session",
+            name: "Toggle browser pane",
+            desc: `${title} — the shared page beside the transcript`,
             run: () => toggleBrowserPane(tab.tabId),
           },
           // The device pane (issue #1006) binds an emulator to the same rpc tab.
           {
             id: "session:device-pane",
-            group: t("palette.group.session"),
-            name: t("palette.action.devicePane"),
-            desc: t("palette.action.devicePaneDesc", { title }),
+            group: "Session",
+            name: "Toggle device pane",
+            desc: `${title} — the Android emulator beside the transcript`,
             run: () => toggleDevicePane(tab.tabId),
           },
           // omp's /share rides this tab's own prompt channel (issue #679); a
           // terminal tab's TUI owns the command itself, so no row there.
           {
             id: "session:share",
-            group: t("palette.group.session"),
-            name: t("palette.action.share"),
-            desc: t("palette.action.shareDesc", { title }),
+            group: "Session",
+            name: "Share session",
+            desc: `${title} — an encrypted link to the transcript`,
             run: () => void shareSession(tab.tabId),
           },
         );
@@ -392,9 +389,9 @@ export function CommandPalette() {
       if (owner?.instanceId === null && owner.record.sessionId !== null && owner.record.live !== "missing") {
         out.push({
           id: "session:ask",
-          group: t("palette.group.session"),
-          name: t("palette.action.ask"),
-          desc: t("palette.action.askDesc", { title }),
+          group: "Session",
+          name: "Ask about this session",
+          desc: `${title} — a new chat with its summary pinned`,
           run: () => void askAboutSession(tab.tabId),
         });
       }
@@ -402,12 +399,12 @@ export function CommandPalette() {
       // so both tab modes qualify — only the binary's version gates the row.
       out.push({
         id: "session:anonymize",
-        group: t("palette.group.session"),
-        name: t("palette.action.anonymize"),
-        desc: t("palette.action.anonymizeDesc", { title }),
+        group: "Session",
+        name: "Share anonymized",
+        desc: `${title} — a redacted copy written beside the transcripts`,
         disabledHint: supportsAnonymize(ompInstalled)
           ? undefined
-          : t("palette.action.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP }),
+          : `this omp has no anonymize — update omp to ${ANONYMIZE_MIN_OMP} or later`,
         run: () => void anonymizeSession(tab.tabId),
       });
       // Live sharing (issue #686) is omp's /collab, which lives in the TUI:
@@ -415,12 +412,9 @@ export function CommandPalette() {
       // plainly instead of pretending an off switch it does not have.
       out.push({
         id: "session:share-live",
-        group: t("palette.group.session"),
-        name: t("palette.action.shareLive"),
-        desc: t(
-          tab.mode === "pty" ? "palette.action.shareLiveDesc" : "palette.action.shareLiveDescNative",
-          { title },
-        ),
+        group: "Session",
+        name: "Share live",
+        desc: tab.mode === "pty" ? `${title} — a live Collab room from this terminal` : `${title} — live sharing needs a terminal tab`,
         run: () => openShareLive(tab.tabId),
       });
       // The session-pinned viewer (#379's door): live roster, session-local
@@ -431,9 +425,9 @@ export function CommandPalette() {
       if (scopeCwd !== undefined && tab.mode === "rpc-ui") {
         out.push({
           id: "session:capabilities",
-          group: t("palette.group.session"),
-          name: t("palette.action.capabilitiesSession"),
-          desc: t("palette.action.capabilitiesSessionDesc"),
+          group: "Session",
+          name: "Capabilities for this session",
+          desc: "what this live session loaded — roster, session-local switches, MCP runtime status",
           run: () => openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp"),
         });
       }
@@ -442,9 +436,9 @@ export function CommandPalette() {
       if (tab.mode === "rpc-ui" && findRecord(state, tab.tabId)?.live === "live") {
         out.push({
           id: "session:tree",
-          group: t("palette.group.session"),
-          name: t("palette.action.sessionTree"),
-          desc: t("palette.action.sessionTreeDesc", { title }),
+          group: "Session",
+          name: "Session tree",
+          desc: `rewind to a prompt or jump between branches of ${title}`,
           run: () => openSessionTreeView(tab.tabId),
         });
       }
@@ -452,43 +446,43 @@ export function CommandPalette() {
 
     out.push({
       id: "app:check-updates",
-      group: t("palette.group.app"),
-      name: t("palette.action.checkApp"),
-      desc: t("palette.action.checkAppDesc"),
+      group: "App",
+      name: "Check for updates",
+      desc: "look for a newer omp-ui release",
       run: () => void checkAppUpdate(),
     });
     out.push({
       id: "app:settings",
-      group: t("palette.group.app"),
-      name: t("palette.action.settings"),
-      desc: t("palette.action.settingsDesc"),
+      group: "App",
+      name: "Settings…",
+      desc: "appearance, updates, and omp configuration",
       hint: effectiveChord(keybindings, "openSettings"),
       run: () => openSettings(),
     });
     out.push({
       id: "app:getting-started",
-      group: t("palette.group.app"),
-      name: t("app.gettingstarted.palette"),
-      desc: t("app.gettingstarted.subtitle"),
+      group: "App",
+      name: "Getting started checklist",
+      desc: "Four steps to your first session, plus a Python readiness check. Status updates as you go.",
       run: () => openGettingStarted(),
     });
     out.push({
       id: "app:export-diagnostics",
-      group: t("palette.group.app"),
-      name: t("palette.action.exportDiagnostics"),
-      desc: t("palette.action.exportDiagnosticsDesc"),
+      group: "App",
+      name: "Export diagnostic bundle…",
+      desc: "package logs and breadcrumbs into a zip",
       run: () => openDiagnosticsDialog(),
     });
     out.push({
       id: "omp:check-updates",
-      group: t("palette.group.app"),
-      name: t("palette.action.checkOmp"),
-      desc: t("palette.action.checkOmpDesc"),
+      group: "App",
+      name: "Check for omp updates",
+      desc: "look for a newer omp release",
       run: () => void checkOmpUpdate(),
     });
 
     return out;
-  }, [state, rpcTabs, unread, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openArtifacts, openRoutines, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, rpcTabs, unread, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openArtifacts, openRoutines, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
@@ -545,7 +539,7 @@ export function CommandPalette() {
           ref={inputRef}
           value={query}
           spellCheck={false}
-          placeholder={t("palette.search.placeholder")}
+          placeholder="Search sessions, projects, actions…"
           onChange={(e) => {
             setQuery(e.target.value);
           }}
@@ -557,7 +551,7 @@ export function CommandPalette() {
 
       <PaletteList>
         {results.length === 0 && (
-          <PaletteEmpty title={t("palette.empty.title")} hint={t("palette.empty.hint")} />
+          <PaletteEmpty title="Nothing matches" hint="Try fewer letters — matching is fuzzy, not exact." />
         )}
         {results.map(({ action, hits }, i) => {
           const header = action.group === lastGroup ? null : action.group;
@@ -656,13 +650,13 @@ export function CommandPalette() {
       <div className="flex items-center gap-1.5 border-t border-line px-3.5 py-2 text-sm text-ink-faint">
         <Chip mono>{formatHotkey("arrowup")}</Chip>
         <Chip mono>{formatHotkey("arrowdown")}</Chip>
-        <span className="mr-1.5">{t("palette.footer.navigate")}</span>
+        <span className="mr-1.5">navigate</span>
         <Chip mono>{formatHotkey("enter")}</Chip>
-        <span className="mr-1.5">{t("palette.footer.run")}</span>
+        <span className="mr-1.5">run</span>
         <Chip mono>Ctrl+N</Chip>
         <span>/</span>
         <Chip mono>Ctrl+P</Chip>
-        <span>{t("palette.footer.alsoMove")}</span>
+        <span>also move</span>
       </div>
     </Modal>
   );

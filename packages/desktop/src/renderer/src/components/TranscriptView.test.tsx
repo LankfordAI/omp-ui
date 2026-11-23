@@ -14,7 +14,6 @@ import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
-import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
@@ -728,7 +727,7 @@ describe("UserBubble copy affordances (issue #644)", () => {
 
   function copyChip(el: HTMLDivElement): HTMLButtonElement {
     const button = [...bubble(el).querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === t("common.button.copy"),
+      (b) => b.textContent === "Copy",
     );
     if (!button) throw new Error("copy chip not found");
     return button;
@@ -768,12 +767,12 @@ describe("UserBubble copy affordances (issue #644)", () => {
 
     act(() => button.click());
     await act(async () => {});
-    expect(button.textContent).toBe(t("common.button.copied"));
+    expect(button.textContent).toBe("Copied");
 
     act(() => {
       vi.advanceTimersByTime(1200);
     });
-    expect(button.textContent).toBe(t("common.button.copy"));
+    expect(button.textContent).toBe("Copy");
     act(() => root.unmount());
   });
 
@@ -787,11 +786,11 @@ describe("UserBubble copy affordances (issue #644)", () => {
     ]);
     const { el, root } = render(items);
 
-    expect(el.textContent).not.toContain(t("common.button.copy"));
+    expect(el.textContent).not.toContain("Copy");
     // The image renders as an enlarge button, so count only copy chips.
     expect(
       [...bubble(el).querySelectorAll("button")].filter(
-        (b) => b.textContent === t("common.button.copy"),
+        (b) => b.textContent === "Copy",
       ),
     ).toHaveLength(0);
     expect(el.querySelector("img")).not.toBeNull();
@@ -1364,7 +1363,7 @@ describe("command rows (slash-command parity)", () => {
     );
     expect(openLink).toBeDefined();
     expect(openLink!.getAttribute("title")).toBe("https://my.omp.sh/s/abc123#kZ9_a");
-    const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === t("common.button.copy"));
+    const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === "Copy");
     expect(copy).toBeDefined();
     act(() => root.unmount());
   });
@@ -2107,10 +2106,8 @@ describe("exchange receipts (issue #933)", () => {
 });
 
 describe("shell truncation provenance", () => {
-  afterEach(() => applyLocale(resolveLocale("en")));
 
-  it.each(["en", "ko"])("renders upstream counts and units in %s without a generic duplicate", (locale) => {
-    applyLocale(resolveLocale(locale));
+  it("renders upstream counts and units without a generic duplicate", () => {
     const { el, root } = render([{
       kind: "shell", id: "shell-provenance", command: "seq 1 200000", status: "done",
       output: "retained output", truncated: true,
@@ -2121,13 +2118,13 @@ describe("shell truncation provenance", () => {
       },
     }]);
     const text = el.textContent!;
-    expect(text).toContain(t("transcript.shell.elidedLines", { count: 123 }));
-    expect(text).toContain(t("transcript.shell.elidedBytes", { bytes: "2.0KB" }));
-    expect(text).toContain(t("transcript.shell.columnLines", { count: 7 }));
-    expect(text).toContain(t("transcript.shell.columnMax", { count: 1024 }));
-    expect(text).toContain(t("transcript.shell.columnRange", { first: 2, last: 8 }));
-    expect(text).toContain(t("transcript.shell.columnBytes", { bytes: "4.0KB" }));
-    expect(text).not.toContain(t("transcript.shell.truncated"));
+    expect(text).toContain(`omp elided ${123} lines`);
+    expect(text).toContain(`omp elided ${"2.0KB"}`);
+    expect(text).toContain(`omp column-truncated ${7} lines`);
+    expect(text).toContain(`line limit ${1024} UTF-8 bytes`);
+    expect(text).toContain(`artifact lines ${2}–${8}`);
+    expect(text).toContain(`omp dropped ${"4.0KB"} from columns`);
+    expect(text).not.toContain("output truncated");
     expect(el.querySelector("pre")?.textContent).toBe("retained output");
     act(() => root.unmount());
   });
@@ -2137,8 +2134,8 @@ describe("shell truncation provenance", () => {
       kind: "shell", id: "shell-legacy", command: "legacy", status: "done",
       output: "prefix", truncated: true, localDroppedChars: 256,
     }]);
-    expect(el.textContent).toContain(t("transcript.shell.truncated"));
-    expect(el.textContent).toContain(t("transcript.shell.localTruncated", { count: 256 }));
+    expect(el.textContent).toContain("output truncated");
+    expect(el.textContent).toContain(`omp-ui display omitted ${256} characters`);
     act(() => root.unmount());
   });
 
@@ -2155,15 +2152,14 @@ describe("shell truncation provenance", () => {
 // Issue #1205: omp ≥18.21 reports BashResult.fork when the command ran in a
 // fork of the busy session shell; the row notes what stayed behind there.
 describe("shell fork outcome notes", () => {
-  afterEach(() => applyLocale(resolveLocale("en")));
 
   it("notes carried-back state loss when carried is false", () => {
     const { el, root } = render([{
       kind: "shell", id: "shell-fork-lost", command: "export X=1", status: "done", output: "",
       fork: { carried: false, jobs: false },
     }]);
-    expect(el.textContent).toContain(t("transcript.shell.forkStateLost"));
-    expect(el.textContent).not.toContain(t("transcript.shell.forkJobs"));
+    expect(el.textContent).toContain("ran in a copy of the busy session shell — changes here won't persist");
+    expect(el.textContent).not.toContain("background jobs started here stay in that copy; later commands' jobs, wait and %N won't see them");
     act(() => root.unmount());
   });
 
@@ -2172,8 +2168,8 @@ describe("shell fork outcome notes", () => {
       kind: "shell", id: "shell-fork-jobs", command: "sleep 60 &", status: "done", output: "",
       fork: { carried: true, jobs: true },
     }]);
-    expect(el.textContent).toContain(t("transcript.shell.forkJobs"));
-    expect(el.textContent).not.toContain(t("transcript.shell.forkStateLost"));
+    expect(el.textContent).toContain("background jobs started here stay in that copy; later commands' jobs, wait and %N won't see them");
+    expect(el.textContent).not.toContain("ran in a copy of the busy session shell — changes here won't persist");
     act(() => root.unmount());
   });
 
@@ -2182,8 +2178,8 @@ describe("shell fork outcome notes", () => {
       kind: "shell", id: "shell-fork-both", command: "cd /tmp && sleep 60 &", status: "done", output: "",
       fork: { carried: false, jobs: true },
     }]);
-    expect(el.textContent).toContain(t("transcript.shell.forkStateLost"));
-    expect(el.textContent).toContain(t("transcript.shell.forkJobs"));
+    expect(el.textContent).toContain("ran in a copy of the busy session shell — changes here won't persist");
+    expect(el.textContent).toContain("background jobs started here stay in that copy; later commands' jobs, wait and %N won't see them");
     act(() => root.unmount());
   });
 
@@ -2217,10 +2213,10 @@ describe("artifact refresh cards (issue #1139)", () => {
   it("renders one card row per refresh entry plus the legacy marker", () => {
     const { el, root } = render([user({ artifactRefreshes: [entry, { ...entry, refreshRequestId: "33333333-3333-4333-8333-333333333333", title: "Roster", datasetIds: [] }] })], TAB);
     const text = el.textContent!;
-    expect((text.match(new RegExp(t("artifacts.refreshRequested"), "g")) ?? []).length).toBe(2);
+    expect((text.match(new RegExp("Data refresh requested", "g")) ?? []).length).toBe(2);
     expect(text).toContain("Budget");
     expect(text).toContain("Roster");
-    const datasetsLine = t("artifacts.refreshRequestedDatasets", { datasets: "rows, totals" });
+    const datasetsLine = `Datasets: ${"rows, totals"}`;
     expect(text).toContain(datasetsLine);
     // The second entry has no datasets: only the one datasets line exists.
     expect(text.split(datasetsLine).length - 1).toBe(1);
@@ -2232,8 +2228,8 @@ describe("artifact refresh cards (issue #1139)", () => {
   it("renders a legacy marker row without datasets or link", () => {
     liveRpcState("ready", TAB, true);
     const { el, root } = render([user({ legacyArtifactRefresh: { refreshRequestId: entry.refreshRequestId } })], TAB);
-    expect(el.textContent).toContain(t("artifacts.refreshRequested"));
-    expect(el.textContent).not.toContain(t("artifacts.openLibrary"));
+    expect(el.textContent).toContain("Data refresh requested");
+    expect(el.textContent).not.toContain("Open in library");
     expect(el.querySelector(`[title*="${entry.refreshRequestId}"]`)).not.toBeNull();
     act(() => root.unmount());
   });
@@ -2242,26 +2238,26 @@ describe("artifact refresh cards (issue #1139)", () => {
     const openArtifacts = vi.fn();
     liveRpcState("ready", TAB, true);
     const owned = render([user({ artifactRefreshes: [entry] })], TAB);
-    expect(owned.el.textContent).toContain(t("artifacts.openLibrary"));
+    expect(owned.el.textContent).toContain("Open in library");
     act(() => owned.root.unmount());
 
     // Library off: no link.
     liveRpcState("ready", TAB, false);
     const off = render([user({ artifactRefreshes: [entry] })], TAB);
-    expect(off.el.textContent).not.toContain(t("artifacts.openLibrary"));
+    expect(off.el.textContent).not.toContain("Open in library");
     act(() => off.root.unmount());
 
     // Foreign (remote-owned) tab: no library to open.
     useStore.setState({ state: remoteOwnedState(TAB, "box-a"), rpc: { [TAB]: rpcTabState() } });
     const foreign = render([user({ artifactRefreshes: [entry] })], TAB);
-    expect(foreign.el.textContent).not.toContain(t("artifacts.openLibrary"));
+    expect(foreign.el.textContent).not.toContain("Open in library");
     act(() => foreign.root.unmount());
 
     // The owned link opens the artifact's Data panel.
     liveRpcState("ready", TAB, true);
     useStore.setState({ openArtifacts });
     const linked = render([user({ artifactRefreshes: [entry] })], TAB);
-    const button = [...linked.el.querySelectorAll("button")].find((b) => b.textContent === t("artifacts.openLibrary"));
+    const button = [...linked.el.querySelectorAll("button")].find((b) => b.textContent === "Open in library");
     act(() => button!.click());
     expect(openArtifacts).toHaveBeenCalledWith({ artifactId: entry.artifactId, panel: "data" });
     act(() => linked.root.unmount());

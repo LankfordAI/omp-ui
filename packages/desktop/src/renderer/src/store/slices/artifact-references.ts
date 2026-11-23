@@ -1,6 +1,5 @@
 import type { ArtifactRefreshEntry, ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
-import { t } from "../../lib/i18n";
 import { backendFor } from "../../backend";
 import { findOwner, getNavigationGeneration } from "./view";
 import type { GetState, SetState } from "./shared";
@@ -38,7 +37,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
       const tab = get().tabs.find(candidate => candidate.tabId === tabId);
       if ((owner?.record.mode ?? tab?.mode) !== "rpc-ui") return false;
       if (reference.instanceId !== (owner?.instanceId ?? tab?.instanceId ?? null)) {
-        const message = t("artifacts.reference.wrongMachine", { machine: reference.machine });
+        const message = `Open this artifact on ${reference.machine}; cross-machine references are not supported.`;
         if (get().rpc[tabId] !== undefined) get().appendNotice(tabId, message, "warn");
         else get().reportError(message);
         return false;
@@ -98,7 +97,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
       const instanceId = owner !== undefined ? owner.instanceId : tab?.instanceId ?? null;
       const foreign = references.find(ref => ref.instanceId !== instanceId);
       if (foreign !== undefined) {
-        get().appendNotice(sourceTabId, t("artifacts.reference.wrongMachine", { machine: foreign.machine }), "warn");
+        get().appendNotice(sourceTabId, `Open this artifact on ${foreign.machine}; cross-machine references are not supported.`, "warn");
         return null;
       }
       movingDrafts.set(sourceTabId, targetTabId);
@@ -213,7 +212,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
         const movedTo = movingDrafts.get(tabId);
         if (movedTo !== undefined) return get().referenceArtifactInSession(movedTo, reference, options);
         if (identity.instanceId !== reference.ownerInstanceId) {
-          const message = t("artifacts.reference.wrongMachine", { machine: reference.machine });
+          const message = `Open this artifact on ${reference.machine}; cross-machine references are not supported.`;
           if (get().rpc[tabId] !== undefined) get().appendNotice(tabId, message, "warn");
           else get().reportError(message);
           return false;
@@ -223,7 +222,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
         const landed = findOwner(get().state, tabId);
         if (landed === undefined || landed.instanceId !== owner.instanceId) return false;
         if (getNavigationGeneration() === navigation && get().tabs.some(tab => tab.tabId === tabId)) get().focusTab(tabId);
-        else get().reportNotice(t("artifacts.reference.attached", {title: landed.record.title || tabId}));
+        else get().reportNotice(`Reference kept in the draft for ${landed.record.title || tabId}. Nothing was sent.`);
         return true;
       } catch (error) { get().reportError(error); return false; }
     },

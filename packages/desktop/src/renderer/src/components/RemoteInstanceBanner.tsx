@@ -1,4 +1,3 @@
-import { useT } from "../lib/i18n";
 import { findInstance, findOwner, useStore } from "../store";
 import { Button, Dot, Panel } from "./ui";
 
@@ -10,7 +9,6 @@ import { Button, Dot, Panel } from "./ui";
  * so those carry the button. Renders nothing for local tabs and joined ones.
  */
 export function RemoteInstanceBanner({ tabId }: { tabId: string }) {
-  const t = useT();
   const instance = useStore((s) => {
     const owner = findOwner(s.state, tabId);
     return owner?.instanceId == null ? undefined : findInstance(s.state, owner.instanceId);
@@ -24,12 +22,12 @@ export function RemoteInstanceBanner({ tabId }: { tabId: string }) {
         <Dot tone={reconnecting ? "neutral" : "rose"} pulse={reconnecting} />
         <p className="min-w-0 flex-1 text-xs leading-snug text-ink-mid">
           {reconnecting
-            ? t("remoteinstances.banner.unreachable", { nickname: instance.nickname })
-            : t("remoteinstances.banner.needsSignIn", { nickname: instance.nickname })}
+            ? `${instance.nickname} is unreachable — reconnecting…`
+            : `${instance.nickname} rejected the stored credential. Sign in again in Settings.`}
         </p>
         {!reconnecting && (
           <Button size="xs" variant="ghost" onClick={() => openSettings("remote-instances")}>
-            {t("remoteinstances.banner.openSettings")}
+            Open settings
           </Button>
         )}
       </Panel>

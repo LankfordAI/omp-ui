@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { BackendState, OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
-import { t } from "../lib/i18n";
 import { setSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { SIDEBAR_DEFAULT_WIDTH } from "../lib/panel-layout";
@@ -600,7 +599,7 @@ describe("Sidebar session list", () => {
     renderSidebar();
     // The empty block is one line (round-3 judge, Hierarchy 2): no duplicated
     // New session button competing with the header's.
-    expect(document.body.textContent).toContain(t("sidebar.empty.noLive"));
+    expect(document.body.textContent).toContain("No sessions running");
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].some((b) => b.textContent === "New session"),
     ).toBe(false);
@@ -1111,7 +1110,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(rowButton("busy")).toBeDefined();
     // The main list is empty: a live row exists, so no empty line.
-    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
+    expect(document.body.textContent).not.toContain("No sessions running");
   });
 
   it("keeps Working (0) visible and docked directly above Settled, below Snoozed", () => {
@@ -1238,7 +1237,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   it("shows the no-live empty state when no row is live", () => {
     useStore.setState({ state: stateWith([sess("old", { live: "dormant" })]) });
     renderSidebar();
-    expect(document.body.textContent).toContain(t("sidebar.empty.noLive"));
+    expect(document.body.textContent).toContain("No sessions running");
   });
 
   it("shows the no-matches empty state when a filter matches nothing", () => {
@@ -1284,7 +1283,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (1)");
     expect(rowButton("bgwork")).toBeDefined();
     // The row left the main list, and it is live, so no empty state shows.
-    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
+    expect(document.body.textContent).not.toContain("No sessions running");
 
     act(() => {
       useStore.setState({
@@ -1294,7 +1293,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
     // Back in the main/active list.
     expect(rowButton("bgwork")).toBeDefined();
-    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
+    expect(document.body.textContent).not.toContain("No sessions running");
   });
 
   // issue #1153: a remote row the user has opened holds its own async-jobs
@@ -1486,13 +1485,13 @@ describe("Sidebar attention stack (issue #1037)", () => {
     const list = cards();
     expect(list).toHaveLength(2);
     expect(list[0]!.textContent).toContain("Second owned session");
-    expect(list[0]!.textContent).toContain(t("sidebar.status.answerLabel"));
+    expect(list[0]!.textContent).toContain("answer needed");
     expect(list[0]!.textContent).toContain("Which DB?");
     // The card leads with its project line (#1159).
     expect(list[0]!.querySelector("[data-session-project]")?.textContent).toContain(state.projects[0]!.project.name);
     expect(list[1]!.textContent).toContain("Owned session");
     // A null snippet (e.g. after a restart) falls back to the stock line.
-    expect(list[1]!.textContent).toContain(t("sidebar.attention.fallback"));
+    expect(list[1]!.textContent).toContain("The agent posted a new reply.");
   });
 
   it("a card click opens the session, and clearing the mark retires the card", async () => {
@@ -1626,9 +1625,9 @@ describe("Sidebar dispatch tethers (#1226)", () => {
     });
     renderSidebar();
     const header = tether()!.querySelector("button[aria-expanded]")!;
-    expect(header.textContent).toContain(t("sidebar.dispatch.summary", { n: 2 }));
-    expect(header.textContent).toContain(t("sidebar.dispatch.needsYou", { n: 1 }));
-    expect(header.textContent).toContain(t("sidebar.dispatch.working", { n: 1 }));
+    expect(header.textContent).toContain(`${2} dispatched`);
+    expect(header.textContent).toContain(`${1} waiting on you`);
+    expect(header.textContent).toContain(`${1} working`);
     expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1", "c-2"]);
     // The tether hangs off the parent's tile, not the child's.
     expect(rowOf("Owned session").contains(tether())).toBe(true);
@@ -1640,7 +1639,7 @@ describe("Sidebar dispatch tethers (#1226)", () => {
     useStore.setState({ state: withChildren([1, 2, 3, 4, 5].map((n) => child(`c-${n}`, `Child ${n}`, n))) });
     renderSidebar();
     expect(lines()).toHaveLength(4);
-    const more = tetherButton(t("sidebar.dispatch.more", { n: 1 }))!;
+    const more = tetherButton(`+${1} more`)!;
     act(() => more.click());
     expect(lines()).toHaveLength(5);
   });
@@ -1651,9 +1650,9 @@ describe("Sidebar dispatch tethers (#1226)", () => {
     });
     renderSidebar();
     expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1"]);
-    act(() => tetherButton(t("sidebar.dispatch.settled", { n: 1 }))!.click());
+    act(() => tetherButton(`+${1} settled`)!.click());
     expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1", "c-2"]);
-    expect(tetherButton(t("sidebar.dispatch.hideSettled"))).toBeDefined();
+    expect(tetherButton("hide settled")).toBeDefined();
   });
 
   it("collapses the lines from the header", () => {
@@ -1668,7 +1667,7 @@ describe("Sidebar dispatch tethers (#1226)", () => {
   it("a missing, unmounted child line does not open", async () => {
     useStore.setState({ state: withChildren([child("c-1", "Child gone", 1, { live: "missing" })]) });
     renderSidebar();
-    act(() => tetherButton(t("sidebar.dispatch.settled", { n: 1 }))!.click());
+    act(() => tetherButton(`+${1} settled`)!.click());
     const line = lines()[0]!;
     expect(line.tagName).toBe("SPAN");
     await act(async () => line.click());
@@ -1691,8 +1690,8 @@ describe("Sidebar dispatch tethers (#1226)", () => {
     renderSidebar();
     const row = rowOf("Child one");
     const marker = row.querySelector<HTMLElement>("[data-dispatched-by]")!;
-    expect(marker.getAttribute("aria-label")).toBe(t("sidebar.dispatch.dispatchedBy", { title: "Owned session" }));
-    const open = row.querySelector<HTMLButtonElement>(`button[aria-label="${t("sidebar.dispatch.openParent")}"]`)!;
+    expect(marker.getAttribute("aria-label")).toBe(`Dispatched by “${"Owned session"}”`);
+    const open = row.querySelector<HTMLButtonElement>(`button[aria-label="${"open dispatching session"}"]`)!;
     await act(async () => open.click());
     expect(openSession).toHaveBeenCalledWith(parentTab);
     expect(closeCompactSurface).toHaveBeenCalled();
@@ -1758,8 +1757,8 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     useStore.setState({ state: withRun({ turnRunning: true }, true) });
     renderSidebar();
     expect(document.body.textContent).not.toContain("Morning overview · 2026-11-22 08:00");
-    expect(footerText()).toContain(t("sidebar.footer.readyCount", { n: 2 }));
-    expect(footerText()).not.toContain(t("sidebar.footer.workingCount", { n: 1 }));
+    expect(footerText()).toContain(`${2} ready`);
+    expect(footerText()).not.toContain(`${1} working`);
   });
 
   it("renders no Routines button while the gate is off", () => {

@@ -16,7 +16,6 @@ import { formatDuration } from "../lib/duration";
 import { exchangeTotals, summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
 import { formatBytes, formatCost, shortModelLabel, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
-import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
 import { isReplyWrite, replyWriteContent, supportsOutReplies } from "@omp-ui/core/out-replies";
 import { useTranscriptScale } from "../lib/text-scale";
@@ -90,57 +89,57 @@ const AT_BOTTOM_SLACK = 64;
  * The receipt's stop-reason tail (round-10 judge, Clarity 1): a raw protocol
  * enum (`toolUse`, `max_tokens`, …) is not user chrome. Known reasons — the
  * omp bridge values plus the provider spellings the raw session files carry —
- * map to plain words through the catalog; anything unrecognised draws nothing,
- * so an unknown enum can never leak into the line again.
+ * map to plain words; anything unrecognised draws nothing, so an unknown enum
+ * can never leak into the line again.
  */
 const STOP_REASON_PARTS: Record<
   string,
-  { label: MessageKey; title: MessageKey; suppressWithCard: boolean }
+  { label: string; title: string; suppressWithCard: boolean }
 > = {
   // omp's bridge spelling (camelCase). Every mid-turn tool hop carries it;
   // `suppressWithCard` drops the part when a tool card follows (the card
   // already says a tool ran), and the plain words stand when none does.
   toolUse: {
-    label: "transcript.usage.stopToolUse",
-    title: "transcript.usage.stopToolUseTitle",
+    label: "tool use",
+    title: "the reply stopped to call a tool",
     suppressWithCard: true,
   },
   tool_use: {
-    label: "transcript.usage.stopToolUse",
-    title: "transcript.usage.stopToolUseTitle",
+    label: "tool use",
+    title: "the reply stopped to call a tool",
     suppressWithCard: true,
   },
   tool_calls: {
-    label: "transcript.usage.stopToolUse",
-    title: "transcript.usage.stopToolUseTitle",
+    label: "tool use",
+    title: "the reply stopped to call a tool",
     suppressWithCard: true,
   },
   // Out of output tokens — the provider spellings all say the same thing.
   length: {
-    label: "transcript.usage.stopLength",
-    title: "transcript.usage.stopLengthTitle",
+    label: "token limit",
+    title: "the reply stopped at the output token limit",
     suppressWithCard: false,
   },
   max_tokens: {
-    label: "transcript.usage.stopLength",
-    title: "transcript.usage.stopLengthTitle",
+    label: "token limit",
+    title: "the reply stopped at the output token limit",
     suppressWithCard: false,
   },
   maxTokens: {
-    label: "transcript.usage.stopLength",
-    title: "transcript.usage.stopLengthTitle",
+    label: "token limit",
+    title: "the reply stopped at the output token limit",
     suppressWithCard: false,
   },
   // The user interrupted.
   aborted: {
-    label: "transcript.usage.stopAborted",
-    title: "transcript.usage.stopAbortedTitle",
+    label: "interrupted",
+    title: "you interrupted this reply",
     suppressWithCard: false,
   },
   // The model answered with an error payload instead of a reply.
   error: {
-    label: "transcript.usage.stopError",
-    title: "transcript.usage.stopErrorTitle",
+    label: "error",
+    title: "this reply ended on an error",
     suppressWithCard: false,
   },
 };
@@ -161,7 +160,6 @@ function UsageStrip({
    *  tool ran, so the receipt's `tool use` tail would only repeat it. */
   toolCallFollows: boolean;
 }) {
-  const t = useT();
   const usage = item.usage;
   if (!usage) return null;
   const parts: { text: string; title?: string }[] = [];
@@ -174,28 +172,28 @@ function UsageStrip({
   if (item.model) parts.push({ text: shortModelLabel(item.model), title: item.model });
   if (item.upstreamProvider)
     parts.push({
-      text: t("transcript.usage.via", { provider: item.upstreamProvider }),
+      text: `via ${item.upstreamProvider}`,
     });
   parts.push(
-    { text: t("transcript.usage.in", { n: tokenCount(usage.input) }), title: t("transcript.usage.inTitle") },
-    { text: t("transcript.usage.out", { n: tokenCount(usage.output) }), title: t("transcript.usage.outTitle") },
+    { text: `in ${tokenCount(usage.input)}`, title: "input tokens" },
+    { text: `out ${tokenCount(usage.output)}`, title: "generated tokens" },
   );
   if (usage.cacheRead > 0)
     parts.push({
-      text: t("transcript.usage.cache", { n: tokenCount(usage.cacheRead) }),
-      title: t("transcript.usage.cacheTitle"),
+      text: `cache ${tokenCount(usage.cacheRead)}`,
+      title: "cache reads",
     });
   if (usage.cost > 0)
-    parts.push({ text: formatCost(usage.cost), title: t("transcript.usage.costTitle") });
+    parts.push({ text: formatCost(usage.cost), title: "cost of this reply" });
   if (item.ttftMs !== undefined && item.ttftMs > 0)
     parts.push({
-      text: t("transcript.usage.ttft", { time: formatDuration(item.ttftMs) }),
-      title: t("transcript.usage.ttftTitle"),
+      text: `first ${formatDuration(item.ttftMs)}`,
+      title: "time to the first token",
     });
   if (item.durationMs !== undefined && item.durationMs > 0)
     parts.push({
-      text: t("transcript.usage.duration", { time: formatDuration(item.durationMs) }),
-      title: t("transcript.usage.durationTitle"),
+      text: `${formatDuration(item.durationMs)} total`,
+      title: "wall-clock for the reply",
     });
   // Decode rate: generated tokens over the post-ttft window only. Unlike omp
   // stats' tokens/s this excludes time to first token, and it renders only
@@ -207,24 +205,24 @@ function UsageStrip({
   ) {
     const rate = (usage.output * 1000) / (item.durationMs - item.ttftMs);
     parts.push({
-      text: `${rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1)} ${t("transcript.usage.rate")}`,
-      title: t("transcript.usage.rateTitle"),
+      text: `${rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1)} ${"t/s"}`,
+      title: "generated tokens per second after the first token",
     });
   }
   const stopPart =
     item.stopReason === undefined ? undefined : STOP_REASON_PARTS[item.stopReason];
   if (stopPart !== undefined && !(stopPart.suppressWithCard && toolCallFollows)) {
-    parts.push({ text: t(stopPart.label), title: t(stopPart.title) });
+    parts.push({ text: stopPart.label, title: stopPart.title });
   }
   // Wall-clock anchor: local short time inline, full locale date+time on hover.
   const at = item.timestamp === undefined ? null : new Date(item.timestamp);
-  const atText = at?.toLocaleTimeString(localeTag(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const atTooltip = at?.toLocaleString(localeTag());
+  const atText = at?.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const atTooltip = at?.toLocaleString("en");
   // Hover facts ride the clock: gateway, upstream, response id, completion time.
   const clockTitle = [
-    item.provider ? t("transcript.usage.gateway", { provider: item.provider }) : null,
-    item.upstreamProvider ? t("transcript.usage.upstream", { provider: item.upstreamProvider }) : null,
-    item.responseId ? t("transcript.usage.response", { id: item.responseId }) : null,
+    item.provider ? `gateway: ${item.provider}` : null,
+    item.upstreamProvider ? `upstream: ${item.upstreamProvider}` : null,
+    item.responseId ? `response: ${item.responseId}` : null,
     atTooltip,
   ]
     .filter(Boolean)
@@ -267,7 +265,6 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
   /** Forwarded so the viewer's footer can jump the rail to Diffs. */
   tabId?: string;
 }) {
-  const t = useT();
   // Phase 2: row counting happens here, for this exchange's rows only, memoed
   // on the entry-list reference (rebuilt with every scan that owns the items
   // array). The receipts that render are bounded by the window, so per-tick
@@ -289,10 +286,10 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
       }
       className="flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-ink-dim"
     >
-      <span>{t("transcript.receipt.changedFiles", { files: changes.files })}</span>
+      <span>{`${changes.files} changed files`}</span>
       <span className="text-signal">+{totals.added}</span>
       <span className="text-rose">−{totals.removed}</span>
-      <span>{t("transcript.receipt.openDiff")}</span>
+      <span>open diff</span>
     </button>
   );
 });
@@ -329,7 +326,6 @@ function AssistantBlock({
   /** A tool card follows this message; quiets the receipt's tool-use tail. */
   toolCallFollows: boolean;
 }) {
-  const t = useT();
   // omp 18.12+ tags between-tool narration (issue #884): it reads as reply
   // prose and leaves the thinking pane. On older or unknown harnesses the
   // flag may exist on a binary that never meant it, so it stays folded in.
@@ -388,7 +384,7 @@ function AssistantBlock({
             // judge, Hierarchy nit: the saturated caps label outranked the h2
             // under it, so the accent rides the chevron and the label sits at
             // the same ink-faint as every other section header.
-            <Label>{t("transcript.assistant.thinking")}</Label>
+            <Label>thinking</Label>
           }
         >
           <ThinkingPane text={shownThinking} live={working} />
@@ -490,7 +486,6 @@ function UserBubble({
   /** Index among the tab's user items; the rewind correlation's positional key. */
   position?: number;
 }) {
-  const t = useT();
   const stageRewind = useStore((s) => s.stageRewind);
   // The affordances exist only on a live native tab (issue #680): a PTY tab
   // has no entry tree to correlate against, and a dormant one no process to
@@ -518,11 +513,11 @@ function UserBubble({
       (item.images ?? []).map((im, n) => ({
         src: `data:${im.mimeType};base64,${im.data}`,
         mimeType: im.mimeType,
-        label: t("transcript.image.alt", { n: n + 1 }),
+        label: `attached image ${n + 1}`,
       })),
-    [item.images, t],
+    [item.images],
   );
-  const rewindTitle = rewindBusy ? t("transcript.rewind.busy") : undefined;
+  const rewindTitle = rewindBusy ? "Rewind is available when the session is idle." : undefined;
   const fileMentions = item.fileMentions ?? [];
   const documents = item.documents ?? [];
   const annotations = item.annotations ?? [];
@@ -536,7 +531,7 @@ function UserBubble({
           ink-dim so a new exchange announces itself without a turn marker;
           the fill behind it drops to 70% so in Light the bubble stops being
           the loudest surface next to the answer it prompted. */}
-      {first && <span className="tab-label speaker-label speaker-label-right text-ink-dim">{t("transcript.speaker.you")}</span>}
+      {first && <span className="tab-label speaker-label speaker-label-right text-ink-dim">you</span>}
       <div
         className={cn(
           // Round-5 judge, Hierarchy 1: the bubble is a neutral raised card
@@ -561,7 +556,7 @@ function UserBubble({
             <Markdown text={draft.preamble} />
             <div className="space-y-1">
               <Label className="speaker-label speaker-label-right">
-                {t(draft.captionKey)}
+                {draft.caption}
               </Label>
               <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded border border-line-strong bg-sunken px-2 py-1.5 font-mono text-sm">
                 {draft.draft}
@@ -572,7 +567,7 @@ function UserBubble({
         {fileMentions.length > 0 && (
           <div
             role="group"
-            aria-label={t("transcript.mentions.label")}
+            aria-label="resolved file mentions"
             className="flex max-w-full flex-wrap justify-end gap-1.5"
           >
             {fileMentions.map((path) => (
@@ -591,17 +586,13 @@ function UserBubble({
                 key={i}
                 type="button"
                 className="block cursor-zoom-in rounded border-0 p-0"
-                title={t("transcript.image.title", {
-                  mimeType: image.mimeType,
-                  n: i + 1,
-                  count: images.length,
-                })}
-                aria-label={t("image.viewer.open", { n: i + 1 })}
+                title={`${image.mimeType} — image ${i + 1} of ${images.length}`}
+                aria-label={`enlarge image ${i + 1}`}
                 onClick={() => openImageViewer(viewerImages, i)}
               >
                 <img
                   src={`data:${image.mimeType};base64,${image.data}`}
-                  alt={t("transcript.image.alt", { n: i + 1 })}
+                  alt={`attached image ${i + 1}`}
                   className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
                 />
               </button>
@@ -611,7 +602,7 @@ function UserBubble({
         {documents.length > 0 && (
           <div
             role="group"
-            aria-label={t("transcript.document.label")}
+            aria-label="attached documents"
             className="flex max-w-full flex-wrap justify-end gap-1.5"
           >
             {documents.map((document, i) => (
@@ -621,7 +612,7 @@ function UserBubble({
                 tone="iris"
                 mono
                 truncate
-                title={t("transcript.document.alt", { name: document.name, path: document.path })}
+                title={`${document.name} — read at ${document.path}`}
               >
                 {document.name}
               </Chip>
@@ -637,8 +628,8 @@ function UserBubble({
             {item.text !== "" && (
               <CopyButton
                 text={item.text}
-                label={t("common.button.copy")}
-                doneLabel={t("common.button.copied")}
+                label="Copy"
+                doneLabel="Copied"
               />
             )}
             {rewindable && tabId !== undefined && (
@@ -646,7 +637,7 @@ function UserBubble({
                 <button
                   type="button"
                   className="grid size-6 shrink-0 place-items-center rounded-md text-ink-dim transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                  aria-label={t("transcript.rewind.here")}
+                  aria-label="rewind here"
                   title={rewindTitle}
                   disabled={rewindBusy}
                   onClick={() => void stageRewind(tabId, position ?? 0, false)}
@@ -656,7 +647,7 @@ function UserBubble({
                 <button
                   type="button"
                   className="grid size-6 shrink-0 place-items-center rounded-md text-ink-dim transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                  aria-label={t("transcript.rewind.edit")}
+                  aria-label="edit and resend"
                   title={rewindTitle}
                   disabled={rewindBusy}
                   onClick={() => void stageRewind(tabId, position ?? 0, true)}
@@ -675,7 +666,6 @@ function UserBubble({
 const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info: "neutral" };
 
 function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
-  const t = useT();
   const reportError = useStore((s) => s.reportError);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSettings = useStore((s) => s.openSettings);
@@ -713,10 +703,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
           // clickable when just its tail is.
           <span className="flex min-w-0 items-center gap-1.5">
             <span data-selectable>
-              {t(
-                item.mcpMount.count === 1 ? "notice.mcpMount.one" : "notice.mcpMount",
-                { count: item.mcpMount.count },
-              )}
+              {item.mcpMount.count === 1 ? "1 MCP tool available to the agent" : `${item.mcpMount.count} MCP tools available to the agent`}
             </span>
             <button
               type="button"
@@ -734,7 +721,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
                 openCapabilitiesViewer(scopeCwd ?? null, tabId, "tools", tab?.instanceId ?? null);
               }}
             >
-              {t("notice.mcpMount.view")}
+              See which
             </button>
           </span>
         ) : path === undefined ? (
@@ -750,7 +737,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
                 className="shrink-0 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-ink"
                 onClick={() => openSettings("omp")}
               >
-                {t("notice.costCap.raise")}
+                Raise the cap in Settings
               </button>
             )}
           </>
@@ -758,7 +745,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
           <>
             <button
               type="button"
-              title={t("notice.path.open", { path })}
+              title={`open ${path}`}
               className="min-w-0 cursor-pointer break-words text-left underline decoration-dotted underline-offset-2 hover:text-ink"
               data-selectable
               onClick={() => void backend.openPath(path).catch(reportError)}
@@ -767,8 +754,8 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
             </button>
             <button
               type="button"
-              title={t("notice.path.reveal")}
-              aria-label={t("notice.path.reveal")}
+              title="reveal in file manager"
+              aria-label="reveal in file manager"
               className="shrink-0 cursor-pointer text-ink-faint hover:text-ink"
               onClick={() => void backend.showPathInFolder(path).catch(reportError)}
             >
@@ -804,16 +791,15 @@ function IrcLine({ item }: { item: IrcItem }) {
 }
 
 function FleetWakeCard({ item }: { item: FleetWakeItem }) {
-  const t = useT();
   const question = item.card.kind === "question";
   return (
     <div className="animate-rise rounded-md border border-line bg-raised px-2.5 py-1.5">
       <div className="flex flex-wrap items-baseline gap-1.5 text-xs">
         <Chip tone={question ? "copper" : "signal"}>
-          {t(question ? "transcript.fleetWake.question" : "transcript.fleetWake.result")}
+          {question ? "Fleet session needs you" : "Fleet result"}
         </Chip>
         <span className="min-w-0 truncate text-ink-mid">
-          {t("transcript.fleetWake.from", { title: item.card.title, machine: item.card.machine })}
+          {`${item.card.title} · ${item.card.machine}`}
         </span>
       </div>
       <Markdown text={item.text} className="mt-1 text-xs" />
@@ -828,22 +814,21 @@ function FleetWakeCard({ item }: { item: FleetWakeItem }) {
  * this is the per-delivery record in the transcript.
  */
 function AsyncNotifyCard({ item }: { item: AsyncNotifyItem }) {
-  const t = useT();
   return (
     <div className="animate-rise flex w-[min(100%,var(--prose-max))] flex-col gap-1">
       {item.reports.map((report) => (
         <div key={`${report.type}:${report.id}`} className="rounded-md border border-line bg-raised px-2.5 py-1.5">
           <div className="flex flex-wrap items-baseline gap-1.5 text-xs">
             <Chip tone={report.stopped ? "copper" : "signal"}>
-              {t(report.type === "service" ? "transcript.asyncNotify.service" : "transcript.asyncNotify.job")}
+              {report.type === "service" ? "Service output" : "Background output"}
             </Chip>
             <span className="shrink-0 font-mono text-xs text-ink">{report.id}</span>
             <span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={report.pattern}>
               /{report.pattern}/
             </span>
-            {report.stopped && <span className="text-xs text-copper">{t("transcript.asyncNotify.stopped")}</span>}
+            {report.stopped && <span className="text-xs text-copper">notices stopped</span>}
             {!report.running && !report.stopped && (
-              <span className="text-xs text-ink-faint">{t("transcript.asyncNotify.finished")}</span>
+              <span className="text-xs text-ink-faint">ended</span>
             )}
           </div>
           {report.lines.length > 0 && (
@@ -853,7 +838,7 @@ function AsyncNotifyCard({ item }: { item: AsyncNotifyItem }) {
           )}
           {report.omitted > 0 && (
             <p className="mt-0.5 font-mono text-xs text-ink-faint">
-              {t("transcript.asyncNotify.omitted", { count: report.omitted })}
+              {`+${report.omitted} matching lines omp left out`}
             </p>
           )}
         </div>
@@ -909,7 +894,6 @@ function commandLine(item: CommandItem): string {
  * no tab to host the drawer, and on any reply omp did not refuse.
  */
 export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: string }) {
-  const t = useT();
   const startTuiHandoff = useStore((s) => s.startTuiHandoff);
   if (tabId === undefined || item.output === undefined || !TUI_ONLY_REPLY.test(item.output))
     return null;
@@ -919,7 +903,7 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
       className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
       onClick={() => startTuiHandoff(tabId, commandLine(item))}
     >
-      {t("transcript.command.tuiHandoff")}
+      run in omp TUI
     </button>
   );
 }
@@ -930,7 +914,6 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
  * the TUI handoff; absent on every other row and outside a tab.
  */
 export function CouncilSettingsButton({ item, tabId }: { item: CommandItem; tabId?: string }) {
-  const t = useT();
   const tab = useStore((s) =>
     tabId === undefined ? undefined : s.tabs.find((c) => c.tabId === tabId),
   );
@@ -942,7 +925,7 @@ export function CouncilSettingsButton({ item, tabId }: { item: CommandItem; tabI
       className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
       onClick={() => openProjectSettings(tab.projectCwd, tab.instanceId, "council")}
     >
-      {t("council.command.openSettings")}
+      Open council settings
     </button>
   );
 }
@@ -1011,13 +994,12 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
 const SHARE_URL = /^Share URL: (https?:\/\/\S+)$/m;
 
 export function ShareLinkRow({ item }: { item: CommandItem }) {
-  const t = useT();
   const url = item.output === undefined ? null : item.output.match(SHARE_URL)?.[1];
   if (url === undefined || url === null) return null;
   return (
     <div className="mt-1 flex items-center gap-1.5">
-      <OpenExternalLink href={url}>{t("transcript.command.shareOpen")}</OpenExternalLink>
-      <CopyButton text={url} label={t("common.button.copy")} doneLabel={t("common.button.copied")} />
+      <OpenExternalLink href={url}>open share link</OpenExternalLink>
+      <CopyButton text={url} label="Copy" doneLabel="Copied" />
     </div>
   );
 }
@@ -1028,27 +1010,26 @@ export function ShareLinkRow({ item }: { item: CommandItem }) {
  * exit code, or failure (issue #678). Styling follows CommandRow.
  */
 function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
-  const t = useT();
   const abortShellCommands = useStore((s) => s.abortShellCommands);
   const provenance = item.truncation;
   const facts: string[] = [];
   if (provenance?.elidedLines) {
-    facts.push(t("transcript.shell.elidedLines", { count: provenance.elidedLines }));
+    facts.push(`omp elided ${provenance.elidedLines} lines`);
   }
   if (provenance?.elidedBytes) {
-    facts.push(t("transcript.shell.elidedBytes", { bytes: formatBytes(provenance.elidedBytes) }));
+    facts.push(`omp elided ${formatBytes(provenance.elidedBytes)}`);
   }
   if (provenance?.columnTruncatedLines) {
-    facts.push(t("transcript.shell.columnLines", { count: provenance.columnTruncatedLines }));
+    facts.push(`omp column-truncated ${provenance.columnTruncatedLines} lines`);
   }
   if (provenance?.columnMax) {
-    facts.push(t("transcript.shell.columnMax", { count: provenance.columnMax }));
+    facts.push(`line limit ${provenance.columnMax} UTF-8 bytes`);
   }
   if (provenance?.columnTruncatedRange) {
-    facts.push(t("transcript.shell.columnRange", provenance.columnTruncatedRange));
+    facts.push(`artifact lines ${provenance.columnTruncatedRange.first}–${provenance.columnTruncatedRange.last}`);
   }
   if (provenance?.columnDroppedBytes) {
-    facts.push(t("transcript.shell.columnBytes", { bytes: formatBytes(provenance.columnDroppedBytes) }));
+    facts.push(`omp dropped ${formatBytes(provenance.columnDroppedBytes)} from columns`);
   }
   return (
     <div
@@ -1076,7 +1057,7 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
               className="ml-auto shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
               onClick={() => void abortShellCommands(tabId)}
             >
-              {t("transcript.shell.stop")}
+              stop
             </button>
           </>
         )}
@@ -1087,7 +1068,7 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
           <span className="ml-auto shrink-0 text-ink-faint">✓</span>
         )}
         {item.status === "cancelled" && (
-          <span className="ml-auto shrink-0 text-ink-faint">{t("transcript.shell.cancelled")}</span>
+          <span className="ml-auto shrink-0 text-ink-faint">cancelled</span>
         )}
       </div>
       {item.status === "failed" && item.error !== undefined && (
@@ -1101,21 +1082,21 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
       {facts.length > 0 ? (
         <p className="mt-1 text-xs tabular-nums text-ink-faint">{facts.join(" · ")}</p>
       ) : item.truncated === true ? (
-        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.truncated")}</p>
+        <p className="mt-1 text-xs text-ink-faint">output truncated</p>
       ) : null}
       {!!item.localDroppedChars && (
         <p className="mt-1 text-xs tabular-nums text-ink-faint">
-          {t("transcript.shell.localTruncated", { count: item.localDroppedChars })}
+          {`omp-ui display omitted ${item.localDroppedChars} characters`}
         </p>
       )}
       {item.shared === false && (
-        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.notShared")}</p>
+        <p className="mt-1 text-xs text-ink-faint">output not shared with the model</p>
       )}
       {item.fork !== undefined && !item.fork.carried && (
-        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.forkStateLost")}</p>
+        <p className="mt-1 text-xs text-ink-faint">ran in a copy of the busy session shell — changes here won't persist</p>
       )}
       {item.fork?.jobs === true && (
-        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.forkJobs")}</p>
+        <p className="mt-1 text-xs text-ink-faint">background jobs started here stay in that copy; later commands' jobs, wait and %N won't see them</p>
       )}
       {item.output !== undefined && item.output !== "" && (
         <pre
@@ -1135,7 +1116,6 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
  * to report: the row died, and why.
  */
 function BrokenRow({ error }: { error: Error }) {
-  const t = useT();
   return (
     <div
       className={cn(
@@ -1143,7 +1123,7 @@ function BrokenRow({ error }: { error: Error }) {
         PROSE_MEASURE,
       )}
     >
-      <Label className="text-rose">{t("transcript.row.broken")}</Label>
+      <Label className="text-rose">message failed to render</Label>
       <p
         data-selectable
         className="mt-1 break-words font-mono text-xs leading-snug text-ink-mid"
@@ -1405,7 +1385,6 @@ export function TranscriptView({
    *  final reply (lib/artifact-placement). `items` arrive display-ordered. */
   deferredArtifacts?: ReadonlySet<string>;
 }) {
-  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   /** The tail spacer that reserves the floating composer's height. */
@@ -1826,7 +1805,7 @@ export function TranscriptView({
           }
         >
           {items.length === 0 && (
-            <Empty title={t("transcript.empty.title")} hint={t("transcript.empty.hint")} />
+            <Empty title="Nothing yet" hint="Send a prompt to start the session." />
           )}
 
           {/* Head pager for the tail window (issue #867): the keyboard and
@@ -1837,7 +1816,7 @@ export function TranscriptView({
               onClick={loadOlder}
               className="self-center rounded-full border border-line px-3 py-1 text-xs text-ink-mid transition-colors hover:text-ink"
             >
-              {t("transcript.view.showEarlier", { count: start })}
+              {`show ${start} earlier`}
             </button>
           )}
 
@@ -1867,7 +1846,7 @@ export function TranscriptView({
                     // faint tier, not tracked caps — five roles no longer
                     // share one style.
                     <span className="tab-label speaker-label speaker-label-left text-ink-dim">
-                      {t("transcript.speaker.assistant")}
+                      assistant
                     </span>
                   )}
                   {run.rows.map(({ item, count, group }, i) => {
@@ -1970,7 +1949,7 @@ export function TranscriptView({
           >
             <path d="M8 3v9M4.5 8.5L8 12l3.5-3.5" />
           </svg>
-          {t("transcript.view.jumpToLatest")}
+          jump to latest
         </button>
       )}
 

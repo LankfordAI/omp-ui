@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { findOwner } from "../store/slices/view";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
@@ -19,7 +18,6 @@ export function MigrateSessionDialog({
 }: {
   tabId: string;
 }) {
-  const t = useT();
   const state = useStore((s) => s.state);
   const closeMigrateDialog = useStore((s) => s.closeMigrateDialog);
   const migrateSession = useStore((s) => s.migrateSession);
@@ -75,15 +73,15 @@ export function MigrateSessionDialog({
 
   return (
     <ConfirmDialog
-      kicker={t("dialog.migrate.kicker")}
-      title={t("dialog.migrate.title", { title: record?.cachedTitle ?? tabId })}
+      kicker="Carry session"
+      title={`Migrate “${record?.cachedTitle ?? tabId}”`}
       tone="copper"
       onClose={close}
       width="w-[30rem]"
       actions={
         <>
           <Button variant="ghost" disabled={busy} onClick={close}>
-            {t("dialog.migrate.cancel")}
+            Cancel
           </Button>
           <Button
             variant="solid"
@@ -92,25 +90,25 @@ export function MigrateSessionDialog({
             disabled={busy || directory === null}
             onClick={() => void submit()}
           >
-            {busy ? t("dialog.migrate.busy", { percent }) : t("dialog.migrate.action")}
+            {busy ? `Transferring ${percent}%` : "Migrate"}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div>
-          <p className="text-xs text-ink-dim">{t("dialog.migrate.targetLabel")}</p>
+          <p className="text-xs text-ink-dim">Send to</p>
           {joined.length === 0 && (
-            <p className="mt-1.5 text-xs text-ink-faint">{t("dialog.migrate.emptyInstances")}</p>
+            <p className="mt-1.5 text-xs text-ink-faint">No joined instances — join one on the Remote settings page, or pick a directory here on this machine.</p>
           )}
           {/* "" is the local-target sentinel: ChoiceCapsule values are
               strings, and no instance id is ever empty. */}
           <div className="mt-1.5">
             <ChoiceCapsule
-              label={t("dialog.migrate.targetLabel")}
+              label="Send to"
               value={targetInstanceId ?? ""}
               options={[
-                { value: "", label: t("dialog.migrate.local") },
+                { value: "", label: "This machine" },
                 ...joined.map((instance) => ({ value: instance.id, label: instance.nickname })),
               ]}
               onChange={(value) => setTargetInstanceId(value === "" ? null : String(value))}
@@ -118,20 +116,20 @@ export function MigrateSessionDialog({
           </div>
         </div>
         <div>
-          <p className="text-xs text-ink-dim">{t("dialog.migrate.directoryLabel")}</p>
+          <p className="text-xs text-ink-dim">Project directory on the target</p>
           <div className="mt-1.5 flex items-center gap-2">
             <span
               data-selectable
               className="min-w-0 flex-1 truncate rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink"
             >
-              {directory ?? t("dialog.migrate.directoryNone")}
+              {directory ?? "No directory chosen"}
             </span>
             <Button variant="ghost" disabled={busy} onClick={() => setPicking(true)}>
-              {t("dialog.migrate.choose")}
+              Browse…
             </Button>
           </div>
         </div>
-        <p className="text-xs leading-relaxed text-ink-faint">{t("dialog.migrate.hint")}</p>
+        <p className="text-xs leading-relaxed text-ink-faint">omp packs the transcript (with its images and artifacts) and unpacks it on the target at that directory. The session must be stopped. To another machine the source copy stays put and is marked as moved; on this machine omp consolidates the duplicate copies into the new location.</p>
       </div>
     </ConfirmDialog>
   );

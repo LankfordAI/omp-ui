@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { RoutineRecord } from "@omp-ui/core/routine";
 import { displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { Button, ConfirmDialog } from "../ui";
 
@@ -20,7 +19,6 @@ export function DeleteRoutineDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
-  const t = useT();
   const removeRoutine = useStore((s) => s.removeRoutine);
   const projects = useStore((s) => s.state?.projects);
   const runs = (projects ?? []).flatMap((group) => group.sessions).filter((session) => session.routine?.id === routine.id);
@@ -30,15 +28,15 @@ export function DeleteRoutineDialog({
   const [error, setError] = useState<string | null>(null);
   return (
     <ConfirmDialog
-      kicker={t("routines.title")}
-      title={t("routines.delete.title", { name: routine.name })}
+      kicker="Routines"
+      title={`Delete routine "${routine.name}"?`}
       tone="rose"
       onClose={onClose}
       width="w-[28rem]"
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           <Button
             variant="solid"
@@ -53,12 +51,12 @@ export function DeleteRoutineDialog({
               });
             }}
           >
-            {t("routines.delete.confirm")}
+            Delete routine
           </Button>
         </>
       }
     >
-      <p className="text-sm leading-relaxed text-ink-mid">{t("routines.delete.body", { live, retained })}</p>
+      <p className="text-sm leading-relaxed text-ink-mid">{`Removes this routine and its run history. ${live} live run(s) keep running and ${retained} retained transcript(s) become ordinary sessions in your sidebar.`}</p>
       {error !== null && (
         <p role="alert" className="mt-2 text-sm text-rose">
           {error}

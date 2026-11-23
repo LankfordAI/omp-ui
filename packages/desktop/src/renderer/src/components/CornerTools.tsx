@@ -10,7 +10,6 @@ import {
 import { createPortal } from "react-dom";
 import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core/types";
 import { backend } from "../backend";
-import { currentLocaleId, useT } from "../lib/i18n";
 import {
   checkoutEntries,
   groupByRepository,
@@ -65,8 +64,6 @@ interface Face {
 }
 
 export function CornerTools() {
-  const t = useT();
-  const localeId = currentLocaleId();
   const compact = useCompactShell();
   const state = useStore((s) => s.state);
   const focused = useStore((s) => s.tabs.find((tab) => tab.tabId === s.activeTabId) ?? null);
@@ -148,7 +145,7 @@ export function CornerTools() {
         (a, b) => Number(a !== null) - Number(b !== null),
       );
       return ids
-        .map((id) => (id === null ? t("quickopen.host.local") : (nicknames.get(id) ?? id)))
+        .map((id) => (id === null ? "This computer" : (nicknames.get(id) ?? id)))
         .join(" · ");
     };
     return {
@@ -164,14 +161,14 @@ export function CornerTools() {
       sub:
         group.members.length === 1
           ? target.instanceId === null
-            ? t("quickopen.host.local")
+            ? "This computer"
             : `${nicknames.get(target.instanceId) ?? target.instanceId} · ${target.projectCwd}`
           : machineList(group.members),
       title: group.members.length === 1 ? target.title : group.members.map((m) => m.projectCwd).join("\n"),
       projectCwd: target.projectCwd,
       instanceId: target.instanceId,
     };
-  }, [state, focused, nicknames, t, localeId]);
+  }, [state, focused, nicknames]);
 
   const p = face?.projectCwd ?? "";
   const i = face?.instanceId ?? null;
@@ -296,7 +293,7 @@ export function CornerTools() {
 
   const remoteRow =
     i !== null && remoteVsCodeEnabled
-      ? remoteVsCodeRow(remoteVsCode, nicknames.get(i) ?? i, t)
+      ? remoteVsCodeRow(remoteVsCode, nicknames.get(i) ?? i)
       : ({ show: false } as const);
 
   return (
@@ -309,10 +306,10 @@ export function CornerTools() {
       <button
         ref={triggerRef}
         type="button"
-        aria-label={t("cornertools.trigger")}
+        aria-label="Project tools"
         aria-haspopup="menu"
         aria-expanded={open}
-        title={t("cornertools.trigger")}
+        title="Project tools"
         onClick={onTriggerClick}
         className={
           "grid size-6 shrink-0 place-items-center rounded-md text-ink-dim " +
@@ -327,7 +324,7 @@ export function CornerTools() {
           <div
             ref={panelRef}
             role="menu"
-            aria-label={t("cornertools.header", { name: face.name })}
+            aria-label={`tools for ${face.name}`}
             className="fixed z-40"
             style={{ left: pos.right, top: pos.y }}
             onPointerEnter={clearGrace}
@@ -345,17 +342,17 @@ export function CornerTools() {
               </div>
               <MenuRow
                 glyph={<IconPlus className="size-3" />}
-                label={t("project.actions.newSession")}
+                label="New session"
                 onClick={() => pick(() => void newSession(p, undefined, i))}
               />
               {i === null && (
                 <>
                   {availability?.vsCode === true &&
-                    openRow("vscode", t("quickopen.action.openIn", { target: "VS Code" }))}
+                    openRow("vscode", `Open in ${"VS Code"}`)}
                   {/* Files never waits on the probe; it needs no discovery. */}
-                  {openRow("files", t("quickopen.action.openIn", { target: t("project.open.files") }))}
+                  {openRow("files", `Open in ${"Files"}`)}
                   {availability?.terminal === true &&
-                    openRow("terminal", t("quickopen.action.openIn", { target: t("project.open.terminal") }))}
+                    openRow("terminal", `Open in ${"Terminal"}`)}
                 </>
               )}
               {i !== null &&
@@ -363,8 +360,8 @@ export function CornerTools() {
                 (
                   <MenuRow
                     glyph={<IconOpenIn className="size-3" />}
-                    label={t("quickopen.action.openIn", { target: "VS Code" })}
-                    hint={remoteRow.reason === null ? t("remotevscode.sub") : undefined}
+                    label={`Open in ${"VS Code"}`}
+                    hint={remoteRow.reason === null ? "Remote-SSH" : undefined}
                     title={remoteRow.reason ?? undefined}
                     disabled={remoteRow.reason !== null}
                     onClick={() => pick(() => void backend.openRemoteVsCode(i, p).catch(reportError))}
@@ -373,7 +370,7 @@ export function CornerTools() {
               <div className="my-1 border-t border-line-soft" />
               <MenuRow
                 glyph={<IconTune className="size-3" />}
-                label={t("project.actions.settings")}
+                label="Project settings…"
                 onClick={() => pick(() => openProjectSettings(p, i))}
               />
             </Panel>
