@@ -36,6 +36,7 @@ import {
   type SessionRoutine,
 } from "./routine";
 import { RoutineRunHistory, RoutineStore } from "./routine-store";
+import { ARTIFACT_CAPTURE_TOOL_NAME } from "./html-artifact";
 import { WATCHDOG_KNOWN_TOOLS } from "./watchdog";
 
 const VALID_ID = "AbCdEfGhIjKlMnOpQrStUv";
@@ -60,6 +61,7 @@ function sampleInput(): RoutineInput {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+    artifact: null,
     enabled: true,
   };
 }
@@ -759,5 +761,126 @@ describe("routine notifications (#1294)", () => {
     const agentPrompt = routinePrompt("Check status", "Daily", { agentNotification: true });
     expect(agentPrompt).toContain("omp-ui_notify");
     expect(agentPrompt.indexOf("untrusted data")).toBeLessThan(agentPrompt.indexOf("omp-ui_notify"));
+  });
+});
+
+describe("scheduled artifact refresh (ADR-0101)", () => {
+  const catalog: RoutineCatalogSnapshot = {
+    tools: [
+      { key: "read", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "" },
+      { key: "bash", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "" },
+    ],
+    staleServers: [],
+    enumerationError: null,
+    capturedAt: "2026-11-23T00:00:00.000Z",
+  };
+  const ARTIFACT_ID = "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b";
+  const binding = { artifactId: ARTIFACT_ID, datasetIds: ["scores", "roster"], autoApply: true };
+
+  it("parses a binding on input and patch, defaults omitted to null, and rejects malformed shapes", () => {
+    expect(parseRoutineInput({ ...sampleInput(), artifact: binding }).artifact).toEqual(binding);
+    expect(parseRoutineInput(sampleInput()).artifact).toBeNull();
+    expect(parseRoutinePatch({ artifact: binding }).artifact).toEqual(binding);
+    expect(parseRoutinePatch({ artifact: null }).artifact).toBeNull();
+    expect(() => parseRoutineInput({ ...sampleInput(), artifact: { ...binding, artifactId: "nope" } })).toThrow(
+      /artifactId must be a UUID/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), artifact: { ...binding, datasetIds: [] } })).toThrow(
+      /datasetIds must be a non-empty array/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), artifact: { ...binding, datasetIds: ["ok", "ok"] } })).toThrow(
+      /datasetIds must be unique/,
+    );
+    expect(() =>
+      parseRoutineInput({ ...sampleInput(), artifact: { ...binding, datasetIds: ["ok".repeat(40)] } }),
+    ).toThrow(/Invalid dataset key/);
+    expect(() => parseRoutineInput({ ...sampleInput(), artifact: { ...binding, autoApply: "yes" } })).toThrow(
+      /autoApply must be a boolean/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), artifact: { ...binding, extra: 1 } })).toThrow(
+      /unknown artifact field/,
+    );
+  });
+
+  it("rejects malformed artifact on stored records and SessionRoutine but tolerates absence", () => {
+    expect(isRoutineRecord(sampleRecord())).toBe(true);
+    expect(isRoutineRecord({ ...sampleRecord(), artifact: binding })).toBe(true);
+    expect(isRoutineRecord({ ...sampleRecord(), artifact: { ...binding, datasetIds: "x" } })).toBe(false);
+    const legacy = { ...sampleRecord() } as Partial<RoutineRecord>;
+    delete legacy.artifact;
+    expect(isRoutineRecord(legacy)).toBe(true);
+
+    const session: SessionRoutine = {
+      id: VALID_ID,
+      name: "Nightly",
+      approvalEntries: {},
+      deniedBuiltins: [],
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+    };
+    expect(isSessionRoutine(session)).toBe(true);
+    expect(isSessionRoutine({ ...session, artifact: binding })).toBe(true);
+    expect(isSessionRoutine({ ...session, artifact: { ...binding, autoApply: false } })).toBe(true);
+    expect(isSessionRoutine({ ...session, artifact: { ...binding, autoApply: 1 } })).toBe(false);
+  });
+
+  it("keeps the agent create/patch surfaces free of any binding", () => {
+    expect(routineInputFromAgentCreate(
+      parseRoutineAgentCreateArgs({
+        name: "Nightly",
+        instructions: "x",
+        schedule: { kind: "cron", expr: "@daily" },
+        timeZone: "UTC",
+        projectCwd: "/repo",
+        mode: "build",
+        allow: ["read"],
+      }),
+      "2026-11-23T00:00:00.000Z",
+    ).artifact).toBeNull();
+    expect(() =>
+      parseRoutineAgentCreateArgs({
+        name: "Nightly",
+        instructions: "x",
+        schedule: { kind: "cron", expr: "@daily" },
+        timeZone: "UTC",
+        projectCwd: "/repo",
+        mode: "build",
+        allow: ["read"],
+        artifact: binding,
+      }),
+    ).toThrow(/unknown routine create arguments field: artifact/);
+    expect(() =>
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: binding }),
+    ).toThrow(/unknown routine update arguments field: artifact/);
+  });
+
+  it("force-allows omp-ui_artifact_capture when bound and lets deny win", () => {
+    const policy = sampleInput().toolPolicy;
+    expect(compileRoutineToolPolicy(policy, catalog).overlayEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBeUndefined();
+    const bound = compileRoutineToolPolicy(policy, catalog, { allowArtifactCapture: true });
+    expect(bound.overlayEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBe("allow");
+    expect(bound.overlayYamlPreview).toContain(`"${ARTIFACT_CAPTURE_TOOL_NAME}": allow`);
+    const deniedPolicy = { ...policy, deny: [...policy.deny, ARTIFACT_CAPTURE_TOOL_NAME] };
+    expect(
+      compileRoutineToolPolicy(deniedPolicy, catalog, { allowArtifactCapture: true }).overlayEntries[ARTIFACT_CAPTURE_TOOL_NAME],
+    ).toBe("deny");
+  });
+
+  it("accepts the artifact-missing reason code on run rows", () => {
+    const row: RoutineRunRow = {
+      id: "r1",
+      routineId: VALID_ID,
+      routineName: "Nightly",
+      firedAtMs: 1,
+      scheduledForMs: null,
+      trigger: "clock",
+      outcome: "failed",
+      tabId: null,
+      reasonCode: "artifact-missing",
+      missed: 0,
+      pruned: false,
+      staleCatalog: false,
+    };
+    expect(isRoutineRunRow(row)).toBe(true);
   });
 });

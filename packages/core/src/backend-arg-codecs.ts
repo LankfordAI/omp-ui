@@ -312,7 +312,8 @@ export const artifactReferenceCodec = objectOf<ArtifactReferenceRequest>({
   targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
   dataSnapshotId: artifactUuidCodec, includeData: bool(),
 });
-export const artifactRefreshCodec = objectOf<Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">>({
+// autoApply/scheduledBy (ADR-0101) are host-minted only; the renderer channel can never set them.
+export const artifactRefreshCodec = objectOf<Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData" | "autoApply" | "scheduledBy">>({
   targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
   dataSnapshotId: artifactUuidCodec, datasetIds: arrayOf(artifactKeyCodec),
 });

@@ -603,4 +603,55 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
     expect(applied.currentDataSnapshotId).not.toBe(kept.currentDataSnapshotId);
     expect(scope.errors).toEqual([]);
   }, 180_000);
+
+  it("runs a scheduled fire end to end: host-minted boot ask binds at admission and autoApply settles the capture", async () => {
+    const scope = await spawnScope();
+    await registration(scope, 0, true);
+    const state = await request(scope, { type: "get_state" });
+    scope.entry.record.sessionId = (state.data as Record<string, unknown>).sessionId as string;
+    scope.transcript.path = (state.data as Record<string, unknown>).sessionFile as string;
+    // Seed one managed kept artifact through the ordinary render/keep rails.
+    const dataset = {
+      id: "rows", title: "Scheduled rows", schema: "rows-v1", value: "first fixture data",
+      provenance: {
+        source: { kind: "manual", label: "Hermetic live fixture" },
+        method: { kind: "manual", description: "Deterministic fixture data" },
+        capturedAt: "2026-11-09T00:00:00.000Z",
+        refresh: { kind: "session", instructions: "Read the fixture again", requiredSources: ["Hermetic live fixture"] },
+      },
+    };
+    const renderCalls: PlannedCall[] = [{ id: "seed-render-call", name: HTML_ARTIFACT_TOOL_NAME, args: {
+      title: "Scheduled chart", html: "<!doctype html><h1>Scheduled chart</h1>",
+      artifact: { protocolVersion: 1, stateSchema: "chart-v1", initialState: {}, datasets: [dataset] },
+    } }];
+    scope.provider.respond = () => renderCalls.shift() ?? null;
+    await prompt(scope, "Author the scheduled fixture artifact.");
+    const draft = toolDetails(scope, "seed-render-call").artifactDraft as Record<string, unknown>;
+    const kept = scope.artifacts.keep({ draftId: draft.draftId as string, title: "Scheduled chart" });
+
+    // The boot wrap's exact call shape for a routine-shaped fire.
+    const { wirePrompt } = scope.artifacts.prepareRoutineRefresh({
+      tabId: TAB, artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true,
+      routineName: "Scheduled fixture", promptText: "Refresh the scheduled rows.",
+    });
+    expect(wirePrompt.startsWith("<artifact refresh>")).toBe(true);
+    const pending = scope.artifacts.describe({ artifactId: kept.artifactId }).refreshRequests[0]!;
+    expect(pending).toMatchObject({ autoApply: true, scheduledBy: "Scheduled fixture", bound: false });
+    // Admission on the real runtime binds like a renderer-sent Refresh now.
+    scope.artifacts.admitPrompt({ tabId: TAB, text: wirePrompt });
+    expect(scope.artifacts.describe({ artifactId: kept.artifactId }).refreshRequests[0]).toMatchObject({ bound: true });
+
+    const captures: PlannedCall[] = [{ id: "native-scheduled-capture", name: ARTIFACT_CAPTURE_TOOL_NAME, args: {
+      status: "captured", refreshRequestId: pending.refreshRequestId, datasets: [{ ...dataset, value: "scheduled fire data" }],
+    } }];
+    scope.provider.respond = () => captures.shift() ?? null;
+    await prompt(scope, wirePrompt);
+    expectAssistantBeforeHost(scope, "native-scheduled-capture", ARTIFACT_CAPTURE_TOOL_NAME);
+    // autoApply: the host settled it — no human Apply happened.
+    const after = scope.artifacts.describe({ artifactId: kept.artifactId });
+    expect(after.artifact.currentDataSnapshotId).not.toBe(kept.currentDataSnapshotId);
+    expect(after.captures.every((row) => row.appliedDataSnapshotId !== null)).toBe(true);
+    expect(scope.artifacts.resolveSurface({ artifactId: kept.artifactId, codeRevisionId: after.artifact.currentCodeRevisionId, dataSnapshotId: after.artifact.currentDataSnapshotId }).datasets.rows!.value).toBe("scheduled fire data");
+    expect(scope.errors).toEqual([]);
+  }, 180_000);
 });

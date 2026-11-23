@@ -48,6 +48,7 @@ function routine(patch: Partial<RoutineRecord> = {}): RoutineRecord {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+    artifact: null,
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: Date.UTC(2026, 10, 23, 8),

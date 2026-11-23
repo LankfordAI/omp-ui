@@ -1384,6 +1384,7 @@ export class SessionManager {
                 deniedBuiltins: [...req.fleet.routine.deniedBuiltins],
                 warnCostUsd: req.fleet.routine.warnCostUsd,
                 maxCostUsd: req.fleet.routine.maxCostUsd,
+                ...(req.fleet.routine.artifact === undefined ? {} : { artifact: structuredClone(req.fleet.routine.artifact) }),
               }
             : null,
           settledAtMs: null,
@@ -1985,7 +1986,26 @@ export class SessionManager {
             name: title,
           });
         }
-        initialCommands.push({ type: "prompt", id: fleetPromptCommandId(record.fleet.dispatchId), message: text });
+        // ADR-0101: a bound routine's first prompt rides the ADR-0092 grammar —
+        // the host mints the refresh for this tab and wraps the staged fleet
+        // prompt (refresh block outermost, then the grant). hasPreparedRefreshFor
+        // is the durable one-shot guard across respawn/resume; a stale selection
+        // between preflight and boot skips the ask and the run proceeds plain.
+        let message = text;
+        const binding = record.routine?.artifact ?? null;
+        if (binding !== null && this.deps.artifacts !== undefined && !this.deps.artifacts.hasPreparedRefreshFor(record.tabId)) {
+          try {
+            message = this.deps.artifacts.prepareRoutineRefresh({
+              tabId: record.tabId,
+              ...binding,
+              routineName: record.routine!.name,
+              promptText: text,
+            }).wirePrompt;
+          } catch (error) {
+            console.warn(`[artifacts] ${record.tabId}: scheduled refresh skipped: ${String(error)}`);
+          }
+        }
+        initialCommands.push({ type: "prompt", id: fleetPromptCommandId(record.fleet.dispatchId), message });
       }
     }
     // Staged fleet wakes (ADR-0069) ride after the fleet prompt; the ledger

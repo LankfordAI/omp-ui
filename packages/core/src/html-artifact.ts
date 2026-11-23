@@ -11,6 +11,11 @@ import { validateArtifactAuthoringSpec, type ManagedArtifactAuthoringSpec } from
 /** The host tool's name: namespaced like every omp-ui host tool (ADR-0043). */
 export const HTML_ARTIFACT_TOOL_NAME = "omp-ui_render_html";
 
+/** The stage-only capture host tool (ADR-0092); referenced by the routine
+ *  policy compiler, so it lives beside the render-tool name, not in
+ *  host-bridge.ts (which imports routine.ts and would cycle). */
+export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
+
 /** The Electron partition every artifact guest runs in. No `persist:` prefix:
  *  an in-memory session, so nothing an artifact stores outlives the app. */
 export const HTML_ARTIFACT_PARTITION = "omp-ui-artifacts";

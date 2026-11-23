@@ -12,7 +12,8 @@ import {
   type ArtifactDeleteRequest, type ArtifactResolveSourceRequest, type ArtifactLibraryChanged,
   type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactPruneRequest, type ArtifactRestoreSnapshotRequest, type ArtifactSavePartRequest, type ArtifactExportHtmlSourceRequest,
 } from "@omp-ui/core";
-import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext } from "@omp-ui/core";
+import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext, withArtifactReferenceContext, withArtifactRefreshContext } from "@omp-ui/core";
+import type { ArtifactRefreshEntry, RoutineArtifactBinding } from "@omp-ui/core";
 import { artifactSourceHash, readHistoricalArtifactSource } from "./artifact-source";
 import { resolveArtifactLocalRoot } from "./artifact-dataset-file";
 
@@ -218,6 +219,17 @@ export class ArtifactService {
       return {status: "failed", refreshRequestId, artifactId: failed.artifactId, message};
     }
     const capture = this.run(this.authorizer(request.tabId, target, epoch), () => this.storage().stageCapture({...destination, datasets: this.datasets(args.datasets, source)}));
+    // ADR-0101 autoApply: the host settles the staged capture itself when
+    // every acceptance fence still matches; any conflict leaves it staged.
+    if (refresh.autoApply === true) {
+      try {
+        this.humanMutation(store => store.applyCapture({
+          captureId: capture.captureId,
+          expectedCodeRevisionId: capture.codeRevisionId,
+          expectedDatasetHeads: capture.expectedDatasetHeads,
+        }));
+      } catch { /* heads moved or request dismissed: stays staged for review */ }
+    }
     this.options.onChanged?.({ epoch: this.revision, artifactIds: [capture.artifactId], kind: "changed" });
     return {...capture, status: "captured"};
   }
@@ -286,6 +298,63 @@ export class ArtifactService {
     const refresh = this.humanMutation(store => store.prepareRefresh({ ...request, includeData: true }));
     const reference = this.storage().readReference({ referenceId: refresh.referenceId });
     return { request: refresh, reference };
+  }
+  /** Fire-time binding validity (ADR-0101): null when the selection still resolves. */
+  artifactRefreshBlocked(binding: RoutineArtifactBinding): string | null {
+    try {
+      const description = this.storage().describe({ artifactId: binding.artifactId });
+      if (!description.artifact.managed) return "The bound artifact is no longer managed";
+      const defined = new Set(description.code.definition?.datasets.map(dataset => dataset.id) ?? []);
+      const missing = binding.datasetIds.filter(id => !defined.has(id));
+      if (missing.length > 0) return `Artifact datasets no longer exist: ${missing.join(", ")}`;
+      return null;
+    } catch (error) {
+      return error instanceof ArtifactError && error.code === "source-missing"
+        ? "The bound artifact no longer exists"
+        : error instanceof Error ? error.message : String(error);
+    }
+  }
+  /** Human-minted refresh prepared by the host for this routine run's tab (ADR-0101);
+   *  never exposed to any renderer channel. Throws ArtifactError on a stale selection. */
+  prepareRoutineRefresh(request: RoutineArtifactBinding & {
+    tabId: string;
+    routineName: string;
+    /** The run's own first-prompt text the blocks ride ahead of. */
+    promptText: string;
+  }): { wirePrompt: string } {
+    this.target(request.tabId);
+    const prepared = this.humanMutation(store => {
+      const description = store.describe({ artifactId: request.artifactId });
+      if (!description.artifact.managed) throw new ArtifactError("unsupported-contract", "Document-only artifacts cannot refresh datasets");
+      return store.prepareRefresh({
+        artifactId: request.artifactId,
+        codeRevisionId: description.artifact.currentCodeRevisionId,
+        dataSnapshotId: description.artifact.currentDataSnapshotId,
+        datasetIds: [...request.datasetIds],
+        targetTabId: request.tabId,
+        includeData: true,
+        autoApply: request.autoApply,
+        scheduledBy: request.routineName,
+      });
+    });
+    const reference = this.storage().readReference({ referenceId: prepared.referenceId });
+    const entry: ArtifactRefreshEntry = {
+      version: 1,
+      refreshRequestId: prepared.refreshRequestId,
+      artifactId: prepared.artifactId,
+      title: reference.title,
+      datasetIds: prepared.datasetIds,
+    };
+    // ADR-0101: identical grammar to the renderer's Refresh now (ADR-0092) —
+    // refresh block outermost, then the grant, over the run's own prompt text.
+    this.publish([prepared.artifactId], "changed");
+    return { wirePrompt: withArtifactRefreshContext(withArtifactReferenceContext(request.promptText, [reference]), [entry]) };
+  }
+  /** True when this tab already owns a prepared refresh (idempotence across respawn/resume). */
+  hasPreparedRefreshFor(tabId: string): boolean {
+    if (!this.enabled) return false;
+    try { return this.storage().hasPreparedRefreshFor({ targetTabId: tabId }); }
+    catch { return false; }
   }
   applyCapture(request: ArtifactApplyCaptureRequest) { const value = this.humanMutation(store => store.applyCapture(request)); this.publish([value.artifactId], "changed"); return value; }
   discardDraft(request: { draftId: string }) { this.humanMutation(store => store.discardDraft(request)); this.publish([request.draftId], "changed"); }

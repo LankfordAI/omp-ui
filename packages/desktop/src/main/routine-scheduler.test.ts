@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ARTIFACT_CAPTURE_TOOL_NAME,
   DEFAULT_ROUTINE_NOTIFICATIONS,
   ROUTINE_NOTIFY_TOOL_KEY,
   RoutineRunHistory,
@@ -53,6 +54,7 @@ function routine(id: string, overrides: Partial<RoutineRecord> = {}): RoutineRec
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+    artifact: null,
     enabled: true,
     createdAt: new Date(T0).toISOString(),
     nextRunAtMs: T0,
@@ -90,6 +92,7 @@ interface Harness {
   postRunningTabs: Set<string>;
   notifications: RoutineNotificationPayload[];
   hasProjectFlag: { value: boolean };
+  artifactBlocked: { value: string | null };
 }
 
 let dir: string;
@@ -111,6 +114,7 @@ function harness(routines: RoutineRecord[]): Harness {
   const postRunningTabs = new Set<string>();
   const notifications: RoutineNotificationPayload[] = [];
   const hasProjectFlag = { value: true };
+  const artifactBlocked = { value: null as string | null };
   let dispatchImpl = async (): Promise<FleetDispatchResult> => {
     const tabId = `tab-${++nextTab}`;
     return {
@@ -130,6 +134,7 @@ function harness(routines: RoutineRecord[]): Harness {
     isTurnRunning: (tabId) => running.has(tabId),
     awaitingHumanAnswer: (tabId) => awaiting.has(tabId),
     listCatalog: async () => CATALOG,
+    artifactRefreshBlocked: () => artifactBlocked.value,
     dispatch: async (req, who) => {
       dispatches.push({ req, routine: who.routine });
       const result = await dispatchImpl();
@@ -171,6 +176,7 @@ function harness(routines: RoutineRecord[]): Harness {
     postRunningTabs,
     notifications,
     hasProjectFlag,
+    artifactBlocked,
   };
 }
 
@@ -434,6 +440,7 @@ describe("RoutineScheduler pre-run hook (#1283)", () => {
       isTurnRunning: () => false,
       awaitingHumanAnswer: () => false,
       listCatalog: async () => CATALOG,
+      artifactRefreshBlocked: () => null,
       dispatch: async () => {
         throw new Error("must not dispatch on skip");
       },
@@ -473,6 +480,7 @@ describe("RoutineScheduler pre-run hook (#1283)", () => {
       isLive: () => false,
       isTurnRunning: () => false,
       awaitingHumanAnswer: () => false,
+      artifactRefreshBlocked: () => null,
       listCatalog: async () => {
         throw new Error("must not compile the catalog after gate-off");
       },
@@ -645,6 +653,44 @@ describe("RoutineScheduler notifications (#1294)", () => {
     await h.scheduler.runNow(ID_B);
     expect(h.dispatches[1]!.routine.approvalEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBeUndefined();
     expect(h.dispatches[1]!.req.prompt).not.toContain("omp-ui_notify");
+    h.scheduler.dispose();
+  });
+
+  it("fails a bound fire whose artifact selection no longer resolves, before catalog or dispatch (ADR-0101)", async () => {
+    const binding = { artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b", datasetIds: ["rows"], autoApply: false };
+    const h = harness([
+      routine(ID_A, {
+        name: "Refresher",
+        nextRunAtMs: null,
+        artifact: binding,
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS, onFail: true },
+      }),
+    ]);
+    h.artifactBlocked.value = "The bound artifact no longer exists";
+    await h.scheduler.runNow(ID_A).catch(() => undefined);
+    expect(h.dispatches).toHaveLength(0);
+    expect(h.history.list()[0]).toMatchObject({ outcome: "failed", reasonCode: "artifact-missing", tabId: null });
+    expect(h.notifications[0]).toEqual({
+      routineId: ID_A,
+      tabId: null,
+      title: "Refresher",
+      body: "Failed — The bound artifact no longer exists",
+    });
+
+    // Selection resolves again: the fire dispatches with the capture allow and the pinned binding.
+    h.artifactBlocked.value = null;
+    await h.scheduler.runNow(ID_A);
+    expect(h.dispatches).toHaveLength(1);
+    expect(h.dispatches[0]!.routine.approvalEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBe("allow");
+    expect(h.dispatches[0]!.routine.artifact).toEqual(binding);
+    h.scheduler.dispose();
+  });
+
+  it("leaves the capture tool unlisted for an unbound fire", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: null })]);
+    await h.scheduler.runNow(ID_A);
+    expect(h.dispatches[0]!.routine.approvalEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBeUndefined();
+    expect(h.dispatches[0]!.routine.artifact).toBeUndefined();
     h.scheduler.dispose();
   });
 });

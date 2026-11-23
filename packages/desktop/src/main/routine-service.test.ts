@@ -61,6 +61,7 @@ function input(overrides: Partial<RoutineInput> = {}): RoutineInput {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+    artifact: null,
     enabled: true,
     ...overrides,
   };

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseHtmlArtifactArgs, withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
+import { parseHtmlArtifactArgs, parseArtifactPromptReferences, splitArtifactRefreshContext, withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import { ArtifactService, type ArtifactTarget } from "./artifact-service";
 import { artifactSourceHash } from "./artifact-source";
 import { readArtifactDatasetFile } from "./artifact-dataset-file";
@@ -445,5 +445,52 @@ describe("human maintenance and export reads", () => {
     expect(composed.name).toBe("My rows");
     expect(composed.html).toContain("<main>Rows</main>");
     expect(composed.html).not.toContain("window.ompArtifact");
+  });
+});
+
+describe("scheduled artifact refresh (ADR-0101)", () => {
+  it("mints the routine fire's prompt in ADR-0092 grammar and marks the request scheduled", async () => {
+    const f = fixture(); const kept = await keep(f);
+    expect(f.service.artifactRefreshBlocked({ artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false })).toBeNull();
+    expect(f.service.artifactRefreshBlocked({ artifactId: kept.artifactId, datasetIds: ["gone"], autoApply: false })).toMatch(/no longer exist/);
+    expect(f.service.artifactRefreshBlocked({ artifactId: randomUUID(), datasetIds: ["rows"], autoApply: false })).toMatch(/no longer exists/);
+    expect(f.service.hasPreparedRefreshFor("tab")).toBe(false);
+    const { wirePrompt } = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    expect(wirePrompt.startsWith("<artifact refresh>")).toBe(true);
+    expect(splitArtifactRefreshContext(wirePrompt).refreshes[0]?.datasetIds).toEqual(["rows"]);
+    expect(parseArtifactPromptReferences(wirePrompt)).toHaveLength(1);
+    const pending = f.service.describe({ artifactId: kept.artifactId }).refreshRequests[0]!;
+    expect(pending).toMatchObject({ autoApply: true, scheduledBy: "Nightly", bound: false, status: "awaiting" });
+    expect(f.service.hasPreparedRefreshFor("tab")).toBe(true);
+    expect(f.service.hasPreparedRefreshFor("other")).toBe(false);
+  });
+
+  it("auto-applies the staged capture when fences hold and refuses a stale overlapping fire", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const first = f.service.prepareRoutineRefresh({ tabId: "tab-a", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    const second = f.service.prepareRoutineRefresh({ tabId: "tab-b", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    const firstId = splitArtifactRefreshContext(first.wirePrompt).refreshes[0]!.refreshRequestId;
+    const secondId = splitArtifactRefreshContext(second.wirePrompt).refreshes[0]!.refreshRequestId;
+    f.service.admitPrompt({ tabId: "tab-a", text: first.wirePrompt });
+    f.service.admitPrompt({ tabId: "tab-b", text: second.wirePrompt });
+    // Fire A stages and the host settles it with no human Apply.
+    expect(f.service.stageCapture({ tabId: "tab-a", toolCallId: "capture-a", args: { status: "captured", refreshRequestId: firstId, datasets: [dataset([3, 4])] } }).status).toBe("captured");
+    const applied = f.service.describe({ artifactId: kept.artifactId });
+    expect(applied.captures.every((row) => row.appliedDataSnapshotId !== null)).toBe(true);
+    expect(f.service.resolveSurface(versions(applied.artifact)).datasets.rows!.value).toEqual([3, 4]);
+    // Overlapping slow fire B against a now-moved head: staging itself fences.
+    expect(() => f.service.stageCapture({ tabId: "tab-b", toolCallId: "capture-b", args: { status: "captured", refreshRequestId: secondId, datasets: [dataset([5])] } })).toThrow();
+  });
+
+  it("keeps a non-autoApply scheduled capture staged for review", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const prepared = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false, routineName: "Nightly", promptText: "Do the task." });
+    const refreshRequestId = splitArtifactRefreshContext(prepared.wirePrompt).refreshes[0]!.refreshRequestId;
+    f.service.admitPrompt({ tabId: "tab", text: prepared.wirePrompt });
+    f.service.stageCapture({ tabId: "tab", toolCallId: "capture", args: { status: "captured", refreshRequestId, datasets: [dataset([7])] } });
+    const described = f.service.describe({ artifactId: kept.artifactId });
+    expect(described.captures.every((row) => row.appliedDataSnapshotId === null)).toBe(true);
+    expect(described.refreshRequests[0]).toMatchObject({ status: "captured" });
+    expect("autoApply" in described.refreshRequests[0]!).toBe(false);
   });
 });
