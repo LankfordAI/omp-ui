@@ -184,6 +184,22 @@ export function Artifacts() {
     };
   }, [selectedId, selectedCode, selectedSnapshot, previewReload]);
 
+  // #1312: while following latest, an external head advance — refresh capture applied,
+  // restore, or a new code revision — must remount the guest so it reloads against the
+  // new head. A snapshot whose cause is "user-edit" is the mounted guest's own
+  // saveState(); keep it mounted across that. Pinned (historical) views never bump.
+  useEffect(() => {
+    if (!description || preview === null) return;
+    if (selectedCode || selectedSnapshot) return;
+    const headCode = description.artifact.currentCodeRevisionId;
+    const headSnapshot = description.artifact.currentDataSnapshotId;
+    if (preview.source.codeRevisionId === headCode && preview.source.dataSnapshotId === headSnapshot) return;
+    const cause = description.snapshots.find((row) => row.dataSnapshotId === headSnapshot)?.cause ?? description.snapshot.cause;
+    if (preview.source.codeRevisionId !== headCode || cause !== "user-edit") {
+      setPreviewReload((n) => n + 1);
+    }
+  }, [description, preview, selectedCode, selectedSnapshot]);
+
   const handleGalleryQuickAction = async (row: ArtifactListItem, mode: "reference" | "refresh"): Promise<void> => {
     setError(null);
     try {

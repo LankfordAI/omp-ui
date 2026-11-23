@@ -224,6 +224,7 @@ export class ArtifactService {
     const capture = this.run(this.authorizer(request.tabId, target, epoch), () => this.storage().stageCapture({...destination, datasets: this.datasets(args.datasets, source)}));
     // ADR-0101 autoApply: the host settles the staged capture itself when
     // every acceptance fence still matches; any conflict leaves it staged.
+    let autoApplied = false;
     if (refresh.autoApply === true) {
       try {
         this.humanMutation(store => store.applyCapture({
@@ -231,9 +232,14 @@ export class ArtifactService {
           expectedCodeRevisionId: capture.codeRevisionId,
           expectedDatasetHeads: capture.expectedDatasetHeads,
         }));
+        autoApplied = true;
       } catch { /* heads moved or request dismissed: stays staged for review */ }
     }
-    this.options.onChanged?.({ epoch: this.revision, artifactIds: [capture.artifactId], kind: "changed" });
+    // #1312: an auto-applied head advance must publish like the manual Apply so
+    // ArtifactGuestBroker revokes mounted surfaces; a merely staged capture only
+    // refreshes the library view without revoking anyone.
+    if (autoApplied) this.publish([capture.artifactId], "changed");
+    else this.options.onChanged?.({ epoch: this.revision, artifactIds: [capture.artifactId], kind: "changed" });
     return {...capture, status: "captured"};
   }
   async resolveSource(request: ArtifactResolveSourceRequest) {

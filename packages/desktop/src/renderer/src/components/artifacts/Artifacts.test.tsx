@@ -396,6 +396,113 @@ describe("Gallery & Full-Canvas Viewer (#1307)", () => {
     expect(releaseSurface).toHaveBeenCalledWith("surface-2");
   });
 
+  it("auto-reloads the guest when the head advances with cause refresh or restore, but not on its own user-edit save (#1312)", async () => {
+    const snap2 = "66666666-6666-4666-8666-666666666666";
+    const snap3 = "77777777-7777-4777-8777-777777777777";
+    let current: ArtifactDescription = { ...description };
+    backendMock.artifactDescribe.mockImplementation(async () => ({
+      ...current,
+      code: { ...current.code, codeRevisionId: current.artifact.currentCodeRevisionId },
+      snapshot: { ...current.snapshot, dataSnapshotId: current.artifact.currentDataSnapshotId },
+    }));
+    backendMock.artifactReadPart.mockImplementation(async (request: { part: string }) =>
+      page(request.part === "definition" ? JSON.stringify({ html: "<p>Chart</p>", managed: description.code.definition }) : "{}"),
+    );
+    let surfaceCount = 0;
+    const prepareSurface = vi.fn(async () => {
+      surfaceCount += 1;
+      return {
+        surfaceId: `surface-${surfaceCount}`,
+        url: `data:text/html;base64,bWFpbg==#${surfaceCount}`,
+        partition: "omp-ui-artifacts",
+        managed: true,
+        readOnly: false,
+      };
+    });
+    window.ompArtifactHost = {
+      prepareSurface,
+      releaseSurface: vi.fn(async () => {}),
+      updateTheme: vi.fn(async () => {}),
+      captureThumbnail: vi.fn(async () => null),
+      ensureDocumentThumbnail: vi.fn(async () => null),
+      onSurfaceNotice: () => () => {},
+    };
+
+    useStore.setState({ artifacts: { artifactId: id } });
+    await render(<Artifacts />);
+    const initialGuest = host.querySelector("webview");
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+
+    // The guest's own saveState() (cause "user-edit") must never remount it.
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentDataSnapshotId: snap2 },
+      snapshots: [
+        { dataSnapshotId: snap2, createdAt: timestamp, cause: "user-edit", stateRevision: 2 },
+        ...current.snapshots,
+      ],
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 1, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+    expect(host.querySelector("webview")).toBe(initialGuest);
+
+    // A refresh-applied capture advancing the head (cause "refresh") auto-reloads the guest.
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentDataSnapshotId: snap3 },
+      snapshots: [
+        { dataSnapshotId: snap3, createdAt: timestamp, cause: "refresh", stateRevision: 3 },
+        ...current.snapshots,
+      ],
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 2, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(2);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snap3 },
+      expect.any(Object),
+    );
+    const refreshedGuest = host.querySelector("webview");
+    expect(refreshedGuest).not.toBe(initialGuest);
+
+    // A restore advancing the head (cause "restore") also auto-reloads.
+    const snap4 = "88888888-8888-4888-8888-888888888888";
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentDataSnapshotId: snap4 },
+      snapshots: [
+        { dataSnapshotId: snap4, createdAt: timestamp, cause: "restore", stateRevision: 4 },
+        ...current.snapshots,
+      ],
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 3, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(3);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snap4 },
+      expect.any(Object),
+    );
+
+    // A code revision advance auto-reloads even when the data head is unchanged.
+    const code2 = "99999999-9999-4999-8999-999999999999";
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentCodeRevisionId: code2 },
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 4, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(4);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code2, dataSnapshotId: snap4 },
+      expect.any(Object),
+    );
+  });
+
   it("reloads the preview when restoring a snapshot from the History drawer while viewing latest", async () => {
     const olderSnap = "66666666-6666-4666-8666-666666666666";
     const restoredSnap = "77777777-7777-4777-8777-777777777777";

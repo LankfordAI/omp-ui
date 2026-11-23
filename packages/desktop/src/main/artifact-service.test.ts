@@ -482,6 +482,32 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
     expect(() => f.service.stageCapture({ tabId: "tab-b", toolCallId: "capture-b", args: { status: "captured", refreshRequestId: secondId, datasets: [dataset([5])] } })).toThrow();
   });
 
+  it("publishes a surface invalidation when autoApply settles the capture, but not when it stays staged (#1312)", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const surfaces: ArtifactLibraryChanged[] = [];
+    const unsubscribe = f.service.onSurfaceInvalidated((event) => surfaces.push(event));
+    try {
+      const prepared = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+      const refreshRequestId = splitArtifactRefreshContext(prepared.wirePrompt).refreshes[0]!.refreshRequestId;
+      f.service.admitPrompt({ tabId: "tab", text: prepared.wirePrompt });
+      const before = surfaces.length;
+      f.service.stageCapture({ tabId: "tab", toolCallId: "capture", args: { status: "captured", refreshRequestId, datasets: [dataset([3, 4])] } });
+      // Auto-applied heads moved: like the manual applyCapture path, mounted guests must be revoked.
+      expect(surfaces.slice(before)).toEqual([{ epoch: expect.any(Number), artifactIds: [kept.artifactId], kind: "changed" }]);
+    } finally { unsubscribe(); }
+    // A capture that stays staged for review never invalidates surfaces.
+    const surfaces2: ArtifactLibraryChanged[] = [];
+    const unsubscribe2 = f.service.onSurfaceInvalidated((event) => surfaces2.push(event));
+    try {
+      const other = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false, routineName: "Nightly", promptText: "Do the task." });
+      const stagedId = splitArtifactRefreshContext(other.wirePrompt).refreshes[0]!.refreshRequestId;
+      f.service.admitPrompt({ tabId: "tab", text: other.wirePrompt });
+      const before = surfaces2.length;
+      f.service.stageCapture({ tabId: "tab", toolCallId: "capture-staged", args: { status: "captured", refreshRequestId: stagedId, datasets: [dataset([9])] } });
+      expect(surfaces2.slice(before)).toEqual([]);
+    } finally { unsubscribe2(); }
+  });
+
   it("keeps a non-autoApply scheduled capture staged for review", async () => {
     const f = fixture(); const kept = await keep(f);
     const prepared = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false, routineName: "Nightly", promptText: "Do the task." });
