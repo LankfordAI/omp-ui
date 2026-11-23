@@ -91,10 +91,13 @@ import {
   type HostUriContentType,
   type RpcFrame,
   ROUTINE_CREATE_TOOL_NAME,
+  ROUTINE_UPDATE_TOOL_NAME,
   parseRoutineAgentCreateArgs,
+  parseRoutineAgentUpdateArgs,
   parseRoutineFocusUri,
   routineFocusUri,
   type RoutineAgentCreateArgs,
+  type RoutineAgentUpdateArgs,
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
 import type { ArtifactService } from "./artifact-service";
@@ -180,8 +183,11 @@ export interface HostBridgeDeps {
   };
   /** The issue host tools' answerer (ADR-0095); absent means both answer as unavailable. */
   issues?: IssueBridgeDeps;
-  /** The routine authoring tool's answerer (ADR-0100 amendment); absent means it answers as unavailable. */
-  routines?: { create(tabId: string, args: RoutineAgentCreateArgs): Promise<{ id: string; name: string }> };
+  /** The routine host tools' answerers (ADR-0100 amendments); absent means they answer as unavailable. */
+  routines?: {
+    create(tabId: string, args: RoutineAgentCreateArgs): Promise<{ id: string; name: string }>;
+    update(tabId: string, args: RoutineAgentUpdateArgs): Promise<{ id: string; name: string; wasEnabled: boolean }>;
+  };
   artifacts?: ArtifactService;
 }
 
@@ -742,24 +748,39 @@ export class HostBridge {
       this.answer(call.id, frame, send);
       return;
     }
-    if (call.toolName === ROUTINE_CREATE_TOOL_NAME) {
+    if (call.toolName === ROUTINE_CREATE_TOOL_NAME || call.toolName === ROUTINE_UPDATE_TOOL_NAME) {
       const routines = this.deps.routines;
       if (routines === undefined) {
         this.answer(call.id, hostToolErrorResult(call.id, "routine tools are unavailable"), send);
         return;
       }
+      const isUpdate = call.toolName === ROUTINE_UPDATE_TOOL_NAME;
       let frame: RpcFrame;
       try {
-        const args = parseRoutineAgentCreateArgs(call.args);
-        const created = await routines.create(tabId, args);
-        // The create path forces enabled: false (core routineInputFromAgentCreate).
-        frame = hostToolTextResult(call.id, [
-          `Created routine "${created.name}" (id ${created.id}) as a disabled draft.`,
-          `[Review "${created.name}" in Routines](${routineFocusUri(created.id)})`,
-          "It will not run until the user opens it and turns on the enable switch. Tell the user routine authoring always lands disabled and they must review and enable it.",
-        ].join("\n"));
+        if (isUpdate) {
+          const args = parseRoutineAgentUpdateArgs(call.args);
+          // routinePatchFromAgentUpdate forces enabled: false — every agent edit disarms firing.
+          const updated = await routines.update(tabId, args);
+          frame = hostToolTextResult(call.id, [
+            updated.wasEnabled
+              ? `Updated routine "${updated.name}" (id ${updated.id}). This routine was enabled and is now disabled.`
+              : `Updated routine "${updated.name}" (id ${updated.id}).`,
+            `[Review "${updated.name}" in Routines](${routineFocusUri(updated.id)})`,
+            "It was saved disabled — tell the user any agent edit disarms scheduled firing and they must turn the enable switch back on.",
+          ].join("\n"));
+        } else {
+          const args = parseRoutineAgentCreateArgs(call.args);
+          const created = await routines.create(tabId, args);
+          // The create path forces enabled: false (core routineInputFromAgentCreate).
+          frame = hostToolTextResult(call.id, [
+            `Created routine "${created.name}" (id ${created.id}) as a disabled draft.`,
+            `[Review "${created.name}" in Routines](${routineFocusUri(created.id)})`,
+            "It will not run until the user opens it and turns on the enable switch. Tell the user routine authoring always lands disabled and they must review and enable it.",
+          ].join("\n"));
+        }
       } catch (error) {
-        frame = hostToolErrorResult(call.id, `routines_create refused: ${error instanceof Error ? error.message : "unavailable"}`);
+        const label = isUpdate ? "routines_update" : "routines_create";
+        frame = hostToolErrorResult(call.id, `${label} refused: ${error instanceof Error ? error.message : "unavailable"}`);
       }
       this.answer(call.id, frame, send);
       return;

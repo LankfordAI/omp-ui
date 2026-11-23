@@ -8,7 +8,7 @@
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
 import { deviceTool } from "./device-tool";
-import { ROUTINE_COST_MAX_USD, ROUTINE_INSTRUCTIONS_MAX, ROUTINE_NAME_MAX } from "./routine";
+import { ROUTINE_COST_MAX_USD, ROUTINE_ID_PATTERN, ROUTINE_INSTRUCTIONS_MAX, ROUTINE_NAME_MAX, ROUTINE_SCRIPT_MAX } from "./routine";
 import { issueDraftTool, issueFileTool } from "./issue-tool";
 import { themeListTool, themeSetTool, themeTool } from "./theme-tool";
 import {
@@ -86,10 +86,11 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
 
 export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean; routines: boolean }
 export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
-/** The one routine host tool (ADR-0100 amendment): author a disabled draft only. */
+/** The routine host tools (ADR-0100 amendments): author or edit a definition; only a human can arm one. */
 export const ROUTINE_CREATE_TOOL_NAME = "omp-ui_routines_create";
+export const ROUTINE_UPDATE_TOOL_NAME = "omp-ui_routines_update";
 
-/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture; the Routines gate enables omp-ui_routines_create last. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture; the Routines gate enables omp-ui_routines_create and omp-ui_routines_update last. */
 export function hostToolsDefinition(
   opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false, routines: false },
 ): RpcHostToolDefinition[] {
@@ -118,14 +119,24 @@ export function hostToolsDefinition(
   if (opts.theme) tools.push(themeTool(), themeSetTool(), themeListTool());
   if (opts.issues) tools.push(issueDraftTool(), issueFileTool());
   if (opts.artifacts) tools.push(artifactCaptureTool());
-  if (opts.routines) tools.push(routineCreateTool());
+  if (opts.routines) tools.push(routineCreateTool(), routineUpdateTool());
   return tools;
 }
+
+const ROUTINE_SCRIPTS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    pre: { type: "string", maxLength: ROUTINE_SCRIPT_MAX },
+    post: { type: "string", maxLength: ROUTINE_SCRIPT_MAX },
+  },
+} as const;
 
 /**
  * The routine authoring tool (ADR-0100 amendment). The answerer forces
  * `enabled: false` server-side: an agent may author a routine, only a human
- * can arm one. Update, delete, and runNow stay human-only by absence.
+ * can arm one. Delete and runNow stay human-only by absence; edits go
+ * through omp-ui_routines_update.
  */
 function routineCreateTool(): RpcHostToolDefinition {
   return {
@@ -133,9 +144,10 @@ function routineCreateTool(): RpcHostToolDefinition {
     loadMode: "essential",
     description:
       "Create a scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked for a recurring scheduled agent run; never for one-off timing of your own work. " +
-      "The routine is always saved DISABLED and cannot be enabled, edited, or run by you: the user must open it and turn on the enable switch before it ever fires. " +
+      "The routine is always saved DISABLED and cannot be enabled or run by you; use omp-ui_routines_update to edit it later. The user must open it and turn on the enable switch before it ever fires. " +
       "projectCwd must be a registered project path (omp-ui_fleet_machines lists them). allow lists exact omp tool keys the routine may use unprompted; anything else prompts the user at fire time. " +
       `name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression. ` +
+      `scripts are optional shell hooks run before/after each fire (≤ ${ROUTINE_SCRIPT_MAX} characters per phase); they land only in the disabled draft and are shown to the user for review before they can ever run. ` +
       "Paste the returned Markdown review link verbatim into your reply so the user can open the routine for review.",
     parameters: {
       type: "object",
@@ -158,6 +170,59 @@ function routineCreateTool(): RpcHostToolDefinition {
         allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
+        scripts: {
+          ...ROUTINE_SCRIPTS_SCHEMA,
+          description: "Optional pre/post run hooks; omitted phase means no hook.",
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The routine editing tool (ADR-0100 amendment 2). Field-level merge over the
+ * stored record; the answerer forces `enabled: false` — every agent edit
+ * disarms scheduled firing until a human re-arms. `deny`, `workspace`, and
+ * the review stamps stay host-owned.
+ */
+function routineUpdateTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_UPDATE_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Edit an existing scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked to change a routine they own. " +
+      "Field-level merge: only the fields you send change; absent fields keep their current values. warnUsd/maxUsd merge individually; scripts.pre/post merge per phase (send \"\" to clear one hook, omit to keep it); " +
+      "allow replaces the allow list but preserves the routine's existing deny list, which you can never change. " +
+      "For model, thinkingLevel, warnUsd, maxUsd: send null to reset to the machine/registry default, omit the key to leave it alone. " +
+      "Any update saves the routine DISABLED, even if it was enabled — the user must turn the enable switch back on; you can never enable or run a routine. " +
+      `enabled, deny, destination.workspace, and unknown keys are refused. name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression, scripts phases ≤ ${ROUTINE_SCRIPT_MAX} characters. ` +
+      "Paste the returned Markdown review link verbatim into your reply and tell the user the edited routine is disabled until they re-enable it.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: {
+        id: { type: "string", pattern: ROUTINE_ID_PATTERN.source, description: "The routine id (from omp-ui_routines_create or the Routines view)." },
+        name: { type: "string", maxLength: ROUTINE_NAME_MAX },
+        instructions: { type: "string", maxLength: ROUTINE_INSTRUCTIONS_MAX },
+        schedule: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "expr"],
+          properties: { kind: { const: "cron" }, expr: { type: "string" } },
+        },
+        timeZone: { type: "string", description: "IANA time zone, e.g. America/New_York." },
+        projectCwd: { type: "string", description: "New registered project path; the workspace choice is kept from the stored routine." },
+        mode: { type: "string", enum: ["plan", "build"] },
+        model: { type: ["string", "null"], description: "Model selector; null = machine default; omit = leave unchanged." },
+        thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default; omit = leave unchanged." },
+        allow: { type: "array", items: { type: "string" }, description: "Replaces the exact omp tool keys allowed unprompted; deny is preserved." },
+        warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default; omit = leave unchanged." },
+        maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default; omit = leave unchanged." },
+        scripts: {
+          ...ROUTINE_SCRIPTS_SCHEMA,
+          description: "Pre/post run hooks; an omitted phase keeps its current hook, an empty string clears it.",
+        },
       },
     },
   };

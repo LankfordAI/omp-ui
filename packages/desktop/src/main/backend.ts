@@ -731,6 +731,11 @@ export class MainBackend {
             const record = await this.routines.create(routineInputFromAgentCreate(args, new Date().toISOString()));
             return { id: record.id, name: record.name };
           },
+          update: async (_tabId, args) => {
+            const { record, wasEnabled } = await this.routines.updateFromAgent(
+              args, new Date().toISOString());
+            return { id: record.id, name: record.name, wasEnabled };
+          },
         },
         // Routines (ADR-0100): the per-run timer owner, right after the dialog gates.
         routineLifecycle: (access) => {

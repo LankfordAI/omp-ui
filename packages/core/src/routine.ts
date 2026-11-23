@@ -235,6 +235,7 @@ export interface RoutineAgentCreateArgs {
   allow: string[];
   warnUsd: number | null;
   maxUsd: number | null;
+  scripts: RoutineScripts;
 }
 
 const AGENT_CREATE_KEYS = new Set([
@@ -249,6 +250,7 @@ const AGENT_CREATE_KEYS = new Set([
   "allow",
   "warnUsd",
   "maxUsd",
+  "scripts",
 ]);
 
 /**
@@ -284,6 +286,7 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
     allow,
     warnUsd: parseSpendNumber(raw.warnUsd === undefined ? null : raw.warnUsd, "warnUsd"),
     maxUsd: parseSpendNumber(raw.maxUsd === undefined ? null : raw.maxUsd, "maxUsd"),
+    scripts: parseScripts(raw.scripts),
   };
 }
 
@@ -305,9 +308,186 @@ export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso
     thinkingLevel: args.thinkingLevel,
     spend: { warnUsd: args.warnUsd, maxUsd: args.maxUsd },
     toolPolicy: { allow: args.allow, deny: [], lastReviewedAt: nowIso, reviewedCatalog: [] },
-    scripts: { pre: "", post: "" },
+    scripts: args.scripts,
     enabled: false,
   };
+}
+
+/**
+ * The narrow agent-facing patch behind `omp-ui_routines_update` (ADR-0100
+ * amendment 2). Every field is optional — present means change, absent means
+ * leave. Nullable fields distinguish present-with-null (reset to default)
+ * from absent (leave), so the parser never collapses them with `??`.
+ * `enabled`, `deny`, `workspace`, and whole-object `spend`/`scripts`/
+ * `toolPolicy` are not expressible here; `scripts` merges per leaf.
+ */
+export interface RoutineAgentUpdateArgs {
+  id: string;
+  name?: string;
+  instructions?: string;
+  schedule?: { kind: "cron"; expr: string };
+  timeZone?: string;
+  projectCwd?: string;
+  mode?: RoutineMode;
+  model?: string | null;
+  thinkingLevel?: string | null;
+  allow?: string[];
+  warnUsd?: number | null;
+  maxUsd?: number | null;
+  scripts?: { pre?: string; post?: string };
+}
+
+const AGENT_UPDATE_KEYS = new Set([
+  "id",
+  "name",
+  "instructions",
+  "schedule",
+  "timeZone",
+  "projectCwd",
+  "mode",
+  "model",
+  "thinkingLevel",
+  "allow",
+  "warnUsd",
+  "maxUsd",
+  "scripts",
+]);
+
+/** Validates the update host tool's arguments off the wire; throws with the reason. */
+export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArgs {
+  if (!isPlainObject(raw)) throw new Error("routine update arguments must be an object");
+  assertAllowedKeys(raw, AGENT_UPDATE_KEYS, "routine update arguments");
+  if (typeof raw.id !== "string" || !ROUTINE_ID_PATTERN.test(raw.id)) {
+    throw new Error("id must be a routine id");
+  }
+  const args: RoutineAgentUpdateArgs = { id: raw.id };
+  let changed = false;
+  if (raw.name !== undefined) {
+    args.name = parseName(raw.name);
+    changed = true;
+  }
+  if (raw.instructions !== undefined) {
+    args.instructions = parseInstructions(raw.instructions);
+    changed = true;
+  }
+  if (raw.schedule !== undefined) {
+    if (!isPlainObject(raw.schedule) || raw.schedule.kind !== "cron") {
+      throw new Error("schedule must be { kind: \"cron\", expr }");
+    }
+    const schedule = parseSchedule(raw.schedule);
+    if (schedule.kind !== "cron") throw new Error("routine schedule must be a cron expression");
+    args.schedule = schedule;
+    changed = true;
+  }
+  if (raw.timeZone !== undefined) {
+    args.timeZone = parseTimeZone(raw.timeZone);
+    changed = true;
+  }
+  if (raw.projectCwd !== undefined) {
+    if (typeof raw.projectCwd !== "string" || raw.projectCwd.trim() === "" || hasControlChar(raw.projectCwd)) {
+      throw new Error("projectCwd must be a non-empty path");
+    }
+    args.projectCwd = raw.projectCwd;
+    changed = true;
+  }
+  if (raw.mode !== undefined) {
+    args.mode = parseMode(raw.mode);
+    changed = true;
+  }
+  if (raw.model !== undefined) {
+    args.model = parseNullableString(raw.model, "model");
+    changed = true;
+  }
+  if (raw.thinkingLevel !== undefined) {
+    args.thinkingLevel = parseNullableString(raw.thinkingLevel, "thinkingLevel");
+    changed = true;
+  }
+  if (raw.allow !== undefined) {
+    args.allow = parseToolKeyList(raw.allow, "allow");
+    changed = true;
+  }
+  if (raw.warnUsd !== undefined) {
+    args.warnUsd = parseSpendNumber(raw.warnUsd, "warnUsd");
+    changed = true;
+  }
+  if (raw.maxUsd !== undefined) {
+    args.maxUsd = parseSpendNumber(raw.maxUsd, "maxUsd");
+    changed = true;
+  }
+  if (raw.scripts !== undefined) {
+    // Leaf-level, not parseScripts: an omitted phase must stay absent so the
+    // builder can inherit the stored hook instead of clearing it.
+    if (!isPlainObject(raw.scripts)) throw new Error("scripts must be an object");
+    assertAllowedKeys(raw.scripts, SCRIPT_KEYS, "scripts");
+    const scripts: { pre?: string; post?: string } = {};
+    for (const phase of ["pre", "post"] as const) {
+      const value = raw.scripts[phase];
+      if (value === undefined) continue;
+      if (typeof value !== "string") throw new Error(`scripts.${phase} must be a string`);
+      if (value.length > ROUTINE_SCRIPT_MAX) {
+        throw new Error(`scripts.${phase} exceeds ${ROUTINE_SCRIPT_MAX} characters`);
+      }
+      if (hasUnsafeControlChar(value)) {
+        throw new Error(`scripts.${phase} cannot contain control characters`);
+      }
+      scripts[phase] = value;
+    }
+    args.scripts = scripts;
+    changed = true;
+  }
+  if (!changed) throw new Error("routine update must change at least one field");
+  return args;
+}
+
+/**
+ * Merges validated agent update args over the stored record into a patch for
+ * `RoutineService.update`. The service shallow-merges whole objects, so this
+ * must receive `current` and emit complete objects: an omitted sibling in
+ * `spend`/`scripts`, or the `deny` list, would otherwise be clobbered.
+ * The guardrail lives here: every agent edit lands `enabled: false` — editing
+ * a live routine disarms scheduled firing until a human re-arms it; the
+ * `deny` list and the workspace choice are carried over verbatim; and an
+ * `allow` change restamps the review so newly allowed tools prompt at fire.
+ */
+export function routinePatchFromAgentUpdate(
+  current: RoutineRecord,
+  args: RoutineAgentUpdateArgs,
+  nowIso: string,
+): RoutinePatch {
+  const patch: RoutinePatch = { enabled: false };
+  if (args.name !== undefined) patch.name = args.name;
+  if (args.instructions !== undefined) patch.instructions = args.instructions;
+  if (args.schedule !== undefined) patch.schedule = args.schedule;
+  if (args.timeZone !== undefined) patch.timeZone = args.timeZone;
+  if (args.mode !== undefined) patch.mode = args.mode;
+  if (args.model !== undefined) patch.model = args.model;
+  if (args.thinkingLevel !== undefined) patch.thinkingLevel = args.thinkingLevel;
+  if (args.projectCwd !== undefined) {
+    patch.destination = { projectCwd: args.projectCwd, workspace: current.destination.workspace };
+  }
+  if (args.scripts !== undefined) {
+    patch.scripts = {
+      pre: args.scripts.pre !== undefined ? args.scripts.pre : current.scripts.pre,
+      post: args.scripts.post !== undefined ? args.scripts.post : current.scripts.post,
+    };
+  }
+  if (args.warnUsd !== undefined || args.maxUsd !== undefined) {
+    patch.spend = {
+      warnUsd: args.warnUsd !== undefined ? args.warnUsd : current.spend.warnUsd,
+      maxUsd: args.maxUsd !== undefined ? args.maxUsd : current.spend.maxUsd,
+    };
+  }
+  if (args.allow !== undefined) {
+    // Restamping forces fire-time approval for newly allowed tools; RoutineService.update
+    // replaces both stamps against the live catalog when a toolPolicy is patched.
+    patch.toolPolicy = {
+      allow: args.allow,
+      deny: [...current.toolPolicy.deny],
+      lastReviewedAt: nowIso,
+      reviewedCatalog: [],
+    };
+  }
+  return patch;
 }
 
 /** The chat-link URI that focuses one routine in the Routines view. */
