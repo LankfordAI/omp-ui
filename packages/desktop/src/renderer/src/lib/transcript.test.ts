@@ -2944,3 +2944,63 @@ describe("ask answer details (issue #1203)", () => {
     for (const item of asked(details, "web_search")) expect("askFacts" in item).toBe(false);
   });
 });
+
+describe("bash tool-command nesting (issue #1274)", () => {
+  const dispatches = [
+    { tool: "lsp", mode: "help", exitCode: 0 },
+    { tool: "read", mode: "execute", exitCode: 0, args: { path: "a.ts" } },
+  ];
+
+  it("carries the bash result's dispatch record onto the card", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "b1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "ok" }], details: { toolCommands: dispatches } },
+    });
+    expect(tool(items, "b1")).toMatchObject({ toolCommands: dispatches });
+  });
+
+  it("grows the record mid-run and ignores a heartbeat repeating it", () => {
+    let items = reduceEvent([], { type: "tool_execution_start", toolCallId: "b2", toolName: "bash" });
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b2",
+      toolName: "bash",
+      partialResult: { content: [], details: { toolCommands: [dispatches[0]] } },
+    });
+    expect(tool(items, "b2")?.toolCommands).toHaveLength(1);
+    // A repeat of the record already carried leaves the item identity untouched.
+    const repeated = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b2",
+      toolName: "bash",
+      partialResult: { content: [], details: { toolCommands: [dispatches[0]] } },
+    });
+    expect(repeated).toBe(items);
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b2",
+      toolName: "bash",
+      partialResult: { content: [], details: { toolCommands: dispatches } },
+    });
+    expect(tool(items, "b2")?.toolCommands).toHaveLength(2);
+  });
+
+  it("carries the record through replay and leaves a quiet run without one", () => {
+    const history = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "b3", name: "bash", arguments: {} }] },
+      {
+        role: "toolResult", toolCallId: "b3", toolName: "bash", isError: false,
+        content: [{ type: "text", text: "ok" }], details: { toolCommands: dispatches },
+      },
+      { role: "assistant", content: [{ type: "toolCall", id: "b4", name: "bash", arguments: {} }] },
+      {
+        role: "toolResult", toolCallId: "b4", toolName: "bash", isError: false,
+        content: [{ type: "text", text: "ok" }], details: {},
+      },
+    ]);
+    expect(tool(history, "b3")).toMatchObject({ toolCommands: dispatches });
+    expect(tool(history, "b4")).not.toHaveProperty("toolCommands");
+  });
+});

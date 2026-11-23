@@ -1107,3 +1107,47 @@ describe("ToolCard ask answers (issue #1203)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("ToolCard tool-command nesting and brief labels (issue #1274)", () => {
+  it("renders one row per command dispatch with its exit status under the bash card", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "bash",
+        resultText: "done",
+        toolCommands: [
+          { tool: "lsp", mode: "help", exitCode: 0 },
+          { tool: "read", mode: "execute", exitCode: 1, args: { path: "a.ts" } },
+        ],
+      }),
+    );
+    const rows = [...el.querySelectorAll("[data-tool-command]")];
+    expect(rows.map((row) => row.getAttribute("data-tool-command"))).toEqual(["lsp", "read"]);
+    expect(rows[0]?.textContent).toContain("help");
+    expect(rows[1]?.textContent).toContain("exit 1");
+    act(() => root.unmount());
+  });
+
+  it("keeps a run with no dispatches row-free, exactly the pre-19.1 card", () => {
+    const { el, root } = renderCard(tool({ name: "bash", resultText: "done" }));
+    expect(el.querySelector("[data-tool-command]")).toBeNull();
+    expect(el.textContent).not.toContain("tool commands");
+    act(() => root.unmount());
+  });
+
+  it("shows the brief intent label while running and the full intent once settled", () => {
+    const running = renderCard(
+      tool({ name: "read", status: "running", intent: "Reading config.json: 3 top-level keys" }),
+    );
+    expect(running.el.textContent).toContain("Reading config.json");
+    expect(running.el.querySelector("span[title]")?.getAttribute("title")).toBe(
+      "Reading config.json: 3 top-level keys",
+    );
+    act(() => running.root.unmount());
+
+    const settled = renderCard(
+      tool({ name: "read", status: "done", intent: "Reading config.json: 3 top-level keys" }),
+    );
+    expect(settled.el.textContent).toContain("Reading config.json: 3 top-level keys");
+    act(() => settled.root.unmount());
+  });
+});

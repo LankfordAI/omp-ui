@@ -16,6 +16,7 @@ import { cwdText } from "../lib/transcript";
 import { pathFromArgs } from "../lib/tool-groups";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { supportsSpillRead } from "@omp-ui/core/spill";
+import { toolIntentLabel } from "@omp-ui/core/tool-intent-label";
 import { useStore } from "../store";
 import { RawOutputViewer } from "./RawOutputViewer";
 import { DiffViewer, OpChip } from "./DiffViewer";
@@ -712,6 +713,41 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
   );
 }
 
+/**
+ * The tool commands that ran inside this bash call (issue #1274). From omp
+ * 19.1 a mounted tool invoked as a command ships no separate
+ * `tool_execution_*` frames — the run's `details.toolCommands` record is the
+ * transcript's only view of them, and upstream renders exactly that nesting:
+ * one row per dispatch under the bash card, in invocation order, each with
+ * its own exit status (independent of the outer shell's).
+ */
+function ToolCommandRows({ item }: { item: ToolItem }) {
+  const dispatches = item.toolCommands ?? [];
+  if (dispatches.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <Label>tool commands</Label>
+      <ul className="space-y-0.5">
+        {dispatches.map((dispatch, index) => (
+          <li key={`${dispatch.tool}:${index}`} data-tool-command={dispatch.tool} className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 text-ink-dim">
+              <ToolGlyph kind={glyphFor(dispatch.tool)} />
+            </span>
+            <span
+              className="min-w-0 truncate font-mono text-xs text-ink-mid"
+              title={dispatch.args === undefined ? dispatch.tool : `${dispatch.tool} ${JSON.stringify(dispatch.args)}`}
+            >
+              {dispatch.tool}
+            </span>
+            {dispatch.mode === "help" && <Chip mono>help</Chip>}
+            {dispatch.exitCode !== 0 && <Chip tone="rose">exit {dispatch.exitCode}</Chip>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Tool-result metadata is distinct from RPC shell-row provenance. Keep the output notice intact. */
 function ToolTruncationFacts({ item }: { item: ToolItem }) {
   const metadata = item.toolTruncation;
@@ -794,7 +830,12 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     item.status !== "done" || hasDiff || (item.notes?.length ?? 0) > 0 || !longOutput,
   );
 
-  const headline = item.intent ?? argSummary(item.args);
+  // Upstream's brief-label rule (issue #1274): while a call streams, the header
+  // carries pi-wire's short intent label and the full text only as the tooltip;
+  // a settled card shows the whole intent again — ranking and history keep it.
+  const fullHeadline = item.intent ?? argSummary(item.args);
+  const headline =
+    item.status === "running" && item.intent !== undefined ? toolIntentLabel(item.intent) : fullHeadline;
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
   const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
   const taskFiles = useMemo(
@@ -844,6 +885,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     hasDiff ||
     item.partialText !== undefined ||
     execDir !== null ||
+    (item.toolCommands?.length ?? 0) > 0 ||
     draft !== null ||
     (item.notes?.length ?? 0) > 0;
 
@@ -868,7 +910,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           <ToolGlyph kind={glyphFor(item.name)} />
         </span>
         <span className="shrink-0 font-mono text-xs font-semibold text-ink">{item.name}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={headline}>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={fullHeadline}>
           {headline}
         </span>
         {duration && (
@@ -980,6 +1022,8 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               {`Minimized: ${item.minimized.filter} ${formatBytes(item.minimized.inputBytes)} → ${formatBytes(item.minimized.outputBytes)}`}
             </div>
           )}
+
+          <ToolCommandRows item={item} />
 
           <ToolTruncationFacts item={item} />
 

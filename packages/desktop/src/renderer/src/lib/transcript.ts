@@ -21,6 +21,7 @@ import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
+import { parseToolCommandDispatches, type ToolCommandDispatch } from "@omp-ui/core/tool-command-dispatch";
 import { parseSpillReference, type SpillReference } from "@omp-ui/core/spill";
 import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
@@ -160,6 +161,11 @@ export interface ToolItem {
   minimized?: BashMinimized;
   /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
   toolTruncation?: BashToolTruncation;
+  /** bash result `details.toolCommands` (omp 19.1): every tool command the run
+   *  dispatched, in invocation order — the nested rows the card draws under the
+   *  bash card, since a command call ships no separate execution frames
+   *  (issue #1274). Absent on pre-19.1 results and runs that dispatched none. */
+  toolCommands?: ToolCommandDispatch[];
   /** The omp 19 spill (`local://<id>.log`) this result's output metadata references, when any
    *  carrier names one; the card offers View raw output only when the harness supports reading
    *  it. Parsed from `details.meta`; a pre-19 `artifact://` id lives in the same field and the
@@ -794,6 +800,12 @@ function toolTruncationField(details: unknown): { toolTruncation?: BashToolTrunc
   return toolTruncation ? { toolTruncation } : {};
 }
 
+/** omp 19.1 bash `details.toolCommands`: the in-run command dispatches the card nests (issue #1274). */
+function toolCommandsField(details: unknown): { toolCommands?: ToolCommandDispatch[] } {
+  const toolCommands = parseToolCommandDispatches(details);
+  return toolCommands.length > 0 ? { toolCommands } : {};
+}
+
 function spillField(details: unknown): { spillRef?: SpillReference } {
   const spillRef = parseSpillReference(details);
   return spillRef ? { spillRef } : {};
@@ -1374,8 +1386,14 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // already carried adds nothing, so heartbeats stay identity-cheap.
       const cwd = cwdText(partial?.details);
       const cwdProgress = cwd !== undefined && cwd !== item.cwd;
+      // A command dispatched mid-run grows the record (issue #1274); a repeat
+      // of what the card already carries is a heartbeat, not progress.
+      const toolCommands = toolCommandsField(partial?.details);
+      const dispatchProgress =
+        toolCommands.toolCommands !== undefined &&
+        toolCommands.toolCommands.length > (item.toolCommands?.length ?? 0);
       // Status stays `running` — an update is progress, never completion.
-      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress) return items;
+      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress && !dispatchProgress) return items;
       return replaceAt(items, idx, {
         ...item,
         ...(partialText ? { partialText } : {}),
@@ -1385,6 +1403,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(partial?.details),
         ...spillField(partial?.details),
         ...toolTruncation,
+        ...(dispatchProgress ? toolCommands : {}),
       });
     }
 
@@ -1412,6 +1431,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(details),
         toolTruncation: toolTruncationField(details).toolTruncation,
         ...spillField(details),
+        ...toolCommandsField(details),
         ...providerFailuresField(item?.name ?? str(event.toolName), details),
         ...askFactsField(item?.name ?? str(event.toolName), details),
       };
@@ -1688,6 +1708,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...minimizedField(details),
         ...toolTruncationField(details),
         ...spillField(details),
+        ...toolCommandsField(details),
         ...providerFailuresField(item.name, details),
         ...askFactsField(item.name, details),
       };
