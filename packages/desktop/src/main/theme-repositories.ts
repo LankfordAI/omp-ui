@@ -194,7 +194,6 @@ export class ThemeRepositoryService {
     if (backdrop === null || backdrop.from !== "bytes") return { ok: false, message: "the theme has no backdrop" };
     const check = checkBackdropBytes(Buffer.from(backdrop.data, "base64"));
     if (!check.ok) return { ok: false, message: check.message };
-    if (check.kind === "video") return { ok: false, message: "video backdrops are not supported in theme repositories" };
     return { ok: true, backdrop: { mime: check.mime, data: backdrop.data, blur: backdrop.blur } };
   }
 }

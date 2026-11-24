@@ -3,7 +3,14 @@
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildThemeIndexes, checkThemeRepository, type ThemeRepositoryReport } from "./theme-repository-tool";
-import { THEME_INDEX_FILE, THEME_INDEX_V2_FILE, parseThemeIndex, parseThemeIndexV2 } from "./theme-repository-format";
+import {
+  THEME_INDEX_FILE,
+  THEME_INDEX_V2_FILE,
+  THEME_INDEX_V3_FILE,
+  parseThemeIndex,
+  parseThemeIndexV2,
+  parseThemeIndexV3,
+} from "./theme-repository-format";
 
 const USAGE = "usage: omp-ui-theme-tool <check|generate> <repository-dir>";
 
@@ -47,7 +54,7 @@ export async function runThemeRepositoryCli(
   if (!report(result, io)) return 1;
   if (command === "check") return 0;
 
-  const previous = files.get(THEME_INDEX_V2_FILE);
+  const previous = files.get(THEME_INDEX_V3_FILE) ?? files.get(THEME_INDEX_V2_FILE);
   const built = buildThemeIndexes(
     result,
     previous === undefined ? null : new TextDecoder().decode(previous),
@@ -59,9 +66,12 @@ export async function runThemeRepositoryCli(
   }
   await writeFile(path.join(dir, THEME_INDEX_FILE), built.v1);
   await writeFile(path.join(dir, THEME_INDEX_V2_FILE), built.v2);
+  await writeFile(path.join(dir, THEME_INDEX_V3_FILE), built.v3);
   const v1 = parseThemeIndex(built.v1);
   const v2 = parseThemeIndexV2(built.v2);
+  const v3 = parseThemeIndexV3(built.v3);
   io.out(`${THEME_INDEX_FILE}: ${v1.ok ? v1.entries.length : 0} themes`);
   io.out(`${THEME_INDEX_V2_FILE}: ${v2.ok ? v2.entries.length : 0} themes`);
+  io.out(`${THEME_INDEX_V3_FILE}: ${v3.ok ? v3.entries.length : 0} themes`);
   return 0;
 }

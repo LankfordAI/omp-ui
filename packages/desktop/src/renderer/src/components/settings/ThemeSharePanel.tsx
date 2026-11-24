@@ -5,6 +5,7 @@ import { OFFICIAL_THEME_REPOSITORY } from "@omp-ui/core/theme-origin";
 import {
   OFFICIAL_THEME_TAGS,
   REPOSITORY_IMAGE_BYTES_MAX,
+  REPOSITORY_VIDEO_BYTES_MAX,
   THEME_DESCRIPTION_MAX,
   THEME_SLUG,
   THEME_SLUG_CHARS_MAX,
@@ -20,7 +21,6 @@ import { Button } from "../ui";
 import { FIELD } from "./rows";
 
 const GUIDE_URL = "https://github.com/LankfordAI/omp-ui-themes/blob/main/CONTRIBUTING.md";
-const VIDEO_SHARE_ERROR = "The official repository accepts image and SVG backdrops only; video backdrops stay local.";
 /**
  * Share an authored theme to the official theme repository (#1212, ADR-0097):
  * collect the details, save the theme file and the theme details file with two
@@ -41,11 +41,9 @@ export function ThemeSharePanel(props: {
   const [rights, setRights] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const hasVideoBackdrop = source.backdrop?.kind === "video";
   const slugValid = THEME_SLUG.test(slug) && slug.length <= THEME_SLUG_CHARS_MAX;
   const authorValid = author.trim() === "" || isThemeAuthor(author.trim());
   const valid =
-    !hasVideoBackdrop &&
     slugValid &&
     authorValid &&
     tags.length >= 1 &&
@@ -56,10 +54,6 @@ export function ThemeSharePanel(props: {
     setTags((current) => (current.includes(tag) ? current.filter((x) => x !== tag) : [...current, tag]));
 
   const saveTheme = async (): Promise<void> => {
-    if (hasVideoBackdrop) {
-      setSaveError(VIDEO_SHARE_ERROR);
-      return;
-    }
     setSaveError(null);
     let file: ThemeFile;
     try {
@@ -72,22 +66,22 @@ export function ThemeSharePanel(props: {
       setSaveError("This theme's backdrop is not available on this host, so the file would be incomplete.");
       return;
     }
-    if (
-      file.backdrop !== undefined &&
-      file.backdrop.mime !== "image/svg+xml" &&
-      base64ToBytes(file.backdrop.data).length > REPOSITORY_IMAGE_BYTES_MAX
-    ) {
-      setSaveError("The official repository accepts image backdrops up to 1 MiB; this one is larger.");
-      return;
+    if (file.backdrop !== undefined) {
+      const bytes = base64ToBytes(file.backdrop.data).length;
+      const isVideo = file.backdrop.mime === "video/mp4" || file.backdrop.mime === "video/webm";
+      if (isVideo && bytes > REPOSITORY_VIDEO_BYTES_MAX) {
+        setSaveError("The official repository accepts video backdrops up to 16 MiB; this one is larger.");
+        return;
+      }
+      if (!isVideo && file.backdrop.mime !== "image/svg+xml" && bytes > REPOSITORY_IMAGE_BYTES_MAX) {
+        setSaveError("The official repository accepts image backdrops up to 1 MiB; this one is larger.");
+        return;
+      }
     }
     downloadBlob(`${slug}.json`, "application/json", JSON.stringify(file, null, 2));
   };
 
   const saveDetails = (): void => {
-    if (hasVideoBackdrop) {
-      setSaveError(VIDEO_SHARE_ERROR);
-      return;
-    }
     setSaveError(null);
     downloadBlob(
       `${slug}.details.json`,
@@ -108,11 +102,7 @@ export function ThemeSharePanel(props: {
         <li>Open a pull request; the checks run on their own.</li>
       </ol>
 
-      {hasVideoBackdrop && (
-        <p role="alert" className="mt-2 text-sm text-rose">
-          {VIDEO_SHARE_ERROR}
-        </p>
-      )}
+
       <div className="mt-3 grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-ink-mid">
           File name

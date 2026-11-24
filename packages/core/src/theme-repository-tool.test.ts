@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildThemeIndexes, checkThemeRepository, type ThemeRepositoryReport } from "./theme-repository-tool";
-import { parseThemeIndex, parseThemeIndexV2, themeDetailsFile } from "./theme-repository-format";
+import { parseThemeIndex, parseThemeIndexV2, parseThemeIndexV3, themeDetailsFile } from "./theme-repository-format";
 
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 const SCENE = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
@@ -41,7 +41,7 @@ function repo(patch: Record<string, string | Uint8Array | null> = {}): Map<strin
 
 describe("checkThemeRepository", () => {
   it("reports no errors for a valid repository", () => {
-    const report = checkThemeRepository(repo());
+    const report = checkThemeRepository(repo({ ".gitignore": "node_modules/\n", "omp-ui-themes.v3.json": "{}" }));
     expect(report.errors).toEqual([]);
     expect(report.themes.map((t) => [t.path, t.backdrop])).toEqual([
       ["themes/dusk.json", "scene"],
@@ -105,15 +105,15 @@ describe("checkThemeRepository", () => {
       /image backdrops can be at most 1 MiB/,
     ],
     [
-      "a video backdrop",
+      "a video backdrop with mismatched declared mime",
       {
         "themes/night.json": themeText("Night", "#101010", {
-          mime: "video/mp4",
+          mime: "video/webm",
           data: mp4Data,
           blur: 0,
         }),
       },
-      /video backdrops are not accepted/,
+      /says it is video\/webm but its bytes are video\/mp4/,
     ],
     [
       "a featured path that does not exist",
@@ -127,19 +127,48 @@ describe("checkThemeRepository", () => {
 });
 
 describe("buildThemeIndexes", () => {
-  it("writes indexes each released parser accepts, featured first", () => {
+  it("writes v1, v2 and v3 indexes each parser accepts, featured first", () => {
     const built = buildThemeIndexes(checkThemeRepository(repo()), null, "2026-11-17");
     if (!built.ok) throw new Error(built.message);
     const v1 = parseThemeIndex(built.v1);
     const v2 = parseThemeIndexV2(built.v2);
+    const v3 = parseThemeIndexV3(built.v3);
     expect(v1.ok && v1.entries.map((e) => e.path)).toEqual(["themes/dusk.json", "themes/night.json"]);
     expect(v2.ok && v2.entries.map((e) => [e.path, e.meta.featured, e.meta.tags])).toEqual([
       ["themes/dusk.json", true, ["cool"]],
       ["themes/night.json", false, ["warm"]],
     ]);
+    expect(v3.ok && v3.entries.map((e) => [e.path, e.meta.featured, e.meta.tags])).toEqual([
+      ["themes/dusk.json", true, ["cool"]],
+      ["themes/night.json", false, ["warm"]],
+    ]);
   });
 
-  it("keeps a previous added date and dates a new theme today", () => {
+  it("includes video themes in v3 and omits them from v2 and v1 for older clients", () => {
+    const mp4 = Buffer.from([
+      0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+    ]).toString("base64");
+    const withVideo = repo({
+      "themes/motion.json": themeText("Motion", "#101820", { mime: "video/mp4", data: mp4, blur: 4 }),
+      "themes/motion.details.json": detailsText(["cool"]),
+    });
+    const checked = checkThemeRepository(withVideo);
+    expect(checked.errors).toEqual([]);
+    const built = buildThemeIndexes(checked, null, "2026-11-24");
+    if (!built.ok) throw new Error(built.message);
+    const v1 = parseThemeIndex(built.v1);
+    const v2 = parseThemeIndexV2(built.v2);
+    const v3 = parseThemeIndexV3(built.v3);
+    expect(v1.ok && v1.entries.map((e) => e.path)).toEqual(["themes/dusk.json", "themes/night.json"]);
+    expect(v2.ok && v2.entries.map((e) => e.path)).toEqual(["themes/dusk.json", "themes/night.json"]);
+    expect(v3.ok && v3.entries.map((e) => [e.path, e.backdrop])).toEqual([
+      ["themes/dusk.json", "scene"],
+      ["themes/motion.json", "video"],
+      ["themes/night.json", null],
+    ]);
+  });
+
+  it("keeps previous added dates from v3 or v2 and dates a new theme today", () => {
     const first = buildThemeIndexes(checkThemeRepository(repo({ "featured.json": null })), null, "2026-01-01");
     if (!first.ok) throw new Error(first.message);
     const grown = repo({
@@ -147,18 +176,26 @@ describe("buildThemeIndexes", () => {
       "themes/aurora.json": themeText("Aurora", "#0b1020"),
       "themes/aurora.details.json": detailsText(),
     });
-    const second = buildThemeIndexes(checkThemeRepository(grown), first.v2, "2026-11-17");
-    if (!second.ok) throw new Error(second.message);
-    const v2 = parseThemeIndexV2(second.v2);
+    const fromV2 = buildThemeIndexes(checkThemeRepository(grown), first.v2, "2026-11-17");
+    if (!fromV2.ok) throw new Error(fromV2.message);
+    const v2 = parseThemeIndexV2(fromV2.v2);
     // Oldest first, then path: aurora is newest though it sorts first by path.
     expect(v2.ok && v2.entries.map((e) => [e.path, e.meta.added])).toEqual([
       ["themes/dusk.json", "2026-01-01"],
       ["themes/night.json", "2026-01-01"],
       ["themes/aurora.json", "2026-11-17"],
     ]);
+    const fromV3 = buildThemeIndexes(checkThemeRepository(grown), first.v3, "2026-11-24");
+    if (!fromV3.ok) throw new Error(fromV3.message);
+    const v3 = parseThemeIndexV3(fromV3.v3);
+    expect(v3.ok && v3.entries.map((e) => [e.path, e.meta.added])).toEqual([
+      ["themes/dusk.json", "2026-01-01"],
+      ["themes/night.json", "2026-01-01"],
+      ["themes/aurora.json", "2026-11-24"],
+    ]);
   });
 
-  it("caps v1 at 48 entries while v2 holds every theme", () => {
+  it("caps v1 at 48 entries while v2 and v3 hold every theme", () => {
     const themes = Array.from({ length: 60 }, (_, i) => ({
       path: `themes/t${String(i).padStart(2, "0")}.json`,
       label: `T${i}`,
@@ -171,8 +208,10 @@ describe("buildThemeIndexes", () => {
     if (!built.ok) throw new Error(built.message);
     const v1 = parseThemeIndex(built.v1);
     const v2 = parseThemeIndexV2(built.v2);
+    const v3 = parseThemeIndexV3(built.v3);
     expect(v1.ok && v1.entries).toHaveLength(48);
     expect(v2.ok && v2.entries).toHaveLength(60);
+    expect(v3.ok && v3.entries).toHaveLength(60);
   });
 
   it("refuses a report with errors", () => {

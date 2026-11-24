@@ -9,6 +9,7 @@ import {
   parseThemeDetails,
   parseThemeIndex,
   parseThemeIndexV2,
+  parseThemeIndexV3,
   parseThemeRepositories,
   parseThemeRepositoryRef,
   sameThemeSeeds,
@@ -185,6 +186,51 @@ describe("parseThemeIndexV2", () => {
       message: "this theme repository needs a newer omp-ui",
     });
     expect(parseThemeIndexV2(index([]))).toEqual({ ok: false, message: "the theme index is malformed" });
+  });
+});
+
+const indexV3 = (themes: unknown[], extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({ format: "omp-ui-theme-index", version: 3, themes, ...extra });
+
+describe("parseThemeIndexV3", () => {
+  it("accepts image, scene, video and null backdrops with details and ignores unknown keys", () => {
+    const result = parseThemeIndexV3(
+      indexV3(
+        [
+          { ...entry("themes/dusk.json"), backdrop: "video", tags: ["animated"], author: "LankfordAI", description: "Loop", added: "2026-11-24", featured: true, extra: 1 },
+          { ...entry("themes/still.json"), backdrop: "image" },
+          { ...entry("themes/scene.json"), backdrop: "scene" },
+          { ...entry("themes/plain.json"), backdrop: null },
+        ],
+        { generator: "tool" },
+      ),
+    );
+    expect(result.ok && result.entries.map((e) => [e.path, e.backdrop])).toEqual([
+      ["themes/dusk.json", "video"],
+      ["themes/still.json", "image"],
+      ["themes/scene.json", "scene"],
+      ["themes/plain.json", null],
+    ]);
+    expect(result.ok && result.entries[0]!.meta).toEqual({
+      tags: ["animated"],
+      author: "LankfordAI",
+      description: "Loop",
+      added: "2026-11-24",
+      featured: true,
+    });
+  });
+
+  it("rejects unknown backdrop kinds, older versions, and names a newer version", () => {
+    expect(parseThemeIndexV3(indexV3([{ ...entry("a.json"), backdrop: "audio" }]))).toEqual({
+      ok: false,
+      message: "theme index entry 1 is invalid",
+    });
+    expect(parseThemeIndexV3(JSON.stringify({ format: "omp-ui-theme-index", version: 4, themes: [] }))).toEqual({
+      ok: false,
+      message: "this theme repository needs a newer omp-ui",
+    });
+    expect(parseThemeIndexV3(indexV2([]))).toEqual({ ok: false, message: "the theme index is malformed" });
+    expect(parseThemeIndexV3(index([]))).toEqual({ ok: false, message: "the theme index is malformed" });
   });
 });
 
