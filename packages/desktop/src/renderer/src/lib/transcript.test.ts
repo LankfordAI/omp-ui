@@ -1629,6 +1629,83 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(items[0]).not.toHaveProperty("mcpMount");
   });
 
+  // The omp ≥19.1 "Tool commands:" mount-delta wall (issue #1315): the
+  // collapse contract and its pass-throughs, companion of the #848 block above.
+  it("collapses a tool-commands mount notice to its mcp__ counts", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      level: "info",
+      source: "toolCommands",
+      message: "Tool commands: added mcp__a_x",
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "notice",
+      level: "info",
+      source: "toolCommands",
+      text: "",
+      toolCommandMount: { added: 1 },
+    });
+    expect(items[0]).not.toHaveProperty("mcpMount");
+  });
+
+  it("counts only mcp__ names in an added list", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: added mcp__a_x, omp-ui_notify, mcp__b_y",
+    });
+    expect(items[0]).toMatchObject({ text: "", toolCommandMount: { added: 2 } });
+  });
+
+  it("collapses an added-and-removed delta with per-segment counts", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: added mcp__a_x; removed mcp__b_y, mcp__c_z",
+    });
+    expect(items[0]).toMatchObject({ text: "", toolCommandMount: { added: 1, removed: 2 } });
+  });
+
+  it("represents a pure-unmount batch as added: 0", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: removed mcp__b_y",
+    });
+    expect(items[0]).toMatchObject({ text: "", toolCommandMount: { added: 0, removed: 1 } });
+  });
+
+  it("keeps a tool-commands notice without mcp__ names verbatim", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: added omp-ui_notify",
+    });
+    expect(items[0]).toMatchObject({ text: "Tool commands: added omp-ui_notify" });
+    expect(items[0]).not.toHaveProperty("toolCommandMount");
+  });
+
+  it("keeps malformed or unknown-segment tool-commands notices verbatim", () => {
+    let items = reduceEvent([], {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: added mcp__a; added mcp__b",
+    });
+    items = reduceEvent(items, { type: "notice", source: "toolCommands", message: "Tool commands:" });
+    items = reduceEvent(items, {
+      type: "notice",
+      source: "toolCommands",
+      message: "Tool commands: updated mcp__x",
+    });
+    expect(items.map((i) => (i.kind === "notice" ? i.text : ""))).toEqual([
+      "Tool commands: added mcp__a; added mcp__b",
+      "Tool commands:",
+      "Tool commands: updated mcp__x",
+    ]);
+    for (const item of items) expect(item).not.toHaveProperty("toolCommandMount");
+  });
+
   it("renders thinking_level_changed as a marker and adds nothing for goal_updated", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, { type: "thinking_level_changed", thinkingLevel: "high" });

@@ -980,6 +980,124 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
   });
 });
 
+describe("NoticeLine toolCommandMount delta pill (issue #1315)", () => {
+  afterEach(() => {
+    useStore.setState({ openCapabilitiesViewer: originalOpenCapabilitiesViewer, tabs: [] });
+  });
+
+  it("renders the added copy and opens the Tools tab on click", () => {
+    const open = vi.fn();
+    useStore.setState({
+      openCapabilitiesViewer: open,
+      tabs: [tabInfo({ tabId: "tab-1", projectCwd: "/p" })],
+    });
+    const { el, root } = render(
+      [
+        {
+          kind: "notice",
+          id: "n1",
+          text: "",
+          level: "info",
+          source: "toolCommands",
+          toolCommandMount: { added: 170 },
+        },
+      ],
+      "tab-1",
+    );
+
+    expect(el.textContent).toContain("170 MCP tools added to the agent's tools");
+    // Same contract as #848: plain count text, sole underlined control.
+    const button = el.querySelector<HTMLButtonElement>("button");
+    expect(button).not.toBeNull();
+    expect(button!.textContent).toBe("See which");
+    expect(button!.className).toContain("underline");
+
+    act(() => {
+      button!.click();
+    });
+    // Same session-cwd pin as the legacy pill (session-params.ts pattern).
+    expect(open).toHaveBeenCalledWith("/p", "tab-1", "tools", null);
+    act(() => root.unmount());
+  });
+
+  it("drops the raw source tag on the pill", () => {
+    const { el, root } = render([
+      {
+        kind: "notice",
+        id: "n1",
+        text: "",
+        level: "info",
+        source: "toolCommands",
+        toolCommandMount: { added: 1 },
+      },
+    ]);
+    expect(el.textContent).toContain("1 MCP tool added to the agent's tools");
+    expect(el.textContent).not.toContain("toolCommands");
+    act(() => root.unmount());
+  });
+
+  it("renders the mixed added-and-removed copy", () => {
+    const { el, root } = render([
+      {
+        kind: "notice",
+        id: "n1",
+        text: "",
+        level: "info",
+        source: "toolCommands",
+        toolCommandMount: { added: 2, removed: 1 },
+      },
+    ]);
+    expect(el.textContent).toContain("2 MCP tools added to the agent's tools · 1 removed");
+    act(() => root.unmount());
+  });
+
+  it("renders a pure-unmount batch as removed copy", () => {
+    const { el, root } = render([
+      {
+        kind: "notice",
+        id: "n1",
+        text: "",
+        level: "info",
+        source: "toolCommands",
+        toolCommandMount: { added: 0, removed: 3 },
+      },
+    ]);
+    expect(el.textContent).toContain("3 MCP tools removed from the agent's tools");
+    act(() => root.unmount());
+  });
+
+  it("never folds or hoists deltas while the legacy pill still hoists", () => {
+    const { el, root } = render([
+      assistant("a1", "working"),
+      {
+        kind: "notice",
+        id: "d1",
+        text: "",
+        level: "info",
+        source: "toolCommands",
+        toolCommandMount: { added: 4 },
+      },
+      { kind: "notice", id: "m1", text: "", level: "info", source: "xdev", mcpMount: { count: 3 } },
+      {
+        kind: "notice",
+        id: "d2",
+        text: "",
+        level: "info",
+        source: "toolCommands",
+        toolCommandMount: { added: 2, removed: 1 },
+      },
+    ]);
+    // Both deltas stay inline and chronological; only the legacy #848 pill
+    // gets folded to its newest instance and hoisted above the first message.
+    const rows = Array.from(el.querySelectorAll("[data-item-id]"));
+    expect(rows.map((r) => r.getAttribute("data-item-id"))).toEqual(["m1", "a1", "d1", "d2"]);
+    expect(el.textContent).toContain("4 MCP tools added to the agent's tools");
+    expect(el.textContent).toContain("2 MCP tools added to the agent's tools · 1 removed");
+    expect(el.textContent).toContain("3 MCP tools available to the agent");
+    act(() => root.unmount());
+  });
+});
+
 describe("NoticeLine spend-cap stop (issue #952)", () => {
   afterEach(() => {
     useStore.setState({ settingsPage: null, state: null });
