@@ -255,7 +255,7 @@ const backendMock = {
   ),
   setStoredThemeMotion: vi.fn(async () => {}),
   setOfficialThemes: vi.fn(async () => {}),
-  readThemeBackdrop: vi.fn(async () => null),
+  readThemeBackdrop: vi.fn(async (): Promise<{ mime: string; data: string } | null> => null),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
   setGlassChrome: vi.fn(async () => {}),
@@ -3991,19 +3991,34 @@ describe("Settings Appearance page Share panel (#1212)", () => {
     expect(downloads).toEqual([]);
   });
 
-  it("shows an immediate alert and disables both saves for a video-backdrop theme", async () => {
+  it("shares a video-backdrop theme within 16 MiB and refuses one over 16 MiB", async () => {
     const WITH_VIDEO: ThemeSource = {
       ...sourceFromDraft("custom-video-abcdef", "Video Night", { canvas: "#1a1b26" }),
       backdrop: { assetHash: "d".repeat(64), kind: "video", mime: "video/mp4", blur: 12 },
     };
     await openShare(WITH_VIDEO);
-    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe(
-      "The official repository accepts image and SVG backdrops only; video backdrops stay local.",
-    );
+    expect(panel()!.querySelector('[role="alert"]')).toBeNull();
     await fill();
-    expect(saveDetails().disabled).toBe(true);
-    expect(saveTheme().disabled).toBe(true);
-    expect(downloads).toEqual([]);
+    expect(saveDetails().disabled).toBe(false);
+    expect(saveTheme().disabled).toBe(false);
+
+    const mp4 = Buffer.from([
+      0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+    ]).toString("base64");
+    backendMock.readThemeBackdrop.mockResolvedValueOnce({ mime: "video/mp4", data: mp4 });
+    click(saveTheme());
+    await act(async () => {});
+    expect(panel()!.querySelector('[role="alert"]')).toBeNull();
+    expect(downloads.map((d) => d.name)).toEqual(["video-night.json"]);
+
+    const oversized = Buffer.alloc(16 * 1024 * 1024 + 1).toString("base64");
+    backendMock.readThemeBackdrop.mockResolvedValueOnce({ mime: "video/mp4", data: oversized });
+    click(saveTheme());
+    await act(async () => {});
+    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe(
+      "The official repository accepts video backdrops up to 16 MiB; this one is larger.",
+    );
+    expect(downloads.map((d) => d.name)).toEqual(["video-night.json"]);
   });
 
   it("closes when the theme is removed while the panel is open", async () => {
