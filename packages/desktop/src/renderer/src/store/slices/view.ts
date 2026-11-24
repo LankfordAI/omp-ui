@@ -37,6 +37,7 @@ import type { StoreMachinery } from "./shared";
 import type { CompactSurface, ErrorNotice, UiStore } from "../types";
 import { bumpLiveVoiceGeneration, cancelLiveSwitch } from "./live-switch";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
+import { hasAnyRoutinesHost } from "./routines";
 
 export type { CompactSurface } from "../types";
 
@@ -159,6 +160,8 @@ export interface ViewSlice {
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
+  /** Returns the main pane to the Welcome screen without closing any tab (issue #1327). */
+  goHome(): void;
   toggleSidebarCollapsed(): void;
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
@@ -191,6 +194,40 @@ export function focusOn(
 ): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal" | "artifacts" | "routinesOpen"> {
   bumpNavigationGeneration();
   return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null, routinesOpen: false };
+}
+
+/**
+ * True when the main pane is showing the Welcome (home) screen: no visible
+ * focused tab and no full-pane overlay open. Matches App.tsx's Welcome gate.
+ */
+export function isHomeView(
+  s: Pick<
+    UiStore,
+    | "tabs"
+    | "activeTabId"
+    | "artifacts"
+    | "routinesOpen"
+    | "lab"
+    | "stats"
+    | "fleet"
+    | "fleetTerminal"
+    | "state"
+  >,
+): boolean {
+  const shownTab = s.tabs.some((t) => t.tabId === s.activeTabId && !t.hidden);
+  if (shownTab) return false;
+  if (s.artifacts !== null && s.state?.artifactLibraryEnabled === true) return false;
+  if (s.routinesOpen && hasAnyRoutinesHost(s.state)) return false;
+  if (s.lab !== null && s.state?.experimentsEnabled === true) return false;
+  if (s.stats !== null) return false;
+  if (s.fleet !== null) return false;
+  if (
+    s.fleetTerminal !== null &&
+    (s.state?.fleetTerminals ?? []).some((ft) => ft.terminalId === s.fleetTerminal)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -607,6 +644,21 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeCompactSurface() {
     set({ compactSurface: null });
+  },
+  goHome() {
+    // closeLab() stops Lab's refresh timer before clearing the main pane.
+    if (get().lab !== null) get().closeLab();
+    bumpNavigationGeneration();
+    set({
+      activeTabId: null,
+      lab: null,
+      stats: null,
+      fleet: null,
+      fleetTerminal: null,
+      artifacts: null,
+      routinesOpen: false,
+      routineFocusId: null,
+    });
   },
   toggleSidebarCollapsed() {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));

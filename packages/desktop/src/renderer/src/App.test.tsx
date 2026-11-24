@@ -820,3 +820,43 @@ describe("Routines top-bar host dropdown (issue #1306)", () => {
     expect(document.body.querySelector("[data-routines-host-trigger]")?.textContent).toContain("studio");
   });
 });
+
+describe("Home navigation (issue #1327)", () => {
+  it("goHome returns the main pane to Welcome while keeping mounted tabs in the DOM hidden", () => {
+    compact = false;
+    useStore.setState({
+      state: projectState(),
+      tabs: [
+        { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+      ],
+      activeTabId: "rpc",
+      artifacts: null,
+      routinesOpen: false,
+      fleet: null,
+      stats: null,
+      lab: null,
+      fleetTerminal: null,
+    });
+    renderApp();
+
+    const tabHost = document.body.querySelector<HTMLElement>('[data-tab-id="rpc"]')!;
+    expect(tabHost.style.display).toBe("block");
+    expect(document.body.querySelector("h1")?.textContent).not.toBe("omp-ui");
+
+    act(() => useStore.getState().goHome());
+
+    expect(tabHost.isConnected).toBe(true);
+    expect(tabHost.style.display).toBe("none");
+    expect(document.body.querySelector("h1")?.textContent).toBe("omp-ui");
+
+    // Also works from a full-pane overlay like Routines or Fleet.
+    act(() => useStore.setState({ fleet: { machines: null, loading: false, error: null, audit: null, updateAll: null } }));
+    expect(document.body.querySelector("h1")?.textContent).not.toBe("omp-ui");
+
+    act(() => useStore.getState().goHome());
+    expect(useStore.getState().fleet).toBeNull();
+    expect(tabHost.isConnected).toBe(true);
+    expect(tabHost.style.display).toBe("none");
+    expect(document.body.querySelector("h1")?.textContent).toBe("omp-ui");
+  });
+});

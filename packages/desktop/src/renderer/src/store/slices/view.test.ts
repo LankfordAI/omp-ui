@@ -5,8 +5,11 @@ import type { BackendState, ProjectGroup, SessionSummary } from "@omp-ui/core/ty
 import type { RpcTabState, TabInfo } from "../../store";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../../test/fixtures";
 import {
+  createViewSlice,
   findOwner,
   findRecord,
+  getNavigationGeneration,
+  isHomeView,
   runningSessionTitleOnCheckout,
 } from "./view";
 
@@ -152,5 +155,188 @@ describe("remote instance groups (issue #416)", () => {
     });
     expect(findOwner(state, "local-1")?.instanceId).toBeNull();
     expect(findOwner(state, "nowhere")).toBeUndefined();
+  });
+});
+
+describe("isHomeView and goHome (issue #1327)", () => {
+  type HomeSnapshot = Parameters<typeof isHomeView>[0];
+  const base = (patch: Partial<HomeSnapshot> = {}): HomeSnapshot => ({
+    tabs: [],
+    activeTabId: null,
+    artifacts: null,
+    routinesOpen: false,
+    lab: null,
+    stats: null,
+    fleet: null,
+    fleetTerminal: null,
+    state: backendState(),
+    ...patch,
+  });
+
+  it("is true only when no visible tab and no active full-pane overlay is shown", () => {
+    expect(isHomeView(base())).toBe(true);
+
+    // Visible active tab hides Welcome; hidden active tab leaves Welcome showing.
+    expect(
+      isHomeView(
+        base({
+          tabs: [tabInfo({ tabId: "t1", hidden: false })],
+          activeTabId: "t1",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isHomeView(
+        base({
+          tabs: [tabInfo({ tabId: "t1", hidden: true })],
+          activeTabId: "t1",
+        }),
+      ),
+    ).toBe(true);
+
+    // Gated overlays only hide Welcome while their feature gate is enabled.
+    expect(
+      isHomeView(
+        base({
+          artifacts: { artifactId: null },
+          state: backendState({ artifactLibraryEnabled: false }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isHomeView(
+        base({
+          artifacts: { artifactId: null },
+          state: backendState({ artifactLibraryEnabled: true }),
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      isHomeView(
+        base({
+          routinesOpen: true,
+          state: backendState({ routinesEnabled: false }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isHomeView(
+        base({
+          routinesOpen: true,
+          state: backendState({ routinesEnabled: true }),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isHomeView(
+        base({
+          routinesOpen: true,
+          state: backendState({
+            routinesEnabled: false,
+            remoteInstances: [remoteInstance({ id: "inst-a", routinesEnabled: true })],
+          }),
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      isHomeView(
+        base({
+          lab: { projectCwd: null, instanceId: null, experiment: null },
+          state: backendState({ experimentsEnabled: false }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isHomeView(
+        base({
+          lab: { projectCwd: null, instanceId: null, experiment: null },
+          state: backendState({ experimentsEnabled: true }),
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      isHomeView(
+        base({
+          stats: { rangeDays: 7, projectKey: null, provider: null, model: null, agentType: null },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isHomeView(
+        base({
+          fleet: { machines: null, loading: false, error: null, audit: null, updateAll: null },
+        }),
+      ),
+    ).toBe(false);
+
+    // A stale fleetTerminal id not in state.fleetTerminals does not block Welcome.
+    expect(isHomeView(base({ fleetTerminal: "ft-gone" }))).toBe(true);
+    expect(
+      isHomeView(
+        base({
+          fleetTerminal: "ft-live",
+          state: backendState({
+            fleetTerminals: [
+              {
+                terminalId: "ft-live",
+                machineKey: "inst-a",
+                nickname: "studio",
+                openedAt: "2026-11-24T00:00:00Z",
+                exitCode: null,
+              },
+            ],
+          }),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("goHome clears activeTabId and every overlay, stops Lab, bumps nav generation, and keeps tabs", () => {
+    const tabs = [tabInfo({ tabId: "t1", hidden: false })];
+    const closeLab = vi.fn();
+    const state: Record<string, unknown> = {
+      tabs,
+      activeTabId: "t1",
+      lab: { projectCwd: null, instanceId: null, experiment: null },
+      stats: { projectCwd: null, instanceId: null },
+      fleet: { focusMachineId: null },
+      fleetTerminal: "ft-1",
+      artifacts: { artifactId: "a1" },
+      routinesOpen: true,
+      routineFocusId: "r1",
+      closeLab,
+    };
+    const set = (
+      partial: Record<string, unknown> | ((s: Record<string, unknown>) => Record<string, unknown>),
+    ) => {
+      Object.assign(state, typeof partial === "function" ? partial(state) : partial);
+    };
+    const get = () => state;
+    const slice = createViewSlice(set as never, get as never, {} as never);
+    const genBefore = getNavigationGeneration();
+
+    slice.goHome();
+
+    expect(closeLab).toHaveBeenCalledOnce();
+    expect(getNavigationGeneration()).toBeGreaterThan(genBefore);
+    expect(state).toMatchObject({
+      tabs,
+      activeTabId: null,
+      lab: null,
+      stats: null,
+      fleet: null,
+      fleetTerminal: null,
+      artifacts: null,
+      routinesOpen: false,
+      routineFocusId: null,
+    });
+
+    // Calling goHome when lab is already null does not invoke closeLab again.
+    closeLab.mockClear();
+    slice.goHome();
+    expect(closeLab).not.toHaveBeenCalled();
   });
 });

@@ -1374,6 +1374,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
+  /** Returns the main pane to the Welcome screen without closing any tab (issue #1327). */
+  goHome(): void;
   toggleSidebarCollapsed(): void;
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
