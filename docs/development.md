@@ -938,44 +938,49 @@ The runner image and the compose-based supervisor live in `LankfordAI/Actions-Ru
 
 ## Pull request reviews
 
-This repository uses [CodeRabbit](https://coderabbit.ai) for **advisory** AI
-reviews on pull requests. It is not a merge gate: there is no CodeRabbit GitHub
-Actions workflow, no required status check, and no secret, and merging stays a
-human decision. The behaviour lives in `.coderabbit.yaml` in the repository root
-so it is version controlled.
+This repository uses a self-hosted [PR-Agent](https://github.com/The-PR-Agent/pr-agent)
+GitHub App for **advisory** AI reviews on pull requests. It is not a merge gate:
+there is no PR-Agent GitHub Actions workflow, no required status check, no
+repository secret, and no contact with the self-hosted `gfx1201` runner pool.
+Auto-approval is disabled at the host layer (`CONFIG__ENABLE_AUTO_APPROVAL=false`),
+so merging stays a human decision.
 
-Reviews use the *chill* profile, never auto-approve, keep their summary in the
-walkthrough, skip the walkthrough poem, and disable the docstring and unit-test
-generation finishing touches. `AGENTS.md`, `CONTEXT.md`, and
-`docs/architecture.md` are loaded as coding guidelines, with architecture applied
-to every path, so reviews respect the transport-agnostic core boundary of
-[ADR-0002](adr/0002-transport-agnostic-core.md) and the vocabulary in
-[CONTEXT.md](../CONTEXT.md).
+The repository-configurable behaviour lives in `.pr_agent.toml` in the repository
+root and is read by PR-Agent from the default branch (`main`). Reviews load
+`AGENTS.md` as repository context and encode the core invariants from
+[ADR-0002](adr/0002-transport-agnostic-core.md) (transport-agnostic
+`packages/core` with zero Electron imports) and [CONTEXT.md](../CONTEXT.md)
+vocabulary in `pr_reviewer.extra_instructions`.
 
-### Activation (organization owner)
+### Deployment overview
 
-1. Install the CodeRabbit GitHub App from
-   [github.com/apps/coderabbit](https://github.com/apps/coderabbit), choosing
-   "Only select repositories" and selecting `LankfordAI/omp-ui`. An organization
-   owner must approve the installation.
-2. CodeRabbit detects the repository's open-source status and applies the OSS
-   entitlement. Eligibility and rate limits are managed by CodeRabbit, not by
-   `.coderabbit.yaml`, so this repository stores no key and needs no billing
-   setup.
-3. Open a pull request that contains `.coderabbit.yaml`. CodeRabbit reads the
-   configuration from the branch under review and posts an advisory review.
+- **Runtime:** `pragent/pr-agent` GitHub App container running on `amdgpu`
+  (`192.168.110.6:3000`), managed as an Arcane project (`PR-Agent`). PR code is
+  never checked out or executed; PR-Agent fetches diffs exclusively through the
+  GitHub API.
+- **Model backend:** local `Qwen3.8-Flash-Next` served through the `amdgpu`
+  LiteLLM proxy (`http://192.168.110.6:4000/v1`) using a dedicated model- and
+  rate-scoped virtual key.
+- **Ingress:** GitHub delivers HMAC-SHA256-signed webhooks to Nginx Proxy Manager
+  at `https://pr-agent.lankford.ai/api/v1/github_webhooks` (all other paths on
+  that host return `404`).
+- **Triggers:** PR-Agent runs persistent `/describe` (as a comment; the PR body
+  is left untouched) and `/review` on `opened`, `reopened`, and
+  `ready_for_review` for non-draft pull requests, skipping unchanged diffs and
+  deduplicating webhook deliveries.
 
 ### Manual review and configuration inspection
 
-On any pull request, drive the review from a comment:
+On any pull request, drive PR-Agent from a comment:
 
-- `@coderabbitai review` runs, or re-runs, a review of the current head.
-- `@coderabbitai configuration` prints the resolved configuration in YAML with a
-  comment per setting naming its source — repository YAML, UI settings, or
-  defaults — which is how you confirm `.coderabbit.yaml` parsed and took effect.
-
-The schema URL in the first line of `.coderabbit.yaml` gives editor validation of
-the file itself.
+- `/review` runs, or re-runs, a full advisory review of the current head.
+- `/review -i` runs an incremental review covering only commits since the last
+  review.
+- `/describe` refreshes the persistent summary comment and diagram.
+- `/improve` proposes code suggestions without committable suggestion blocks.
+- `/ask <question>` answers a question about the pull request diff.
+- `/config` prints the active PR-Agent configuration so you can confirm
+  `.pr_agent.toml` on `main` parsed and took effect.
 
 ## Documentation-only changes
 
