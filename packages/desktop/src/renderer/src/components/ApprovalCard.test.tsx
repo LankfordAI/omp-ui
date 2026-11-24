@@ -367,13 +367,13 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
       state: remote ? template : backendState({ projects: [group] }),
     });
   };
-  afterEach(() => useStore.setState({ state: null, routinesState: null, routinesByInstance: {} }));
+  afterEach(() => useStore.setState({ state: null, routinesState: null, routinesByInstance: {}, errorNotices: [] }));
 
-  it("renders Deny, Always allow and Allow — never the session-wide option", () => {
+  it("renders Deny, Always deny, Always allow and Allow — never the session-wide option", () => {
     seed(true);
     render(SESSION_PROMPT, SESSION_FRAME);
     const texts = [...document.querySelectorAll("[data-approval-card] button")].map((b) => b.textContent);
-    expect(texts).toEqual(["Deny", "Always allow", "Allow"]);
+    expect(texts).toEqual(["Deny", "Always deny", "Always allow", "Allow"]);
   });
 
   it("Always allow answers once and patches the routine's toolPolicy.allow (#1276)", async () => {
@@ -394,7 +394,24 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
     expect(patch.toolPolicy.deny).toEqual([]);
   });
 
-  it("Always allow on a remote Routine run routes grantRoutineTool to that tab's owning instance (#1306)", async () => {
+  it("Always deny answers Deny and patches the routine's toolPolicy.deny (#1328)", async () => {
+    seed(true);
+    seedRoutineState();
+    const readPrompt = { ...SESSION_PROMPT, toolName: "Read" };
+    render(readPrompt, SESSION_FRAME);
+    await act(async () => {
+      button("Always deny").click();
+    });
+    expect(rpcSend).toHaveBeenCalledTimes(1);
+    expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Deny" });
+    expect(updateRoutine).toHaveBeenCalledTimes(1);
+    const [id, patch] = updateRoutine.mock.calls[0]! as [string, { toolPolicy: { allow: string[]; deny: string[] } }];
+    expect(id).toBe(ROUTINE_ID);
+    expect(patch.toolPolicy.allow).toEqual([]);
+    expect(patch.toolPolicy.deny).toEqual(["bash", "read"]);
+  });
+
+  it("Always allow on a remote Routine run routes setRoutineToolDecision to that tab's owning instance (#1306)", async () => {
     seed(true, true);
     seedRoutineState();
     const localSnap = useStore.getState().routinesState!;
@@ -416,6 +433,49 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
       ],
     );
   });
+
+  it("Always deny on a remote Routine run routes setRoutineToolDecision to that tab's owning instance (#1306, #1328)", async () => {
+    seed(true, true);
+    seedRoutineState();
+    const localSnap = useStore.getState().routinesState!;
+    useStore.setState({ routinesState: null, routinesByInstance: { "inst-1": localSnap } });
+    render({ ...SESSION_PROMPT, toolName: "Read" }, SESSION_FRAME);
+    await act(async () => {
+      button("Always deny").click();
+    });
+    expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Deny" });
+    expect(updateRoutine).not.toHaveBeenCalled();
+    expect(remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-1",
+      "routines:update",
+      [
+        ROUTINE_ID,
+        expect.objectContaining({
+          toolPolicy: expect.objectContaining({ allow: [], deny: ["bash", "read"] }),
+        }),
+      ],
+    );
+  });
+
+  it("Always deny still sends Deny on the wire and reports an error when the routine patch rejects", async () => {
+    seed(true);
+    seedRoutineState();
+    updateRoutine.mockRejectedValueOnce(new Error("Routines is disabled"));
+    render({ ...SESSION_PROMPT, toolName: "Read" }, SESSION_FRAME);
+    await act(async () => {
+      button("Always deny").click();
+    });
+    expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Deny" });
+    expect(useStore.getState().errorNotices.some((n) => n.message.includes("Routines is disabled"))).toBe(true);
+  });
+
+  it("hides Always deny and Always allow when the tool name maps to an empty key", () => {
+    seed(true);
+    render({ ...SESSION_PROMPT, toolName: "   " }, SESSION_FRAME);
+    const texts = [...document.querySelectorAll("[data-approval-card] button")].map((b) => b.textContent);
+    expect(texts).toEqual(["Deny", "Allow"]);
+  });
+
   it("keeps the three options on an ordinary session", () => {
     seed(false);
     render(SESSION_PROMPT, SESSION_FRAME);
