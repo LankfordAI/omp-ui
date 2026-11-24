@@ -745,8 +745,13 @@ const ROWS = [
       check(`HUD reads "Started by the routine ${NAME_A}"`, hud.provenance);
       check("HUD hides approval-mode picker", !hud.approvalChip);
       check(
-        "Approval card renders Deny / Always allow / Allow once",
-        card.tool === "mcp__probe_routines_probe_write" && card.buttons.length === 3 && card.buttons[0] === "Deny" && card.buttons.includes("Always allow") && /^Allow( once)?$/.test(card.buttons[2]),
+        "Approval card renders Deny / Always deny / Always allow / Allow once",
+        card.tool === "mcp__probe_routines_probe_write" &&
+          card.buttons.length === 4 &&
+          card.buttons[0] === "Deny" &&
+          card.buttons[1] === "Always deny" &&
+          card.buttons[2] === "Always allow" &&
+          /^Allow( once)?$/.test(card.buttons[3]),
         card,
       );
       const cardShot = await shot(app, "S4-approval-card");

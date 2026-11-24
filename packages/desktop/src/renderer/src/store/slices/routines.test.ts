@@ -70,12 +70,12 @@ function routinesStateWith(allow: string[], deny: string[]): RoutinesState {
   };
 }
 
-describe("routines slice grantRoutineTool", () => {
+describe("routines slice setRoutineToolDecision", () => {
   it("appends the key to allow and drops it from deny", async () => {
     h.useStore.setState({ routinesState: routinesStateWith(["read"], ["write"]) });
     const updateRoutine = vi.mocked(h.mockBackend.updateRoutine);
     updateRoutine.mockResolvedValue(routinesStateWith(["read", "write"], []).routines[0]!);
-    await h.useStore.getState().grantRoutineTool(ID, "write");
+    await h.useStore.getState().setRoutineToolDecision(ID, "write", "allow");
     expect(updateRoutine).toHaveBeenCalledTimes(1);
     const [id, patch] = updateRoutine.mock.calls[0]!;
     expect(id).toBe(ID);
@@ -86,24 +86,58 @@ describe("routines slice grantRoutineTool", () => {
   it("leaves allow untouched when the key is already granted", async () => {
     h.useStore.setState({ routinesState: routinesStateWith(["read"], []) });
     vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith(["read"], []).routines[0]!);
-    await h.useStore.getState().grantRoutineTool(ID, "read");
+    await h.useStore.getState().setRoutineToolDecision(ID, "read", "allow");
     const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
     expect(patch.toolPolicy?.allow).toEqual(["read"]);
+    expect(patch.toolPolicy?.deny).toEqual([]);
+  });
+
+  it("appends the key to deny and drops it from allow", async () => {
+    h.useStore.setState({ routinesState: routinesStateWith(["read", "bash"], ["write"]) });
+    const updateRoutine = vi.mocked(h.mockBackend.updateRoutine);
+    updateRoutine.mockResolvedValue(routinesStateWith(["read"], ["write", "bash"]).routines[0]!);
+    await h.useStore.getState().setRoutineToolDecision(ID, "bash", "deny");
+    expect(updateRoutine).toHaveBeenCalledTimes(1);
+    const [id, patch] = updateRoutine.mock.calls[0]!;
+    expect(id).toBe(ID);
+    expect(patch.toolPolicy?.allow).toEqual(["read"]);
+    expect(patch.toolPolicy?.deny).toEqual(["write", "bash"]);
+  });
+
+  it("leaves deny untouched when the key is already denied", async () => {
+    h.useStore.setState({ routinesState: routinesStateWith(["read"], ["bash"]) });
+    vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith(["read"], ["bash"]).routines[0]!);
+    await h.useStore.getState().setRoutineToolDecision(ID, "bash", "deny");
+    const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
+    expect(patch.toolPolicy?.allow).toEqual(["read"]);
+    expect(patch.toolPolicy?.deny).toEqual(["bash"]);
   });
 
   it("refetches routines:state once when the local snapshot is missing", async () => {
     h.useStore.setState({ routinesState: null });
     vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue(routinesStateWith([], []));
     vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith(["grep"], []).routines[0]!);
-    await h.useStore.getState().grantRoutineTool(ID, "grep");
+    await h.useStore.getState().setRoutineToolDecision(ID, "grep", "allow");
     const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
     expect(patch.toolPolicy?.allow).toEqual(["grep"]);
+    expect(patch.toolPolicy?.deny).toEqual([]);
+  });
+
+  it("refetches routines:state once when denying with a missing local snapshot", async () => {
+    h.useStore.setState({ routinesState: null });
+    vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue(routinesStateWith(["bash"], []));
+    vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith([], ["bash"]).routines[0]!);
+    await h.useStore.getState().setRoutineToolDecision(ID, "bash", "deny");
+    const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
+    expect(patch.toolPolicy?.allow).toEqual([]);
+    expect(patch.toolPolicy?.deny).toEqual(["bash"]);
   });
 
   it("refuses an id the refetch does not know", async () => {
     h.useStore.setState({ routinesState: null });
     vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue({ ...routinesStateWith([], []), routines: [] });
-    await expect(h.useStore.getState().grantRoutineTool(ID, "grep")).rejects.toThrow(/unknown routine/);
+    await expect(h.useStore.getState().setRoutineToolDecision(ID, "grep", "allow")).rejects.toThrow(/unknown routine/);
+    await expect(h.useStore.getState().setRoutineToolDecision(ID, "grep", "deny")).rejects.toThrow(/unknown routine/);
     expect(h.mockBackend.updateRoutine).not.toHaveBeenCalled();
   });
 });
@@ -122,7 +156,7 @@ describe("routines slice multi-host support (issue #1306)", () => {
     expect(h.useStore.getState().routinesInstanceId).toBe("inst-studio");
   });
 
-  it("stores remote routines per instance, isolates unknown channel errors, and routes grantRoutineTool to the remote host", async () => {
+  it("stores remote routines per instance, isolates unknown channel errors, and routes setRoutineToolDecision to the remote host", async () => {
     const remoteState = { ...routinesStateWith(["read"], ["bash"]), machineLabel: "studio" };
     h.useStore.getState().replaceRemoteRoutines("inst-studio", remoteState);
     expect(h.useStore.getState().routinesByInstance["inst-studio"]?.machineLabel).toBe("studio");
@@ -134,9 +168,9 @@ describe("routines slice multi-host support (issue #1306)", () => {
     expect(h.useStore.getState().routinesLoadError["inst-lite"]).toContain("unknown channel routines:getState");
     expect(h.useStore.getState().errorNotices).toHaveLength(errorsBefore);
 
-    // grantRoutineTool on a remote instance routes routines:update through remoteInstanceRequest.
+    // setRoutineToolDecision on a remote instance routes routines:update through remoteInstanceRequest.
     vi.mocked(h.mockBackend.remoteInstanceRequest).mockResolvedValueOnce(routinesStateWith(["read", "bash"], []).routines[0]!);
-    await h.useStore.getState().grantRoutineTool(ID, "bash", "inst-studio");
+    await h.useStore.getState().setRoutineToolDecision(ID, "bash", "allow", "inst-studio");
     expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
       "inst-studio",
       "routines:update",
@@ -144,6 +178,19 @@ describe("routines slice multi-host support (issue #1306)", () => {
         ID,
         expect.objectContaining({
           toolPolicy: expect.objectContaining({ allow: ["read", "bash"], deny: [] }),
+        }),
+      ],
+    );
+
+    vi.mocked(h.mockBackend.remoteInstanceRequest).mockResolvedValueOnce(routinesStateWith([], ["bash", "read"]).routines[0]!);
+    await h.useStore.getState().setRoutineToolDecision(ID, "read", "deny", "inst-studio");
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-studio",
+      "routines:update",
+      [
+        ID,
+        expect.objectContaining({
+          toolPolicy: expect.objectContaining({ allow: [], deny: ["bash", "read"] }),
         }),
       ],
     );

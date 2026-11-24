@@ -1026,10 +1026,12 @@ button between omp's label and its always-label, and the reply echoes the
 frame's chosen label verbatim (ADR-0038 amended for issue #950). On omp ≥
 18.13.1 a prompt whose reason is `Restricted folder: <path>` names that folder
 and notes that it asks in every approval mode; omp offers no session choice
-for it (issue #951). An unattended **Routine run** shows the card with Deny
-and Allow once only (no session-wide choice), and nobody answering is not
-denial: the run waits until someone answers, and after 24 hours omp-ui answers
-Deny for it (ADR-0100).
+for it (issue #951). An unattended **Routine run** hides the session-wide
+choice and instead offers **Always deny** and **Always allow** alongside Deny
+and Allow once — answering the held prompt immediately and updating the stored
+Routine's `toolPolicy` for future fires without altering the live run's
+fire-time snapshot — and nobody answering is not denial: the run waits until
+someone answers, and after 24 hours omp-ui answers Deny for it (ADR-0100).
 _Avoid_: approval dialog, permission prompt, tool gate card
 
 **Approval mode**:

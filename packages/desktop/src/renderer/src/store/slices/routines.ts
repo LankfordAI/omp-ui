@@ -93,11 +93,13 @@ export interface RoutinesSlice {
     projectCwd: string,
     instanceId?: string | null,
   ): Promise<RoutineCatalogSnapshot>;
-  /** Appends one tool key to the routine's allow list; refuses a routine the
-   *  host no longer has. Used by the ApprovalCard's Always allow (#1276, #1306). */
-  grantRoutineTool(
+  /** Records one tool key as allowed or hard-denied on the routine's Tool policy;
+   *  refuses a routine the host no longer has. Used by the ApprovalCard's Always
+   *  allow / Always deny actions (#1276, #1306, #1328). */
+  setRoutineToolDecision(
     routineId: string,
     toolKey: string,
+    decision: "allow" | "deny",
     instanceId?: string | null,
   ): Promise<RoutineRecord>;
 }
@@ -274,14 +276,13 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
       backendFor(instanceId).testRoutineScript(input),
     loadRoutineToolCatalog: (projectCwd, instanceId = get().routinesInstanceId) =>
       backendFor(instanceId).listRoutineToolCatalog(projectCwd),
-    async grantRoutineTool(routineId, toolKey, instanceId = null) {
+    async setRoutineToolDecision(routineId, toolKey, decision, instanceId = null) {
       const target = instanceId ?? null;
       // The renderer only holds a routines:state snapshot when the Routines
       // view has opened or a broadcast landed; during an ordinary run it can
-      // be null, so re-read once before refusing (#1276, #1306).
-      const readCurrent = (): RoutinesState | null =>
-        target === null ? get().routinesState : (get().routinesByInstance[target] ?? null);
-      let record = readCurrent()?.routines.find((r) => r.id === routineId) ?? null;
+      // be null, so re-read once before refusing (#1276, #1306, #1328).
+      const currentSnap = target === null ? get().routinesState : (get().routinesByInstance[target] ?? null);
+      let record = currentSnap?.routines.find((r) => r.id === routineId) ?? null;
       if (record === null) {
         const fresh = await backendFor(target).getRoutinesState();
         if (target === null) {
@@ -296,13 +297,25 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
       }
       if (record === null) throw new Error(`unknown routine ${routineId}`);
       const current = record.toolPolicy;
-      // RoutineService.update restamps lastReviewedAt/reviewedCatalog against
-      // the live catalog itself, so the stale values sent here are fine;
-      // dropping the key from deny avoids the both-lists refusal.
+      // RoutineService.update restamps lastReviewedAt/reviewedCatalog against the
+      // live catalog itself; stripping from the opposite list avoids parseToolPolicy's
+      // allow/deny overlap refusal.
+      const allow =
+        decision === "allow"
+          ? current.allow.includes(toolKey)
+            ? current.allow
+            : [...current.allow, toolKey]
+          : current.allow.filter((a) => a !== toolKey);
+      const deny =
+        decision === "deny"
+          ? current.deny.includes(toolKey)
+            ? current.deny
+            : [...current.deny, toolKey]
+          : current.deny.filter((d) => d !== toolKey);
       return backendFor(target).updateRoutine(routineId, {
         toolPolicy: {
-          allow: current.allow.includes(toolKey) ? current.allow : [...current.allow, toolKey],
-          deny: current.deny.filter((d) => d !== toolKey),
+          allow,
+          deny,
           lastReviewedAt: current.lastReviewedAt,
           reviewedCatalog: current.reviewedCatalog,
         },

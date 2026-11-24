@@ -61,13 +61,14 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // A Routine run's card answers once only (ADR-0100, #1252): granting a
   // session-wide approval would widen its compiled tool policy for the rest
   // of an unattended run, so the session option never renders there. In
-  // place of it, Always allow (#1276) answers once and appends the tool to
-  // the routine's toolPolicy.allow so future fires never prompt again —
-  // only the definition changes, never this run's fire-time overlay.
+  // place of it, Always allow (#1276) and Always deny (#1328) answer the
+  // held frame immediately and record the tool key on the routine's stored
+  // toolPolicy for future fires — only the definition changes, never this
+  // run's fire-time snapshot.
   const owner = useStore((s) => findOwner(s.state, tabId));
   const routine = owner?.record.routine ?? null;
   const routineInstanceId = owner?.instanceId ?? null;
-  const grantRoutineTool = useStore((s) => s.grantRoutineTool);
+  const setRoutineToolDecision = useStore((s) => s.setRoutineToolDecision);
   const reportError = useStore((s) => s.reportError);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
   // The switch belongs to one held frame: a new approval starts un-remembered
@@ -114,7 +115,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // Frame text deliberately not i18n'd: it names omp's grant subject and
   // must match what the harness composed.
   const sessionLabel = routine === null ? prompt.sessionLabel : null;
-  const grantKey = routine !== null ? routineToolKeyFromApprovalName(prompt.toolName) : "";
+  const policyKey = routine !== null ? routineToolKeyFromApprovalName(prompt.toolName) : "";
   const restrictedFolder = prompt.restrictedFolder;
   return (
     <div
@@ -202,21 +203,34 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
           </span>
         </div>
       )}
-      <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-3">
+      <div className="flex flex-wrap items-center justify-end gap-2 px-4 pb-3 pt-3">
         <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "deny")}>
           Deny
         </Button>
-        {routine !== null && grantKey !== "" && (
-          <Button
-            variant="outline"
-            title={`${prompt.toolName} · ${routine.name}`}
-            onClick={() => {
-              answerApprovalPrompt(tabId, "once");
-              void grantRoutineTool(routine.id, grantKey, routineInstanceId).catch(reportError);
-            }}
-          >
-            Always allow
-          </Button>
+        {routine !== null && policyKey !== "" && (
+          <>
+            <Button
+              variant="outline"
+              tone="rose"
+              title={`${prompt.toolName} · ${routine.name}`}
+              onClick={() => {
+                answerApprovalPrompt(tabId, "deny");
+                void setRoutineToolDecision(routine.id, policyKey, "deny", routineInstanceId).catch(reportError);
+              }}
+            >
+              Always deny
+            </Button>
+            <Button
+              variant="outline"
+              title={`${prompt.toolName} · ${routine.name}`}
+              onClick={() => {
+                answerApprovalPrompt(tabId, "once");
+                void setRoutineToolDecision(routine.id, policyKey, "allow", routineInstanceId).catch(reportError);
+              }}
+            >
+              Always allow
+            </Button>
+          </>
         )}
         {sessionLabel !== null && (
           <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "session")}>
