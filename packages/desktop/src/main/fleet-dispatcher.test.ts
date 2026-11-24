@@ -456,6 +456,65 @@ describe("FleetDispatcher", () => {
         expect.objectContaining({ machineKey: "r2", status: "started", tabId: "r2-tab", choice: null }),
       ]);
     });
+
+    it("forwards preferredModel on FleetSpawnSpec and retries once without it against an older remote owner (#1329)", async () => {
+      const seenFleets: Array<Record<string, unknown>> = [];
+      const h = harness({
+        local: report([project()]),
+        remotes: {
+          r1: {
+            report: async () => report([project({ path: "/srv/app" })]),
+            spawn: async (req) => {
+              seenFleets.push({ ...(req.fleet as unknown as Record<string, unknown>) });
+              if ("preferredModel" in (req.fleet ?? {})) {
+                throw new Error("spawn request.fleet contains unknown field preferredModel");
+              }
+              return { tabId: "r1-tab", choice: { model: "zai/glm-flash", thinkingLevel: null } };
+            },
+          },
+        },
+      });
+      const result = await h.dispatcher.dispatch(
+        { ...explicit([{ machineKey: "r1", projectCwd: "/srv/app" }]), preferredModel: "anthropic/claude-opus-5" },
+        { kind: "agent", sourceTabId: "src-tab" },
+      );
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({
+          machineKey: "r1",
+          status: "started",
+          tabId: "r1-tab",
+          choice: { model: "zai/glm-flash", thinkingLevel: null },
+        }),
+      ]);
+      expect(seenFleets).toHaveLength(2);
+      expect(seenFleets[0]?.preferredModel).toBe("anthropic/claude-opus-5");
+      expect("preferredModel" in seenFleets[1]!).toBe(false);
+    });
+
+    it("still dispatches with preferredModel to a pre-#956 remote without triggering explicit-model skew refusal (#1329)", async () => {
+      const { modelFavorites: _modelFavorites, ...older } = report([project({ path: "/srv/app" })]);
+      const h = harness({
+        local: report([project()]),
+        remotes: {
+          r1: {
+            report: async () => older as FleetHostReport,
+            spawn: async (req) => {
+              if ("preferredModel" in (req.fleet ?? {})) {
+                throw new Error("spawn request.fleet contains unknown field preferredModel");
+              }
+              return { tabId: "r1-tab" };
+            },
+          },
+        },
+      });
+      const result = await h.dispatcher.dispatch(
+        { ...explicit([{ machineKey: "r1", projectCwd: "/srv/app" }]), preferredModel: "anthropic/claude-opus-5" },
+        { kind: "agent", sourceTabId: "src-tab" },
+      );
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({ machineKey: "r1", status: "started", tabId: "r1-tab", choice: null }),
+      ]);
+    });
   });
 });
 

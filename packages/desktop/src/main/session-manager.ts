@@ -126,7 +126,9 @@ import {
   type FleetSpawnSpec,
   type ProjectRecord,
   type SpawnAnswer,
+  parseModelRole,
   resolveFleetModelChoice,
+  validateFleetModel,
   type OwnedSessionRecord,
   type FleetAgentUpdateAnswer,
   type FleetDispatchRequest,
@@ -750,10 +752,12 @@ export class SessionManager {
         : {
             fleet: {
               machines: () => fleet().machines(),
-              dispatch: (tabId, req) =>
-                fleet().dispatch(req, { kind: "agent", sourceTabId: tabId }, { deadlineMs: AGENT_FLEET_DEADLINE_MS }),
+              dispatch: (tabId, req) => {
+                const preferredModel = req.model === undefined ? this.activeSessionModel(tabId) : null;
+                const enriched = preferredModel === null ? req : { ...req, preferredModel };
+                return fleet().dispatch(enriched, { kind: "agent", sourceTabId: tabId }, { deadlineMs: AGENT_FLEET_DEADLINE_MS });
+              },
               status: (sel, waitMs) => fleet().statusText(sel, waitMs),
-              // #901: the dispatcher bounds exec/project inside the watchdog itself.
               exec: (tabId, args) => fleet().exec(tabId, args),
               projectManage: (tabId, args, control) => fleet().projectManage(tabId, args, control),
               // #905: detached exec start and poll, bounded the same way.
@@ -2393,7 +2397,7 @@ export class SessionManager {
     return this.#catalogRead;
   }
 
-  /** The fleet spawn's record model and level (#956). Throws the owner's refusal; a user dispatch with nothing requested keeps the project chain without reading the catalog. */
+  /** The fleet spawn's record model and level (#956, #1329). Throws the owner's refusal; a user dispatch with nothing requested keeps the project chain without reading the catalog. */
   async #fleetModelChoice(
     spec: FleetSpawnSpec,
     project: ProjectRecord | undefined,
@@ -2401,13 +2405,15 @@ export class SessionManager {
   ): Promise<FleetModelChoice> {
     const projectModel = project?.defaultModel ?? project?.lastModel ?? null;
     const requestedModel = spec.model ?? null;
+    const preferredModel = spec.preferredModel ?? null;
     const requestedLevel = spec.thinkingLevel ?? null;
     const favoritesFirst = spec.requestedBy.kind === "agent";
-    if (!favoritesFirst && requestedModel === null && requestedLevel === null) {
+    if (!favoritesFirst && requestedModel === null && preferredModel === null && requestedLevel === null) {
       return { model: projectModel, thinkingLevel: seedLevel };
     }
     const result = await resolveFleetModelChoice({
       requestedModel,
+      preferredModel,
       requestedLevel,
       favoritesFirst,
       projectModel,
@@ -2883,6 +2889,10 @@ export class SessionManager {
 
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */
   private deliverFrame(tabId: string, frame: RpcFrame, entry: LiveEntry): void {
+    if (entry.kind === "rpc-ui") {
+      const observed = observedFrameModel(frame);
+      if (observed !== null) entry.activeModel = observed;
+    }
     // #932: a successful pick lifts the hold before the renderer sees the
     // response, so the pick's own record write is no longer suppressed.
     if (entry.kind === "rpc-ui" && entry.modelHold !== null) {
@@ -2904,6 +2914,27 @@ export class SessionManager {
     this.publishAnswerEdge(tabId, before, gateBefore);
     this.deps.send(CH.onRpcFrame, tabId, frame);
   }
+
+  /**
+   * The tab's current active `provider/id` model (#1329): prefers the live RPC
+   * process's observed model (which tracks mid-session switches even before or
+   * without a renderer), falling back to the registry record's model. Strips
+   * any `:level` role suffix and returns null if unset or not a valid selector.
+   */
+  private activeSessionModel(tabId: string): string | null {
+    const entry = this.live.get(tabId);
+    const liveModel = entry?.kind === "rpc-ui" ? entry.activeModel : null;
+    const raw = liveModel ?? this.deps.registry.findSession(tabId)?.model ?? null;
+    if (raw === null) return null;
+    const parsed = parseModelRole(raw);
+    if (parsed === null) return null;
+    try {
+      return validateFleetModel(parsed.model);
+    } catch {
+      return null;
+    }
+  }
+
 
   async setSessionAdvisor(
     tabId: string,
@@ -4313,4 +4344,27 @@ export class SessionManager {
       throw err;
     }
   }
+}
+
+/**
+ * Extracts the active `provider/id` model from an RPC frame when present (#1329):
+ * `config_update` carries `frame.model`, and successful `get_state` / `set_model`
+ * responses carry `frame.data.model` or `frame.data` respectively.
+ */
+function observedFrameModel(frame: RpcFrame): string | null {
+  const pick = (candidate: unknown): string | null => {
+    if (candidate === null || typeof candidate !== "object") return null;
+    const record = candidate as Record<string, unknown>;
+    const provider = typeof record.provider === "string" ? record.provider.trim() : "";
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    return provider !== "" && id !== "" ? `${provider}/${id}` : null;
+  };
+  if (frame.type === "config_update") return pick(frame.model);
+  if (frame.type === "response" && frame.success !== false) {
+    if (frame.command === "set_model") return pick(frame.data);
+    if (frame.command === "get_state" && frame.data !== null && typeof frame.data === "object") {
+      return pick((frame.data as Record<string, unknown>).model);
+    }
+  }
+  return null;
 }

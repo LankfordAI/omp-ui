@@ -64,6 +64,8 @@ export interface RpcLiveEntry extends LiveEntryBase {
   fleetWakeBridgeLoaded: boolean;
   /** Wake ids already armed on this process; each staged wake is handed over once per process. */
   readonly fleetWakeSent: Set<string>;
+  /** Latest active `provider/id` model observed on this process's RPC stream (#1329); null until observed. */
+  activeModel: string | null;
 }
 
 export type LiveEntry = PtyLiveEntry | RpcLiveEntry;
@@ -119,6 +121,7 @@ export function createRpcLiveEntry(record: OwnedSessionRecord, fleetToolAccess: 
     modelHoldPicks: new Set(),
     fleetWakeBridgeLoaded: false,
     fleetWakeSent: new Set(),
+    activeModel: null,
   };
 }
 
