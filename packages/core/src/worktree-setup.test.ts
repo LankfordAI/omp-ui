@@ -91,6 +91,35 @@ describe("applyWorktreeFiles", () => {
     expect(fs.readFileSync(path.join(wt, "tracked.txt"), "utf8")).toBe("tracked\n");
   });
 
+  it("copies files inside a bare or globbed gitignored directory in copy mode", async () => {
+    const repo = await gitRepoWithIgnored();
+    fs.mkdirSync(path.join(repo, "cache", "nested"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "cache", "nested", "deep.txt"), "deep\n");
+    const wt = path.join(tmpDir(), "wt-copy-dir");
+    await addWorktree(repo, wt, "feat/copy-dir", "main");
+
+    const res = await applyWorktreeFiles(repo, wt, {
+      copyPaths: ["cache"],
+      copyMode: "copy",
+      postCreateCommand: null,
+    });
+    expect(res.applied).toEqual(["cache/data.bin", "cache/nested/deep.txt"]);
+    expect(res.skipped).toEqual([]);
+    expect(fs.readFileSync(path.join(wt, "cache", "data.bin"), "utf8")).toBe("cached\n");
+    expect(fs.readFileSync(path.join(wt, "cache", "nested", "deep.txt"), "utf8")).toBe("deep\n");
+    expect(fs.lstatSync(path.join(wt, "cache", "data.bin")).isSymbolicLink()).toBe(false);
+
+    const wtGlob = path.join(tmpDir(), "wt-copy-glob-dir");
+    await addWorktree(repo, wtGlob, "feat/copy-glob-dir", "main");
+    const resGlob = await applyWorktreeFiles(repo, wtGlob, {
+      copyPaths: ["cach*"],
+      copyMode: "copy",
+      postCreateCommand: null,
+    });
+    expect(resGlob.applied).toEqual(["cache/data.bin", "cache/nested/deep.txt"]);
+    expect(resGlob.skipped).toEqual([]);
+  });
+
   it("symlinks allowlisted gitignored files and leaves source intact when removeWorktree runs", async () => {
     const repo = await gitRepoWithIgnored();
     const wt = path.join(tmpDir(), "wt-link");

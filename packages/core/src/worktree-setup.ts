@@ -203,10 +203,31 @@ export async function applyWorktreeFiles(
   }
 
   const matched = new Set<string>();
+  const ignoredSet = new Set(ignored);
   for (const pattern of validated.copyPaths) {
     for (const candidate of ignored) {
       if (candidate === pattern || minimatch(candidate, pattern, { dot: true })) {
         matched.add(candidate);
+      }
+    }
+    // A bare folder name (e.g. "cache") should carry gitignored files beneath
+    // it in copy mode, and in symlink mode when the folder itself is not a
+    // single gitignored directory that can be symlinked as a unit.
+    if (validated.copyMode === "copy" || !ignoredSet.has(pattern)) {
+      const prefix = `${pattern}/`;
+      for (const candidate of ignored) {
+        if (candidate.startsWith(prefix)) matched.add(candidate);
+      }
+    }
+  }
+  // In copy mode, also expand any matched directory (including glob matches
+  // like "cach*") to its collected gitignored descendants so bare/globbed
+  // directory entries are never silently dropped when directories are skipped.
+  if (validated.copyMode === "copy") {
+    for (const entry of [...matched]) {
+      const prefix = `${entry}/`;
+      for (const candidate of ignored) {
+        if (candidate.startsWith(prefix)) matched.add(candidate);
       }
     }
   }
