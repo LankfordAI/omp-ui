@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { SttModelSnapshot } from "@omp-ui/core/types";
+import type { NotificationCue, SttModelSnapshot } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
+import { playNotificationCue } from "../../lib/notification-cues";
 import { AudioDevicePicker, type AudioDevicesLoad } from "./AudioDevicePicker";
 import { IS_ELECTRON } from "../../lib/platform";
 import {
@@ -12,6 +13,13 @@ import { useStore, type CompactionMethodsLoad } from "../../store";
 import { desktopPaneMedia, displayMessage } from "../../backend";
 import { ChoiceCapsule, Switch } from "../ui";
 import { FIELD, Row } from "./rows";
+
+const NOTIFICATION_CUE_PREVIEWS: ReadonlyArray<{ cue: NotificationCue; label: string }> = [
+  { cue: "turn", label: "Turn done" },
+  { cue: "plan", label: "Plan / Approval" },
+  { cue: "alert", label: "Attention" },
+  { cue: "snooze", label: "Snooze return" },
+];
 
 const SESSION_MODE_OPTIONS = [
   { value: "rpc-ui", label: "Native" },
@@ -314,6 +322,7 @@ export function GeneralPage() {
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
+  const setDesktopNotificationSounds = useStore((s) => s.setDesktopNotificationSounds);
   const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
   const setThemeAgentAccess = useStore((s) => s.setThemeAgentAccess);
   const setIssueAgentAccess = useStore((s) => s.setIssueAgentAccess);
@@ -483,6 +492,28 @@ export function GeneralPage() {
           onChange={(next) => void setDesktopNotifications(next)}
           label="Desktop notifications"
         />
+      </Row>
+      <Row
+        title="Desktop notification sounds"
+        hint="Play a short synthesized cue with each desktop notification — one for a finished turn, one for a plan or approval waiting on you, one for a timed snooze returning, one for anything else that needs attention. On macOS and Windows this replaces the OS chime so you never hear two; on GNOME the cue yields to Do Not Disturb and this app's sound setting. Remote browser clients stay silent. Preview:"
+      >
+        <div className="flex items-center gap-2">
+          {NOTIFICATION_CUE_PREVIEWS.map((preview) => (
+            <button
+              key={preview.cue}
+              type="button"
+              onClick={() => playNotificationCue(preview.cue)}
+              className="rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink-mid transition-colors duration-150 hover:bg-hover/50 hover:text-ink focus-visible:outline-none"
+            >
+              {preview.label}
+            </button>
+          ))}
+          <Switch
+            on={state?.desktopNotificationSounds ?? true}
+            onChange={(next) => void setDesktopNotificationSounds(next)}
+            label="Desktop notification sounds"
+          />
+        </div>
       </Row>
       <Row
         title="Agents can use devices"

@@ -799,6 +799,8 @@ export interface SettingsSlice {
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setStallAutoContinue(on: boolean): Promise<void>;
   setDesktopNotifications(on: boolean): Promise<void>;
+  /** Play a synthesized cue alongside each desktop notification; default on. */
+  setDesktopNotificationSounds(on: boolean): Promise<void>;
   setHtmlArtifactScripts(on: boolean): Promise<void>;
   /** Gives new and resumed sessions the omp-ui_device tool (issue #1006); default off. */
   setDeviceAgentAccess(on: boolean): Promise<void>;

@@ -1623,6 +1623,8 @@ export interface SttModelOption {
   callable: boolean;
 }
 
+export type { NotificationCue } from "./notification-cue";
+
 /** The dictation-model picker's whole payload (issue #647). */
 export interface SttModelSnapshot {
   models: SttModelOption[];

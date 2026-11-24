@@ -637,7 +637,7 @@ describe("RoutineLifecycleManager notifications (#1294)", () => {
     const h = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, { ...DEFAULT_ROUTINE_NOTIFICATIONS, onApproval: true });
     h.frame(approvalFrame("req-1"));
     expect(h.routineNotifications).toEqual([
-      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message" },
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message", cue: "plan" },
     ]);
     h.lifecycle.onSend(TAB, { type: "extension_ui_response", id: "req-1", value: "Approve" });
     expect(h.clearedNotifications).toEqual([TAB]);
@@ -721,7 +721,7 @@ describe("RoutineLifecycleManager notifications (#1294)", () => {
     expect(preApproval.routineNotifications).toHaveLength(0);
     preApproval.bind();
     expect(preApproval.routineNotifications).toEqual([
-      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message" },
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message", cue: "plan" },
     ]);
 
     const preEnd = harness(

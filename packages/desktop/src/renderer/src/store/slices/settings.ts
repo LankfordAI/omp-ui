@@ -216,6 +216,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setDesktopNotificationSounds(on) {
+      try {
+        await backend.setDesktopNotificationSounds(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setHtmlArtifactScripts(on) {
       try {
         await backend.setHtmlArtifactScripts(on);

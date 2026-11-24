@@ -385,6 +385,7 @@ export class RoutineLifecycleManager implements FrameObserver {
       tabId,
       title: state.routineName,
       body: toolName.trim() !== "" ? `Approval needed: ${toolName}` : "Approval needed",
+      cue: "plan",
     });
   }
 

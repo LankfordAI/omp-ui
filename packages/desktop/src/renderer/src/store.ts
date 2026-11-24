@@ -42,6 +42,7 @@ import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createMigrateSlice } from "./store/slices/migrate";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
+import { playNotificationCue } from "./lib/notification-cues";
 import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
@@ -601,6 +602,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // The GPU process died (performance plan Phase 4): one dismissible
       // notice; recovery is relaunch and the card says so.
       backend.onGpuProcessCrashed((detail) => get().noteGpuCrash(detail));
+      // A desktop notification just posted (main process): synthesize its
+      // cue. The channel reaches this window only — remote web clients
+      // never receive it.
+      backend.onNotificationCue((cue) => playNotificationCue(cue));
       // Live-share state (issue #686): the snapshot of every PTY tab as main
       // last saw omp's registry. The channel is local-only — a remote web
       // renderer's bridge rejects it, and the silence is the truth there:
