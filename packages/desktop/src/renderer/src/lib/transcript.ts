@@ -260,12 +260,23 @@ export interface NoticeItem {
    */
   path?: string;
   /**
-   * The omp xdev mount notice collapsed to a count (issue #848): the raw
-   * comma-list of `mcp__…` tool names is dropped; `count` is how many MCP
-   * tools the notice announced. The view renders a View affordance that
-   * opens the CapabilitiesViewer Tools tab instead of the wall.
+   * The pre-19.1 omp xdev mount notice (`xd://: mounted …`) collapsed to a
+   * count (issue #848): the raw comma-list of `mcp__…` tool names is dropped;
+   * `count` is how many MCP tools the notice announced. The view renders a
+   * View affordance that opens the CapabilitiesViewer Tools tab instead of
+   * the wall.
    */
   mcpMount?: { count: number };
+  /**
+   * omp ≥19.1 tool-command mount notice ("Tool commands: added a, b; removed
+   * c", source "toolCommands") collapsed to its `mcp__`-name counts
+   * (issue #1315). The raw name lists are dropped; `added` is the count of
+   * added `mcp__…` names, `removed` only present when the notice carried a
+   * removed segment with ≥1 `mcp__…` name. Unlike `mcpMount` this is a
+   * chronological delta: the view renders it inline and buildRuns never
+   * folds or hoists it.
+   */
+  toolCommandMount?: { added: number; removed?: number };
   /**
    * omp's spend-cap stop notice (`source: "cost-gate"`, level error; issue
    * #952). The view adds a button opening Settings → omp, whose Spend caps
@@ -406,6 +417,39 @@ export function mcpMountCount(text: string): { count: number } | null {
   const names = m[1]!.split(", ").map((s) => s.trim());
   const mcp = names.filter((n) => n.startsWith("mcp__"));
   return mcp.length === 0 ? null : { count: mcp.length };
+}
+
+/**
+ * The omp ≥19.1 tool-command mount notice ("Tool commands: added …; removed
+ * …", source "toolCommands") → its `mcp__`-name counts, or null when the text
+ * is not exactly that shape or carries no `mcp__…` name (issue #1315 —
+ * companion of `mcpMountCount`). Tool identifiers never contain `,` or `; `,
+ * so the split-and-validate parsing is exact; anything else (e.g.
+ * "Tool commands: updated …") misses the regex and stays verbatim. A segment
+ * with zero `mcp__` names still permits a collapse when the other segment has
+ * one, mirroring #848's rule that any ≥1 `mcp__` name collapses the whole list.
+ */
+export function toolCommandMountCounts(
+  text: string,
+): { added: number; removed?: number } | null {
+  const m = /^Tool commands: (added|removed) (.+?)(?:; (added|removed) (.+))?$/.exec(text);
+  if (m === null) return null;
+  // The emitter always words the segments "added …" first, then "removed …";
+  // accept either order defensively, reject anything else.
+  const segs: Array<"added" | "removed"> = [m[1] as "added" | "removed"];
+  if (m[3] !== undefined) segs.push(m[3] as "added" | "removed");
+  if (new Set(segs).size !== segs.length) return null;
+  const lists: Record<"added" | "removed", string[]> = { added: [], removed: [] };
+  for (const [i, kind] of segs.entries()) {
+    const body = (i === 0 ? m[2] : m[4])!;
+    const names = body.split(", ").map((s) => s.trim());
+    if (names.some((n) => n.length === 0)) return null;
+    lists[kind] = names.filter((n) => n.startsWith("mcp__"));
+  }
+  const added = lists.added.length;
+  const removed = segs.includes("removed") ? lists.removed.length : undefined;
+  if (added === 0 && (removed ?? 0) === 0) return null;
+  return removed === undefined || removed === 0 ? { added } : { added, removed };
 }
 
 export function markerItem(label: string, tone?: MarkerItem["tone"], timestamp = Date.now()): MarkerItem {
@@ -1602,17 +1646,22 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
 
     case "notice": {
       const text = str(event.message) ?? str(event.text) ?? str(event.notice) ?? "";
-      // The xdev mount notice's comma-list of tool names is the wall (issue
-      // #848): collapse it to a structured count, text empty by design.
+      // Both mount-notice shapes are walls (issue #848, #1315): the pre-19.1
+      // cumulative `xd://: mounted …` collapses to a count pill (fold + hoist);
+      // the ≥19.1 delta "Tool commands: added …; removed …" collapses to an
+      // inline count pill. Text is empty by design on either hit.
       const mcpMount = mcpMountCount(text);
+      const toolCommandMount = mcpMount === null ? toolCommandMountCounts(text) : null;
+      const collapsed = mcpMount !== null || toolCommandMount !== null;
       const level = NOTICE_LEVELS[str(event.level) ?? ""];
       const source = str(event.source);
       return [
         ...items,
         {
-          ...noticeItem(mcpMount === null ? text : "", level),
+          ...noticeItem(collapsed ? "" : text, level),
           source,
           ...(mcpMount === null ? {} : { mcpMount }),
+          ...(toolCommandMount === null ? {} : { toolCommandMount }),
           ...(source === "cost-gate" && level === "error" ? { costCap: true as const } : {}),
         },
       ];

@@ -666,6 +666,20 @@ function UserBubble({
 
 const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info: "neutral" };
 
+/**
+ * Pill copy for a collapsed omp ≥19.1 tool-command mount delta (issue #1315):
+ * "N MCP tool(s) added to the agent's tools", with a "· N removed" tail when
+ * the batch also unmounted MCP tools; a pure-unmount batch reads as
+ * "N MCP tool(s) removed from the agent's tools".
+ */
+function toolCommandMountCopy(counts: { added: number; removed?: number }): string {
+  const plural = (n: number, verb: string): string =>
+    `${n} MCP tool${n === 1 ? "" : "s"} ${verb} the agent's tools`;
+  if (counts.added === 0 && counts.removed !== undefined) return plural(counts.removed, "removed from");
+  const base = plural(counts.added, "added to");
+  return counts.removed === undefined ? base : `${base} · ${counts.removed} removed`;
+}
+
 function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   const reportError = useStore((s) => s.reportError);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
@@ -678,6 +692,17 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   // link: the text opens the file with the system handler, the folder glyph
   // reveals it in the file manager.
   const path = remote ? undefined : item.path;
+  // Pin the viewer to the session's own working tree (the /mcp
+  // list pattern, session-params.ts): a null scope with a tabId
+  // would read as drift-detached and hide the roster.
+  const openToolsTab = (): void => {
+    const s = useStore.getState();
+    const tab = tabId === undefined ? undefined : s.tabs.find((c) => c.tabId === tabId);
+    const scopeCwd =
+      (tabId !== undefined ? sessionCwd(findRecord(s.state, tabId)) : undefined) ??
+      tab?.projectCwd;
+    openCapabilitiesViewer(scopeCwd ?? null, tabId, "tools", tab?.instanceId ?? null);
+  };
   return (
     <div className="animate-rise flex w-[min(100%,var(--prose-max))] justify-center">
       <div
@@ -692,10 +717,25 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
             and faint when it helps. The collapsed MCP mount notice drops it
             entirely (round-3 judge, Clarity 4): "xdev" explains nothing to a
             reader and the sentence stands without it. */}
-        {item.source && item.mcpMount === undefined && (
+        {item.source && item.mcpMount === undefined && item.toolCommandMount === undefined && (
           <span className="shrink-0 font-mono text-xs text-ink-faint">{item.source}</span>
         )}
-        {item.mcpMount !== undefined ? (
+        {item.toolCommandMount !== undefined ? (
+          // The collapsed omp ≥19.1 tool-command mount delta (issue #1315):
+          // a chronological added/removed batch, rendered inline (never
+          // folded or hoisted like the legacy #848 pill). Same shape as the
+          // mcpMount pill: plain count text, sole underlined control.
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span data-selectable>{toolCommandMountCopy(item.toolCommandMount)}</span>
+            <button
+              type="button"
+              className="shrink-0 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-ink"
+              onClick={openToolsTab}
+            >
+              See which
+            </button>
+          </span>
+        ) : item.mcpMount !== undefined ? (
           // The collapsed xdev mount notice (issue #848): the tool-name wall
           // is one count here; the full roster is the Tools tab of the
           // CapabilitiesViewer, one click away. Round-2 judge: the count reads
@@ -709,18 +749,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
             <button
               type="button"
               className="shrink-0 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-ink"
-              // Pin the viewer to the session's own working tree (the /mcp
-              // list pattern, session-params.ts): a null scope with a tabId
-              // would read as drift-detached and hide the roster.
-              onClick={() => {
-                const s = useStore.getState();
-                const tab =
-                  tabId === undefined ? undefined : s.tabs.find((c) => c.tabId === tabId);
-                const scopeCwd =
-                  (tabId !== undefined ? sessionCwd(findRecord(s.state, tabId)) : undefined) ??
-                  tab?.projectCwd;
-                openCapabilitiesViewer(scopeCwd ?? null, tabId, "tools", tab?.instanceId ?? null);
-              }}
+              onClick={openToolsTab}
             >
               See which
             </button>
