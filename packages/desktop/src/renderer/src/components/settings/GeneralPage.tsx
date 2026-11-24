@@ -308,7 +308,6 @@ export function GeneralPage() {
   const ensureCompactionMethods = useStore((s) => s.ensureCompactionMethods);
   const setDefaultCompactionMethod = useStore((s) => s.setDefaultCompactionMethod);
   const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
-  const setSnoozedSectionEnabled = useStore((s) => s.setSnoozedSectionEnabled);
   const setAutoSettleMergedPullRequests = useStore((s) => s.setAutoSettleMergedPullRequests);
   const setStreamStallAbortSeconds = useStore(
     (s) => s.setStreamStallAbortSeconds,
@@ -439,16 +438,6 @@ export function GeneralPage() {
           options={HIBERNATE_IDLE_OPTIONS}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="tab-label px-2"
-        />
-      </Row>
-      <Row
-        title="Snoozed section in the sidebar"
-        hint="Group snoozed sessions under their own sidebar section. Off by default."
-      >
-        <Switch
-          on={state?.snoozedSectionEnabled === true}
-          onChange={(next) => void setSnoozedSectionEnabled(next)}
-          label="Snoozed section in the sidebar"
         />
       </Row>
       <Row

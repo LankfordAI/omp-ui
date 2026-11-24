@@ -29,6 +29,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: null,
     heldPrompt: null,

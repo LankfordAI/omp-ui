@@ -65,7 +65,6 @@ type SettingsHandlerChannels =
   | typeof CH.setRoutinesEnabled
   | typeof CH.setRoutineSpendDefaults
   | typeof CH.setCouncilEnabled
-  | typeof CH.setSnoozedSectionEnabled
   | typeof CH.setAutoSettleMergedPullRequests
   | typeof CH.setRemoteVsCodeEnabled
   | typeof CH.setVoiceInputEnabled
@@ -201,7 +200,6 @@ export function registerSettingsHandlers(
       if (value) await deps.seedCouncilRoster();
       await commit("councilEnabled", value);
     },
-    [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
     [CH.setAutoSettleMergedPullRequests]: (value: boolean) => commit("autoSettleMergedPullRequests", value),
     [CH.setRemoteVsCodeEnabled]: (value: boolean) => commit("remoteVsCodeEnabled", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),

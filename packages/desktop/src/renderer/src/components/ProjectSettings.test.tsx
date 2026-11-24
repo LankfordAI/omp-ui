@@ -83,6 +83,7 @@ function liveSession(tabId: string): SessionSummary {
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,

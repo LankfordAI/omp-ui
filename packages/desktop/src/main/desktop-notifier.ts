@@ -92,12 +92,13 @@ const COPY = {
   planPendingNoTitle: "Plan review — answer needed",
   stallPaused: "Stall auto-continue paused — send a prompt to re-arm",
   projectRequest: "Project request — answer needed",
-  snoozeReturned: "Snoozed session returned",
+  snoozeReturned: "Snooze ended — click to resume",
 } as const;
 
 export class DesktopNotifier implements Attention {
   private readonly tabs = new Map<string, TabAttention>();
   private readonly routineNotifications = new Map<string, Notification>();
+  private readonly snoozeNotifications = new Map<string, Notification>();
   private warnedUnsupported = false;
   private warnedShowFailure = false;
 
@@ -133,6 +134,7 @@ export class DesktopNotifier implements Attention {
   viewedChanged(tabId: string): void {
     this.drop(tabId);
     this.clearRoutine(tabId);
+    this.clearSnooze(tabId);
   }
 
   sessionExit(tabId: string): void {
@@ -150,6 +152,8 @@ export class DesktopNotifier implements Attention {
     for (const tabId of [...this.tabs.keys()]) this.drop(tabId);
     for (const notification of this.routineNotifications.values()) notification.close();
     this.routineNotifications.clear();
+    for (const notification of this.snoozeNotifications.values()) notification.close();
+    this.snoozeNotifications.clear();
   }
 
   // --- routine lifecycle notifications (#1294) ---------------------------
@@ -217,58 +221,77 @@ export class DesktopNotifier implements Attention {
     this.routineNotifications.delete(tabId);
   }
 
-  // --- snooze return (#979) ----------------------------------------------
+  // --- snooze return (#979, #1323) ---------------------------------------
+
+  /** Closes any active snooze-reminder banner for `tabId` (viewed, unsnoozed, re-snoozed, settled). */
+  clearSnooze(tabId: string): void {
+    const prev = this.snoozeNotifications.get(tabId);
+    if (prev === undefined) return;
+    prev.close();
+    this.snoozeNotifications.delete(tabId);
+  }
 
   /**
    * Timed snoozes whose deadline passed under a live timer (never startup
-   * catch-up): one banner for the wake. A single session names itself;
-   * simultaneous wakes coalesce into one count banner focused on the first
-   * tab. The clock clears the rows before calling, so this posts directly —
-   * the attention pipeline's delays and re-gates do not apply.
+   * catch-up): skipped when the desktop window is focused (the user is already
+   * looking at the Attention stack). 1–2 due sessions post one banner per
+   * session; 3+ coalesce into one count banner that focuses the app window.
    */
   notifySnoozeReturn(tabIds: readonly string[]): void {
     if (tabIds.length === 0 || !this.enabled()) return;
     const win = this.deps.win;
-    if (
-      tabIds.length === 1 &&
-      !win.isDestroyed() &&
-      win.isFocused() &&
-      this.deps.isViewedByDesktop(tabIds[0]!)
-    ) {
-      return;
-    }
-    const first = tabIds[0]!;
-    const single = tabIds.length === 1;
-    let notification: Notification;
-    try {
-      const icon = this.deps.icon();
-      notification = new Notification({
-        title: single ? this.deps.titleOf(first) : "omp-ui",
-        body: single ? COPY.snoozeReturned : `${tabIds.length} snoozed sessions returned`,
-        ...(icon !== null ? { icon } : {}),
-        silent: this.deps.isSoundsEnabled(),
+    if (!win.isDestroyed() && win.isFocused()) return;
+    const postOne = (key: string, title: string, body: string, focusTabId: string | null): boolean => {
+      const prev = this.snoozeNotifications.get(key);
+      if (prev !== undefined) {
+        prev.close();
+        this.snoozeNotifications.delete(key);
+      }
+      let notification: Notification;
+      try {
+        const icon = this.deps.icon();
+        notification = new Notification({
+          title,
+          body,
+          ...(icon !== null ? { icon } : {}),
+          silent: this.deps.isSoundsEnabled(),
+        });
+      } catch (err) {
+        if (!this.warnedShowFailure) {
+          this.warnedShowFailure = true;
+          console.warn("[notifier] could not create notification:", err);
+        }
+        return false;
+      }
+      notification.on("click", () => {
+        if (focusTabId !== null) this.focusSession(focusTabId);
+        else this.focusWindow();
       });
-    } catch (err) {
-      if (!this.warnedShowFailure) {
-        this.warnedShowFailure = true;
-        console.warn("[notifier] could not create notification:", err);
+      if (focusTabId !== null) this.clearRoutine(focusTabId);
+      try {
+        notification.show();
+      } catch (err) {
+        if (!this.warnedShowFailure) {
+          this.warnedShowFailure = true;
+          console.warn("[notifier] could not show notification:", err);
+        }
+        return false;
       }
-      return;
-    }
-    notification.on("click", () => this.focusSession(first));
-    for (const tabId of tabIds) this.clearRoutine(tabId);
-    try {
-      notification.show();
-    } catch (err) {
-      if (!this.warnedShowFailure) {
-        this.warnedShowFailure = true;
-        console.warn("[notifier] could not show notification:", err);
-      }
-      return;
-    }
-    this.playCue("snooze");
-  }
+      this.snoozeNotifications.set(key, notification);
+      return true;
+    };
 
+    let posted = false;
+    if (tabIds.length <= 2) {
+      for (const tabId of tabIds) {
+        if (postOne(tabId, this.deps.titleOf(tabId), COPY.snoozeReturned, tabId)) posted = true;
+      }
+    } else {
+      for (const tabId of tabIds) this.clearRoutine(tabId);
+      posted = postOne("batch", "omp-ui", `${tabIds.length} snoozed sessions are due`, null);
+    }
+    if (posted) this.playCue("snooze");
+  }
   // --- direct post (host tool, issue #688) -------------------------------
 
   /**
@@ -389,9 +412,15 @@ export class DesktopNotifier implements Attention {
   /** Settings switch plus platform support, re-read at post time. */
   private enabled(): boolean {
     if (!this.deps.isEnabled()) return false;
-    // Main-process tests may mock electron without Notification; treat a
-    // missing class like an unsupported platform instead of throwing.
-    if (typeof Notification !== "function" || !Notification.isSupported()) {
+    // Main-process tests may mock electron without Notification; Vitest throws
+    // on accessing an unexported key on a partial module mock, so guard it.
+    let supported: boolean;
+    try {
+      supported = typeof Notification === "function" && Notification.isSupported();
+    } catch {
+      supported = false;
+    }
+    if (!supported) {
       if (!this.warnedUnsupported) {
         this.warnedUnsupported = true;
         console.warn("[notifier] desktop notifications unsupported on this platform");
@@ -478,15 +507,20 @@ export class DesktopNotifier implements Attention {
    * macOS-hidden) and fan the focus event to every renderer; each resurfaces
    * (or resumes) the tab through the ordinary openSession path.
    */
-  private focusSession(tabId: string): void {
+  private focusWindow(): void {
     const win = this.deps.win;
     if (win.isDestroyed()) return;
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-    this.deps.send(CH.onFocusSession, tabId);
   }
 
+  private focusSession(tabId: string): void {
+    const win = this.deps.win;
+    if (win.isDestroyed()) return;
+    this.focusWindow();
+    this.deps.send(CH.onFocusSession, tabId);
+  }
   private focusRoutine(routineId: string): void {
     const win = this.deps.win;
     if (win.isDestroyed()) return;

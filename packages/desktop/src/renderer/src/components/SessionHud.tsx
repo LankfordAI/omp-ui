@@ -1026,7 +1026,7 @@ function TitleMenu({
   // Settle (#980, #1005): any live session; a running turn confirms first.
   const settleable = useStore((s) => {
     const rec = findRecord(s.state, tabId);
-    return rec !== undefined && canSettle(rec, s.state?.snoozedSectionEnabled === true);
+    return rec !== undefined && canSettle(rec);
   });
   // Settle on merge (issue #985): only worktree sessions link pull requests.
   // The record's override wins; null follows Settings → General.

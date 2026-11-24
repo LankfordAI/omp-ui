@@ -21,15 +21,12 @@ export type SettleSlice = Pick<
 >;
 
 /**
- * Whether a session can be settled now (issues #980, #1005, #1137). Every live
- * or unsettled dormant session can: a running turn only adds a confirmation
- * (see settleSessions). A snoozed row can always settle — it leaves Snoozed
- * for Settled — but only while the Snoozed section is on.
+ * Whether a session can be settled now (issues #980, #1005, #1137, #1323).
+ * Every live, unsettled dormant, or snoozed session can settle — a running
+ * turn only adds a confirmation (see settleSessions).
  */
-export function canSettle(s: SessionSummary, snoozedSectionEnabled: boolean): boolean {
-  if (s.live === "live") return true;
-  if (!isSessionSettled(s)) return true;
-  return snoozedSectionEnabled && s.snoozed === true;
+export function canSettle(s: SessionSummary): boolean {
+  return s.live === "live" || !isSessionSettled(s) || s.snoozed === true;
 }
 
 /** A live session inside a turn: the host latch, or this renderer's own running turn. */
@@ -47,13 +44,12 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
 
     async settleSessions(tabIds, opts) {
       const s0 = get();
-      const snoozedOn = s0.state?.snoozedSectionEnabled === true;
       const targets: SettleUndoEntry["sessions"] = [];
       const runningTitles: string[] = [];
       for (const tabId of tabIds) {
         const rec = findRecord(s0.state, tabId);
         if (rec === undefined || inFlight.has(tabId)) continue;
-        if (!canSettle(rec, snoozedOn)) continue;
+        if (!canSettle(rec)) continue;
         if (interruptsTurn(rec, s0.rpc[tabId]?.status === "running")) runningTitles.push(rec.title);
         targets.push({
           tabId,
@@ -125,6 +121,10 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
           if (rec === undefined || rec.live === "live") continue;
           if (target.snoozed && rec.snoozed !== true) {
             await s.setSessionSnoozed(target.tabId, true, target.snoozedUntilMs);
+            // A snoozed row is parked dormant (#1323): restoring the snooze
+            // already clears settledAtMs on the host, so skip spawning a
+            // process that would immediately park again.
+            continue;
           }
           if (!target.wasLive) {
             if (rec.settledAtMs !== null) {

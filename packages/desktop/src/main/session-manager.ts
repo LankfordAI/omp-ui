@@ -393,6 +393,8 @@ export interface SessionManagerDependencies {
   attention?: Attention;
   /** Lifecycle breadcrumbs (issue #413); absent = no recording. */
   breadcrumb?: BreadcrumbSink;
+  /** Notifies the host that a session's snooze/reminder cleared via resume/prompt/view (#1323). */
+  onSnoozeCleared?: (tabId: string) => void;
   /**
    * The main-owned plan verifier service (issue #312 follow-up). Absent (or
    * in unit tests) answers every verification `unavailable` — a proposal is
@@ -591,9 +593,8 @@ export class SessionManager {
       getLive: (tabId) => this.live.get(tabId),
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
       isViewed: (tabId) => this.viewTracker.isViewed(tabId),
-      hibernate: (tabId, entry) => this.hibernate(tabId, entry),
+      hibernate: (tabId, entry, intent) => this.hibernate(tabId, entry, intent),
       runSerialized: (tabId, work) => this.enqueueOp(tabId, "hibernate", work),
-      /** An active goal, a live continuation, or a running worker keeps the child's loop alive (#381, #683). */
       preventsHibernation: (tabId) =>
         this.goals.preventsHibernation(tabId) || this.vibes.preventsHibernation(tabId),
     });
@@ -1387,6 +1388,7 @@ export class SessionManager {
           autoTitled: false,
           snoozed: false,
           snoozedUntilMs: null,
+          reminderAtMs: null,
           pinnedAtMs: null,
           routine: req.fleet?.routine
             ? {
@@ -1421,8 +1423,12 @@ export class SessionManager {
       const mode = req.origin === "resume" ? (req.mode ?? record.mode) : req.mode;
       if (req.origin === "resume") {
         const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+        const clearedSnooze = record.snoozed || record.snoozedUntilMs !== null || record.reminderAtMs !== null;
         if (record.mode !== mode) patch.mode = mode;
         if (record.settledAtMs !== null) patch.settledAtMs = null;
+        if (record.snoozed) patch.snoozed = false;
+        if (record.snoozedUntilMs !== null) patch.snoozedUntilMs = null;
+        if (record.reminderAtMs !== null) patch.reminderAtMs = null;
         if (req.advisor !== undefined && req.advisor !== record.advisor) {
           patch.advisor = req.advisor;
         }
@@ -1437,6 +1443,7 @@ export class SessionManager {
         if (Object.keys(patch).length > 0) {
           record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
         }
+        if (clearedSnooze) this.deps.onSnoozeCleared?.(record.tabId);
       }
       // The #824 carryover seed: only a native resume whose record never
       // materialized a session id carries one. A real resume target already
@@ -3342,6 +3349,14 @@ export class SessionManager {
     const prev = this.viewTracker.setViewedTab(clientId, tabId);
     this.browserPanes.noteViewed(clientId, tabId);
     this.routineLifecycle?.noteViewedChanged?.(prev, tabId);
+    if (tabId !== null) {
+      const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (rec && rec.reminderAtMs !== null) {
+        this.deps.registry.updateSession(tabId, { reminderAtMs: null });
+        this.deps.onSnoozeCleared?.(tabId);
+        void this.deps.broadcast();
+      }
+    }
   }
 
   noteDesktopClientId(clientId: string): void {
@@ -3493,6 +3508,11 @@ export class SessionManager {
    * Settle also kills the tab's drawer shell, as the removed terminate did:
    * a settled tab keeps no process.
    */
+  /** Requests snooze-park hibernation for a live native session (#1323). */
+  requestSnoozePark(tabId: string): void {
+    this.hibernation.requestSnoozePark(tabId);
+  }
+
   async settleSession(tabId: string): Promise<boolean> {
     this.killShell(tabId);
     // Captured before the chain runs: if a resume replaces the process while
@@ -3504,7 +3524,7 @@ export class SessionManager {
       (await this.enqueueOp(tabId, "settle", async () => {
         const current = this.live.get(tabId);
         if (current !== captured) return current === undefined;
-        if (current.kind === "rpc-ui") return this.hibernate(tabId, current);
+        if (current.kind === "rpc-ui") return this.hibernate(tabId, current, "settle");
         // PTY: the terminate-style reap minus its own enqueueOp (we already hold the chain).
         this.deps.breadcrumb?.record("session-terminate", { tabId });
         await this.escalateOnTerminate(tabId, current);
@@ -3512,19 +3532,27 @@ export class SessionManager {
       }));
     if (settled) {
       const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-      if (rec && (rec.settledAtMs === null || rec.snoozed === true)) {
+      if (rec && (rec.settledAtMs === null || rec.snoozed === true || rec.reminderAtMs !== null)) {
+        const clearedSnooze = rec.snoozed || rec.snoozedUntilMs !== null || rec.reminderAtMs !== null;
         this.deps.registry.updateSession(tabId, {
           settledAtMs: rec.settledAtMs ?? Date.now(),
           snoozed: false,
           snoozedUntilMs: null,
+          reminderAtMs: null,
         });
+        if (clearedSnooze) this.deps.onSnoozeCleared?.(tabId);
         void this.deps.broadcast();
       }
     }
     return settled;
   }
 
-  private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {
+  private async hibernate(
+    tabId: string,
+    entry: LiveEntry,
+    intent: "settle" | "park" = "settle",
+  ): Promise<boolean> {
+    if (intent === "park") this.killShell(tabId);
     entry.suppressExit = true;
     if (await this.reapWithEscalation(entry)) {
       // The page goes with the process; the last URL is what a resume restores.
@@ -3532,9 +3560,14 @@ export class SessionManager {
       this.devicePanes.dispose(tabId);
       this.deps.send(CH.onSessionHibernated, tabId);
       this.deps.breadcrumb?.record("session-hibernate", { tabId });
-      const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-      if (rec && rec.settledAtMs === null) {
-        this.deps.registry.updateSession(tabId, { settledAtMs: Date.now() });
+      if (intent === "settle") {
+        const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+        if (rec && (rec.settledAtMs === null || rec.reminderAtMs !== null)) {
+          this.deps.registry.updateSession(tabId, {
+            settledAtMs: rec.settledAtMs ?? Date.now(),
+            reminderAtMs: null,
+          });
+        }
       }
       void this.deps.broadcast();
       return this.live.get(tabId) !== entry;
@@ -3543,7 +3576,6 @@ export class SessionManager {
     console.warn(`[sessions] ${tabId}: hibernation kill ignored by child; leaving it live`);
     return false;
   }
-
   private refuseArtifactPrompt(tabId: string, cmd: RpcFrame, error: unknown): void {
     const frame: RpcFrame = {type: "response", id: cmd.id, command: cmd.type, success: false,
       error: error instanceof Error ? error.message : String(error)};
@@ -3596,15 +3628,27 @@ export class SessionManager {
     const entry = this.live.get(tabId);
     if (!entry) return;
     switch (entry.kind) {
-      case "rpc-ui":
+      case "rpc-ui": {
         if (entry.modelHold !== null && this.holdModelCommand(tabId, entry, cmd)) return;
         if (entry.rpc === null) return;
+        const isTurnCommand =
+          MODEL_HOLD_COMMANDS.has(String(cmd.type)) &&
+          !(typeof cmd.message === "string" && cmd.message.startsWith("/omp-ui-"));
         if (MODEL_HOLD_COMMANDS.has(String(cmd.type)) && typeof cmd.message === "string") {
           try { this.admitArtifactPrompt(tabId, cmd.message); }
           catch (error) { this.refuseArtifactPrompt(tabId, cmd, error); return; }
         }
+        if (isTurnCommand) {
+          const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+          if (rec && (rec.snoozed || rec.snoozedUntilMs !== null || rec.reminderAtMs !== null)) {
+            this.deps.registry.updateSession(tabId, { snoozed: false, snoozedUntilMs: null, reminderAtMs: null });
+            this.deps.onSnoozeCleared?.(tabId);
+            void this.deps.broadcast();
+          }
+        }
         entry.rpc.send(cmd);
         return;
+      }
       case "pty":
         return;
       default:
@@ -3891,6 +3935,7 @@ export class SessionManager {
       routine: null,
       snoozed: false,
       snoozedUntilMs: null,
+      reminderAtMs: null,
       pinnedAtMs: null,
       settledAtMs: null,
       heldPrompt: null,

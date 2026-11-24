@@ -165,6 +165,7 @@ export function sanitizeWarmTemplate(record: OwnedSessionRecord): OwnedSessionRe
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: null,
     heldPrompt: null,

@@ -41,6 +41,7 @@ import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
+import { isSessionSettled } from "../../lib/sidebar-sessions";
 import {
   dropExited,
   dropHibernated,
@@ -286,6 +287,34 @@ export function createLifecycleSlice(
     // A settled/hibernated session holds no unread mark (CONTEXT.md Attention
     // stack, #1305); clear it here so stale marks do not linger in localStorage.
     if (hibernated) get().clearUnread(tabId);
+    // A snooze-parked session whose transcript is already on disk drops its
+    // mounted tab + transcript state so multi-day parked tickets hold no DOM
+    // or renderer memory; focus releases to the home screen without hopping
+    // to another tab (#1323).
+    const snoozeRec = hibernated ? findRecord(get().state, tabId) : undefined;
+    if (hibernated && snoozeRec?.snoozed === true && snoozeRec.sessionId !== null) {
+      set((s) => {
+        const rpc = { ...s.rpc };
+        delete rpc[tabId];
+        const collab = s.collab[tabId] === undefined ? s.collab : (() => {
+          const next = { ...s.collab };
+          delete next[tabId];
+          return next;
+        })();
+        return {
+          rpc,
+          tabs: s.tabs.filter((t) => t.tabId !== tabId),
+          activeTabId: s.activeTabId === tabId ? null : s.activeTabId,
+          exited: dropExited(s.exited, tabId),
+          liveVoice: dropLiveVoiceBadge(s.liveVoice, tabId),
+          hibernated: dropHibernated(s.hibernated, tabId),
+          tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
+          collab,
+          ...(s.shareLiveTab === tabId ? { shareLiveTab: null } : {}),
+        };
+      });
+      return;
+    }
     set((s) => {
       // The stall field must clear even when no tool cards were running
       // — a pure-text stall settles to `settled === before.items`.
@@ -1507,6 +1536,19 @@ export function createLifecycleSlice(
     if (opts.activate !== false) get().clearUnread(tabId);
     const existing = get().tabs.find((t) => t.tabId === tabId);
     if (existing) {
+      const rec = findRecord(get().state, tabId);
+      // Safety net (#1323): a still-mounted unsettled hibernated tab (e.g.
+      // unmaterialized sessionId === null or a state/event race on snooze-park)
+      // resumes seamlessly in one click without flashing the Settled overlay.
+      if (
+        get().exited[tabId] !== undefined &&
+        get().hibernated[tabId] === true &&
+        rec !== undefined &&
+        !isSessionSettled(rec)
+      ) {
+        await resumeDead(tabId, { forkCheck: opts.forkCheck });
+        return;
+      }
       // Live session → resurface its tab, never respawn (omp has no
       // cross-process session lock; two writers would corrupt the .jsonl).
       set((s) => ({

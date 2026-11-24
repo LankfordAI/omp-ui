@@ -3,7 +3,7 @@ import type { OwnedSessionRecord } from "@omp-ui/core";
 import { SnoozeClock } from "./snooze-clock";
 
 function snoozed(tabId: string, untilMs: number | null): OwnedSessionRecord {
-  return { tabId, snoozed: true, snoozedUntilMs: untilMs } as OwnedSessionRecord;
+  return { tabId, snoozed: true, snoozedUntilMs: untilMs, reminderAtMs: null } as OwnedSessionRecord;
 }
 
 function setup(sessions: OwnedSessionRecord[]) {
@@ -12,12 +12,13 @@ function setup(sessions: OwnedSessionRecord[]) {
   let broadcasts = 0;
   const clock = new SnoozeClock({
     sessions: () => sessions,
-    updateSession: (tabId) => {
+    updateSession: (tabId, patch) => {
       cleared.push(tabId);
       const s = sessions.find((r) => r.tabId === tabId);
       if (s !== undefined) {
-        s.snoozed = false;
-        s.snoozedUntilMs = null;
+        s.snoozed = patch.snoozed;
+        s.snoozedUntilMs = patch.snoozedUntilMs;
+        s.reminderAtMs = patch.reminderAtMs;
       }
     },
     broadcast: () => {
@@ -54,7 +55,7 @@ describe("SnoozeClock wake notification", () => {
     expect(h.wakes).toEqual([]);
   });
 
-  it("notifies once when a live timer's deadline passes", () => {
+  it("notifies once and stamps reminderAtMs when a live timer's deadline passes", () => {
     const now = Date.now();
     const h = setup([snoozed("a", now + 10_000)]);
     h.clock.sync();
@@ -63,8 +64,8 @@ describe("SnoozeClock wake notification", () => {
     vi.advanceTimersByTime(10_001);
     expect(h.cleared).toEqual(["a"]);
     expect(h.wakes).toEqual([["a"]]);
+    expect(h.sessions[0]!.reminderAtMs).toBe(now + 10_000);
   });
-
   it("coalesces a simultaneous multi-wake into one callback", () => {
     const now = Date.now();
     const h = setup([snoozed("a", now + 10_000), snoozed("b", now + 10_000), snoozed("c", now + 40_000)]);

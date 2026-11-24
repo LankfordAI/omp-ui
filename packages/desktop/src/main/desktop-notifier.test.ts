@@ -495,7 +495,7 @@ describe("DesktopNotifier", () => {
       expect(state.instances).toHaveLength(1);
       expect(state.instances[0]!.options).toEqual({
         title: "My session",
-        body: "Snoozed session returned",
+        body: "Snooze ended — click to resume",
         icon: "/icons/app.png",
         silent: true,
       });
@@ -503,35 +503,38 @@ describe("DesktopNotifier", () => {
       state.instances[0]!.clickHandlers[0]!();
       expect(win.focuses).toBe(1);
       expect(sent).toEqual([{ channel: CH.onFocusSession, args: [TAB] }]);
+      // viewedChanged dismisses the tracked snooze banner.
+      notifier.viewedChanged(TAB);
+      expect(state.instances[0]!.closed).toBe(1);
     });
 
-    it("coalesces a multi-wake into one count banner that focuses the first tab and cues once", () => {
-      const { notifier, sent, cues } = setup();
+    it("posts per-session banners for 2 due sessions and coalesces 3+ into one count banner", () => {
+      const { notifier, win, sent, cues } = setup();
+      notifier.notifySnoozeReturn(["tab-a", "tab-b"]);
+      expect(state.instances).toHaveLength(2);
+      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
+
       notifier.notifySnoozeReturn(["tab-a", "tab-b", "tab-c"]);
-      expect(state.instances).toHaveLength(1);
-      expect(state.instances[0]!.options).toEqual({
+      expect(state.instances).toHaveLength(3);
+      expect(state.instances[2]!.options).toEqual({
         title: "omp-ui",
-        body: "3 snoozed sessions returned",
+        body: "3 snoozed sessions are due",
         icon: "/icons/app.png",
         silent: true,
       });
-      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
-      state.instances[0]!.clickHandlers[0]!();
-      expect(sent).toEqual([{ channel: CH.onFocusSession, args: ["tab-a"] }]);
+      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`, `${CH.onNotificationCue}:snooze`]);
+      state.instances[2]!.clickHandlers[0]!();
+      expect(win.focuses).toBe(1);
+      expect(sent).toEqual([]);
     });
 
-    it("suppresses a single wake the focused window is already viewing, but never a coalesced one", () => {
-      const { notifier, win, flags, cues } = setup();
+    it("suppresses snooze banners when the desktop window is focused", () => {
+      const { notifier, win, cues } = setup();
       win.focused = true;
-      flags.viewedTab = TAB;
       notifier.notifySnoozeReturn([TAB]);
+      notifier.notifySnoozeReturn([TAB, "tab-b", "tab-c"]);
       expect(state.instances).toHaveLength(0);
       expect(cues).toEqual([]);
-
-      // A multi-wake still posts even with the first tab in view.
-      notifier.notifySnoozeReturn([TAB, "tab-b"]);
-      expect(state.instances).toHaveLength(1);
-      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
     });
 
     it("honors the master switch, the empty wake list, and sounds-off silent semantics", () => {
@@ -559,7 +562,6 @@ describe("DesktopNotifier", () => {
       expect(cues).toEqual([]);
     });
   });
-
   describe("routine notifications (#1294)", () => {
     it("suppresses generic turnEnded on routine tabs", async () => {
       const { notifier } = setup((tabId) => tabId === TAB);
