@@ -67,6 +67,7 @@ const TOP_LEVEL = new Set([
   "omp-ui-themes.json",
   "omp-ui-themes.v2.json",
   "omp-ui-themes.v3.json",
+  ".gitignore",
   ".gitattributes",
   "tools/omp-ui-theme-tool.mjs",
 ]);

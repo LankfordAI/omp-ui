@@ -41,7 +41,7 @@ function repo(patch: Record<string, string | Uint8Array | null> = {}): Map<strin
 
 describe("checkThemeRepository", () => {
   it("reports no errors for a valid repository", () => {
-    const report = checkThemeRepository(repo());
+    const report = checkThemeRepository(repo({ ".gitignore": "node_modules/\n", "omp-ui-themes.v3.json": "{}" }));
     expect(report.errors).toEqual([]);
     expect(report.themes.map((t) => [t.path, t.backdrop])).toEqual([
       ["themes/dusk.json", "scene"],
