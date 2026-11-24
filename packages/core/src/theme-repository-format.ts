@@ -2,7 +2,7 @@
 // index a repository publishes, and the shapes Browse and Install carry. Pure —
 // the renderer validates input and previews listings with it.
 import { isObject } from "./guards";
-import type { ThemeBackdropImageMime, ThemeBackdropSceneMime } from "./theme-backdrop";
+import { BACKDROP_VIDEO_BYTES_MAX, type ThemeBackdropKind, type ThemeBackdropMime } from "./theme-backdrop";
 import { GIT_SHA, OFFICIAL_THEME_REPOSITORY, THEME_REPOSITORY_ID, isRepositoryThemePath } from "./theme-origin";
 import { isThemeSeeds, type ThemeSeeds } from "./theme-seeds";
 import { stripJsonc } from "./vscode-theme";
@@ -13,22 +13,29 @@ export const THEME_INDEX_FORMAT = "omp-ui-theme-index";
 export const THEME_INDEX_VERSION = 1;
 export const THEME_INDEX_BYTES_MAX = 64 * 1024;
 export const THEME_INDEX_ENTRIES_MAX = 48;
-/** Index v2 (#1210): read when the repository tree has it; lenient on unknown and optional fields. */
+/** Index v2 (#1210): read when the repository tree has it (and no v3); lenient on unknown and optional fields. */
 export const THEME_INDEX_V2_FILE = "omp-ui-themes.v2.json";
 export const THEME_INDEX_V2_VERSION = 2;
 export const THEME_INDEX_V2_BYTES_MAX = 512 * 1024;
 export const THEME_INDEX_V2_ENTRIES_MAX = 500;
+/** Index v3 (#1320): preferred when the repository tree has it; adds video backdrops alongside image and scene. */
+export const THEME_INDEX_V3_FILE = "omp-ui-themes.v3.json";
+export const THEME_INDEX_V3_VERSION = 3;
+export const THEME_INDEX_V3_BYTES_MAX = 512 * 1024;
+export const THEME_INDEX_V3_ENTRIES_MAX = 500;
 export const THEME_TAGS_MAX = 6;
 export const THEME_TAG_CHARS_MAX = 24;
 export const THEME_DESCRIPTION_MAX = 160;
 export const THEME_SLUG_CHARS_MAX = 64;
-/** Theme backdrops accepted by GitHub theme repositories (image and SVG scene only). */
-export type RepositoryBackdropKind = "image" | "scene";
-export type RepositoryBackdropMime = ThemeBackdropImageMime | ThemeBackdropSceneMime;
-/** Maximum theme file size in a GitHub theme repository (6 MiB; image/SVG backdrops only). */
-export const REPOSITORY_THEME_FILE_BYTES_MAX = 6 * 1024 * 1024;
+/** Theme backdrops accepted by GitHub theme repositories (image, SVG scene, and video in v3). */
+export type RepositoryBackdropKind = ThemeBackdropKind;
+export type RepositoryBackdropMime = ThemeBackdropMime;
+/** Maximum theme file size in a GitHub theme repository (24 MiB; accommodates 16 MiB video backdrops as base64). */
+export const REPOSITORY_THEME_FILE_BYTES_MAX = 24 * 1024 * 1024;
 /** Image backdrops the official repository accepts; tighter than the app's 4 MiB. The tool and the Share panel both read it. */
 export const REPOSITORY_IMAGE_BYTES_MAX = 1024 * 1024;
+/** Video backdrops the official repository accepts (16 MiB decoded). The tool and the Share panel both read it. */
+export const REPOSITORY_VIDEO_BYTES_MAX = BACKDROP_VIDEO_BYTES_MAX;
 /**
  * The official theme repository's tag vocabulary (its tags.json), offered by the
  * Share panel (#1212). The repository's CI is authoritative; keep this in step.
@@ -223,10 +230,11 @@ function parseIndexRoot(
   return { ok: true, root: parsed };
 }
 
-/** The four required fields, checked identically by v1 and v2; null when any is invalid or the path repeats. */
+/** The four required fields, checked identically by v1, v2 and v3; null when any is invalid or the path repeats. */
 function requiredEntryFields(
   entry: Record<string, unknown>,
   paths: ReadonlySet<string>,
+  allowVideo: boolean,
 ): Omit<ThemeIndexEntry, "meta"> | null {
   const { path, label, seeds, backdrop } = entry;
   if (!isRepositoryThemePath(path) || paths.has(path)) return null;
@@ -234,14 +242,17 @@ function requiredEntryFields(
   const trimmed = label.trim();
   if (trimmed.length < 1 || trimmed.length > LABEL_MAX) return null;
   if (!isThemeSeeds(seeds)) return null;
-  if (backdrop !== "image" && backdrop !== "scene" && backdrop !== null) return null;
+  if (backdrop !== "image" && backdrop !== "scene" && backdrop !== null && !(allowVideo && backdrop === "video")) {
+    return null;
+  }
   return { path, label: trimmed, seeds, backdrop };
 }
 
-/** Strict (v1): exact entry keys and no meta. Lenient (v2): unknown keys ignored, meta parsed. */
+/** Strict (v1): exact entry keys and no meta. Lenient (v2/v3): unknown keys ignored, meta parsed. */
 function parseEntries(
   themes: readonly unknown[],
   strict: boolean,
+  allowVideo: boolean,
 ): { ok: true; entries: ThemeIndexEntry[] } | { ok: false; message: string } {
   const entries: ThemeIndexEntry[] = [];
   const paths = new Set<string>();
@@ -249,7 +260,7 @@ function parseEntries(
     const invalid = { ok: false, message: `theme index entry ${i + 1} is invalid` } as const;
     if (!isObject(entry) || Array.isArray(entry)) return invalid;
     if (strict && !hasExactKeys(entry, ENTRY_KEYS)) return invalid;
-    const fields = requiredEntryFields(entry, paths);
+    const fields = requiredEntryFields(entry, paths, allowVideo);
     if (fields === null) return invalid;
     paths.add(fields.path);
     entries.push({ ...fields, meta: strict ? EMPTY_THEME_META : parseThemeMeta(entry) });
@@ -265,7 +276,7 @@ export function parseThemeIndex(
   if (!hasExactKeys(head.root, INDEX_KEYS)) return MALFORMED;
   const themes = head.root.themes;
   if (!Array.isArray(themes) || themes.length > THEME_INDEX_ENTRIES_MAX) return MALFORMED;
-  return parseEntries(themes, true);
+  return parseEntries(themes, true, false);
 }
 
 /** Index v2 (#1210): unknown root and entry keys are ignored; optional fields fall back to their defaults. */
@@ -276,7 +287,18 @@ export function parseThemeIndexV2(
   if (!head.ok) return head;
   const themes = head.root.themes;
   if (!Array.isArray(themes) || themes.length > THEME_INDEX_V2_ENTRIES_MAX) return MALFORMED;
-  return parseEntries(themes, false);
+  return parseEntries(themes, false, false);
+}
+
+/** Index v3 (#1320): same lenient metadata rules as v2, plus `backdrop: "video"`. */
+export function parseThemeIndexV3(
+  text: string,
+): { ok: true; entries: ThemeIndexEntry[] } | { ok: false; message: string } {
+  const head = parseIndexRoot(text, THEME_INDEX_V3_VERSION);
+  if (!head.ok) return head;
+  const themes = head.root.themes;
+  if (!Array.isArray(themes) || themes.length > THEME_INDEX_V3_ENTRIES_MAX) return MALFORMED;
+  return parseEntries(themes, false, true);
 }
 
 /** The file a contributor writes next to a theme file in a theme repository (#1210). */

@@ -294,6 +294,42 @@ describe("ThemeRepositoryService (#1178)", () => {
     expect(registry.getSetting("themeRepositories")).toEqual([]);
     expect(registry.getSetting("storedThemes")).toHaveLength(1);
   });
+
+  it("browses v3, previews video backdrops without storing, and installs with motion off", async () => {
+    const mp4 = Buffer.from([
+      0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+    ]).toString("base64");
+    const videoTheme = JSON.stringify({
+      format: "omp-ui-theme",
+      version: 1,
+      label: "Motion",
+      seeds: { canvas: "#101820" },
+      backdrop: { mime: "video/mp4", data: mp4, blur: 6 },
+    });
+    const v3Index = JSON.stringify({
+      format: "omp-ui-theme-index",
+      version: 3,
+      themes: [{ path: "themes/motion.json", label: "Motion", seeds: { canvas: "#101820" }, backdrop: "video" }],
+    });
+    const { registry, service, github } = setup();
+    github.commits.set(C1, {
+      files: { "omp-ui-themes.v3.json": v3Index, "themes/motion.json": videoTheme },
+    });
+    await service.add(REPO);
+    const listed = await service.browse(REPO, false);
+    expect(listed.ok && listed.listing.themes.map((t) => [t.path, t.backdrop])).toEqual([
+      ["themes/motion.json", "video"],
+    ]);
+    const preview = await service.previewBackdrop({ repository: REPO, commit: C1, path: "themes/motion.json" });
+    expect(preview).toEqual({ ok: true, backdrop: { mime: "video/mp4", data: mp4, blur: 6 } });
+    expect(registry.getSetting("storedThemes")).toEqual([]);
+    const installed = await service.install({ repository: REPO, commit: C1, path: "themes/motion.json" });
+    expect(installed.ok).toBe(true);
+    const stored = registry.getSetting("storedThemes");
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.backdrop?.kind).toBe("video");
+    expect(stored[0]?.origin).toMatchObject({ repository: REPO, path: "themes/motion.json", commit: C1, animate: false });
+  });
 });
 
 describe("ThemeRepositoryService official repository (#1209)", () => {

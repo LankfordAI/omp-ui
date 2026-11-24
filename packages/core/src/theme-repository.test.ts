@@ -223,12 +223,55 @@ describe("fetchThemeRepositoryListing", () => {
     });
   });
 
-  it("counts entries missing from the tree or over 6 MiB as skipped", async () => {
+  it("prefers the v3 index over v2 and v1, supporting video entries", async () => {
+    const v2 = JSON.stringify({
+      format: "omp-ui-theme-index",
+      version: 2,
+      themes: [{ ...INDEX_ENTRY, tags: ["cool"] }],
+    });
+    const v3 = JSON.stringify({
+      format: "omp-ui-theme-index",
+      version: 3,
+      themes: [{ ...INDEX_ENTRY, backdrop: "video", tags: ["animated"] }],
+    });
+    const { fetch, calls } = fakeFetch(
+      repository({
+        "omp-ui-themes.json": indexText(),
+        "omp-ui-themes.v2.json": v2,
+        "omp-ui-themes.v3.json": v3,
+        "themes/dusk.json": themeText,
+      }),
+    );
+    const result = await fetchThemeRepositoryListing(REPO, null, fetch, () => NOW);
+    expect(result.ok && result.listing.themes.map((t) => [t.path, t.backdrop, t.meta.tags])).toEqual([
+      ["themes/dusk.json", "video", ["animated"]],
+    ]);
+    expect(calls.map((c) => c.url)).not.toContain(rawUrl("omp-ui-themes.v2.json"));
+    expect(calls.map((c) => c.url)).not.toContain(rawUrl("omp-ui-themes.json"));
+  });
+
+  it("refuses a malformed v3 index rather than falling back to valid v2 or v1", async () => {
+    const v2 = JSON.stringify({ format: "omp-ui-theme-index", version: 2, themes: [INDEX_ENTRY] });
+    const { fetch } = fakeFetch(
+      repository({
+        "omp-ui-themes.json": indexText(),
+        "omp-ui-themes.v2.json": v2,
+        "omp-ui-themes.v3.json": "{",
+        "themes/dusk.json": themeText,
+      }),
+    );
+    expect(await fetchThemeRepositoryListing(REPO, null, fetch, () => NOW)).toEqual({
+      ok: false,
+      message: "the theme index is malformed",
+    });
+  });
+
+  it("counts entries missing from the tree or over 24 MiB as skipped", async () => {
     const themes = [INDEX_ENTRY, { ...INDEX_ENTRY, path: "gone.json" }, { ...INDEX_ENTRY, path: "huge.json" }];
     const { fetch } = fakeFetch(
       repository(
         { "omp-ui-themes.json": indexText(themes), "themes/dusk.json": themeText, "huge.json": "{}" },
-        { "huge.json": { size: 6 * 1024 * 1024 + 1 } },
+        { "huge.json": { size: 24 * 1024 * 1024 + 1 } },
       ),
     );
     const result = await fetchThemeRepositoryListing(REPO, null, fetch, () => NOW);
@@ -258,14 +301,14 @@ describe("fetchRepositoryThemeFile", () => {
     });
   });
 
-  it("still enforces the 6 MiB repository file limit", async () => {
-    const over = 6 * 1024 * 1024 + 1;
+  it("enforces the 24 MiB repository file limit", async () => {
+    const over = 24 * 1024 * 1024 + 1;
     const { fetch } = fakeFetch({
       [rawUrl("themes/dusk.json")]: { headers: { "content-length": String(over) }, body: "x" },
     });
     expect(await fetchRepositoryThemeFile(REPO, COMMIT, listed, fetch, () => NOW)).toEqual({
       ok: false,
-      message: "the theme file is larger than 6 MiB",
+      message: "the theme file is larger than 24 MiB",
     });
   });
 });
@@ -292,6 +335,14 @@ describe("repositoryThemeMismatch", () => {
 
   it("matches a file that agrees with its entry", () => {
     expect(repositoryThemeMismatch(indexEntry, draft())).toBe(false);
+  });
+
+  it("matches a video theme file against a video entry and rejects non-strict base64", () => {
+    const videoEntry: ThemeIndexEntry = { ...indexEntry, backdrop: "video" };
+    expect(repositoryThemeMismatch(videoEntry, draft({ backdrop: { from: "bytes", data: mp4, blur: 12 } }))).toBe(false);
+    expect(
+      repositoryThemeMismatch(videoEntry, draft({ backdrop: { from: "bytes", data: `${mp4}\n`, blur: 12 } })),
+    ).toBe(true);
   });
 
   it.each([

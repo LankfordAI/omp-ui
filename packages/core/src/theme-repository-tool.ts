@@ -10,6 +10,7 @@ import { parseThemeFile, sourceFromDraft } from "./theme-file";
 import {
   REPOSITORY_IMAGE_BYTES_MAX,
   REPOSITORY_THEME_FILE_BYTES_MAX,
+  REPOSITORY_VIDEO_BYTES_MAX,
   THEME_DESCRIPTION_MAX,
   THEME_INDEX_BYTES_MAX,
   THEME_INDEX_ENTRIES_MAX,
@@ -17,12 +18,16 @@ import {
   THEME_INDEX_V2_BYTES_MAX,
   THEME_INDEX_V2_ENTRIES_MAX,
   THEME_INDEX_V2_VERSION,
+  THEME_INDEX_V3_BYTES_MAX,
+  THEME_INDEX_V3_ENTRIES_MAX,
+  THEME_INDEX_V3_VERSION,
   THEME_INDEX_VERSION,
   THEME_SLUG,
   THEME_SLUG_CHARS_MAX,
   isThemeTag,
   parseThemeDetails,
   parseThemeIndexV2,
+  parseThemeIndexV3,
   sameThemeSeeds,
   type RepositoryBackdropKind,
   type ThemeDetails,
@@ -61,7 +66,7 @@ const TOP_LEVEL = new Set([
   "featured.json",
   "omp-ui-themes.json",
   "omp-ui-themes.v2.json",
-  ".gitignore",
+  "omp-ui-themes.v3.json",
   ".gitattributes",
   "tools/omp-ui-theme-tool.mjs",
 ]);
@@ -163,7 +168,7 @@ function checkTheme(
   let backdropHash: string | null = null;
   const raw = bytes.length > REPOSITORY_THEME_FILE_BYTES_MAX ? undefined : plainJson(bytes);
   if (bytes.length > REPOSITORY_THEME_FILE_BYTES_MAX) {
-    bad(path, "the theme file is larger than 6 MiB");
+    bad(path, "the theme file is larger than 24 MiB");
   } else if (raw === undefined) {
     bad(path, "must be plain JSON, with no comments or trailing commas");
   } else {
@@ -186,12 +191,12 @@ function checkTheme(
           const declared = isObject(raw) && isObject(raw.backdrop) ? raw.backdrop.mime : undefined;
           if (!check.ok) {
             bad(path, check.message);
-          } else if (check.kind === "video") {
-            bad(path, "video backdrops are not accepted in theme repositories");
           } else if (declared !== check.mime) {
             bad(path, `the backdrop says it is ${String(declared)} but its bytes are ${check.mime}`);
           } else if (check.kind === "image" && data.length > REPOSITORY_IMAGE_BYTES_MAX) {
             bad(path, "image backdrops can be at most 1 MiB in this repository");
+          } else if (check.kind === "video" && data.length > REPOSITORY_VIDEO_BYTES_MAX) {
+            bad(path, "video backdrops can be at most 16 MiB in this repository");
           } else {
             kind = check.kind;
             backdropHash = createHash("sha256").update(data).digest("hex");
@@ -310,8 +315,8 @@ export function checkThemeRepository(files: ReadonlyMap<string, Uint8Array>): Th
 
   // Rules 9 and 10.
   const featured = readFeatured(files, new Set(themeFiles.values()), fail);
-  if (themeFiles.size > THEME_INDEX_V2_ENTRIES_MAX) {
-    fail("themes/", `the repository can hold at most ${THEME_INDEX_V2_ENTRIES_MAX} themes`);
+  if (themeFiles.size > THEME_INDEX_V3_ENTRIES_MAX) {
+    fail("themes/", `the repository can hold at most ${THEME_INDEX_V3_ENTRIES_MAX} themes`);
   }
 
   return { errors, themes: checked.map((c) => c.theme), featured };
@@ -319,18 +324,26 @@ export function checkThemeRepository(files: ReadonlyMap<string, Uint8Array>): Th
 
 const fileText = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
-/** Both indexes as file text. `previousV2` is the committed v2 index or null; `today` is YYYY-MM-DD (UTC). */
+/**
+ * All three indexes as file text. `previousIndex` is the committed v3 index
+ * (preferred) or v2 index, or null; `today` is YYYY-MM-DD (UTC).
+ * v3 includes image, scene and video themes; v2 and v1 omit video themes so
+ * older clients continue browsing supported themes.
+ */
 export function buildThemeIndexes(
   report: ThemeRepositoryReport,
-  previousV2: string | null,
+  previousIndex: string | null,
   today: string,
-): { ok: true; v1: string; v2: string } | { ok: false; message: string } {
+): { ok: true; v1: string; v2: string; v3: string } | { ok: false; message: string } {
   if (report.errors.length > 0) return { ok: false, message: "the repository has errors; run check" };
 
-  const previous = previousV2 === null ? null : parseThemeIndexV2(previousV2);
   const added = new Map<string, string>();
-  if (previous !== null && previous.ok) {
-    for (const entry of previous.entries) if (entry.meta.added !== null) added.set(entry.path, entry.meta.added);
+  if (previousIndex !== null) {
+    const prevV3 = parseThemeIndexV3(previousIndex);
+    const previous = prevV3.ok ? prevV3 : parseThemeIndexV2(previousIndex);
+    if (previous.ok) {
+      for (const entry of previous.entries) if (entry.meta.added !== null) added.set(entry.path, entry.meta.added);
+    }
   }
   const dated = report.themes.map((theme) => ({ theme, added: added.get(theme.path) ?? today }));
   const featuredRank = new Map(report.featured.map((path, i) => [path, i]));
@@ -346,20 +359,32 @@ export function buildThemeIndexes(
     return a.theme.path < b.theme.path ? -1 : a.theme.path > b.theme.path ? 1 : 0;
   });
 
+  const toDetailedEntry = ({ theme, added: date }: (typeof dated)[number]): Record<string, unknown> => ({
+    path: theme.path,
+    label: theme.label,
+    seeds: theme.seeds,
+    backdrop: theme.backdrop,
+    tags: theme.details.tags,
+    description: theme.details.description,
+    ...(theme.details.author !== null ? { author: theme.details.author } : {}),
+    added: date,
+    featured: featuredRank.has(theme.path),
+  });
+
+  const v3 = fileText({
+    format: THEME_INDEX_FORMAT,
+    version: THEME_INDEX_V3_VERSION,
+    themes: dated.map(toDetailedEntry),
+  });
+  if (Buffer.byteLength(v3, "utf8") > THEME_INDEX_V3_BYTES_MAX) {
+    return { ok: false, message: "omp-ui-themes.v3.json would be larger than 512 KiB" };
+  }
+
+  const nonVideo = dated.filter(({ theme }) => theme.backdrop !== "video");
   const v2 = fileText({
     format: THEME_INDEX_FORMAT,
     version: THEME_INDEX_V2_VERSION,
-    themes: dated.map(({ theme, added: date }) => ({
-      path: theme.path,
-      label: theme.label,
-      seeds: theme.seeds,
-      backdrop: theme.backdrop,
-      tags: theme.details.tags,
-      description: theme.details.description,
-      ...(theme.details.author !== null ? { author: theme.details.author } : {}),
-      added: date,
-      featured: featuredRank.has(theme.path),
-    })),
+    themes: nonVideo.slice(0, THEME_INDEX_V2_ENTRIES_MAX).map(toDetailedEntry),
   });
   if (Buffer.byteLength(v2, "utf8") > THEME_INDEX_V2_BYTES_MAX) {
     return { ok: false, message: "omp-ui-themes.v2.json would be larger than 512 KiB" };
@@ -368,7 +393,7 @@ export function buildThemeIndexes(
   const v1Entries: unknown[] = [];
   const v1Of = (themes: unknown[]): string => fileText({ format: THEME_INDEX_FORMAT, version: THEME_INDEX_VERSION, themes });
   let v1 = v1Of(v1Entries);
-  for (const { theme } of dated) {
+  for (const { theme } of nonVideo) {
     if (v1Entries.length === THEME_INDEX_ENTRIES_MAX) break;
     const next = [...v1Entries, { path: theme.path, label: theme.label, seeds: theme.seeds, backdrop: theme.backdrop }];
     const text = v1Of(next);
@@ -376,5 +401,5 @@ export function buildThemeIndexes(
     v1Entries.push(next[next.length - 1]);
     v1 = text;
   }
-  return { ok: true, v1, v2 };
+  return { ok: true, v1, v2, v3 };
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runThemeRepositoryCli } from "./theme-repository-cli";
-import { parseThemeIndex, parseThemeIndexV2, themeDetailsFile } from "./theme-repository-format";
+import { parseThemeIndex, parseThemeIndexV2, parseThemeIndexV3, themeDetailsFile } from "./theme-repository-format";
 
 const themeText = (label: string, canvas: string): string =>
   JSON.stringify({ format: "omp-ui-theme", version: 1, label, seeds: { canvas } });
@@ -70,31 +70,40 @@ describe("runThemeRepositoryCli", () => {
     expect(log.errors).toContainEqual(expect.stringMatching(/^themes\/night\.json: the label "dusk" is already used/));
   });
 
-  it("generate writes both indexes and reports their entry counts", async () => {
+  it("generate writes v1, v2 and v3 indexes and reports their entry counts", async () => {
     const dir = await fixture();
     const log = io();
     expect(await runThemeRepositoryCli(["generate", dir], log)).toBe(0);
     const v1 = parseThemeIndex(await readFile(path.join(dir, "omp-ui-themes.json"), "utf8"));
     const v2 = parseThemeIndexV2(await readFile(path.join(dir, "omp-ui-themes.v2.json"), "utf8"));
+    const v3 = parseThemeIndexV3(await readFile(path.join(dir, "omp-ui-themes.v3.json"), "utf8"));
     expect(v1.ok && v1.entries.map((entry) => entry.path)).toEqual(["themes/dusk.json", "themes/night.json"]);
     expect(v2.ok && v2.entries.map((entry) => [entry.path, entry.meta.featured])).toEqual([
       ["themes/dusk.json", true],
       ["themes/night.json", false],
     ]);
+    expect(v3.ok && v3.entries.map((entry) => [entry.path, entry.meta.featured])).toEqual([
+      ["themes/dusk.json", true],
+      ["themes/night.json", false],
+    ]);
     const today = new Date().toISOString().slice(0, 10);
     expect(v2.ok && v2.entries.every((entry) => entry.meta.added === today)).toBe(true);
+    expect(v3.ok && v3.entries.every((entry) => entry.meta.added === today)).toBe(true);
     expect(log.code).toContain("omp-ui-themes.json: 2 themes");
     expect(log.code).toContain("omp-ui-themes.v2.json: 2 themes");
+    expect(log.code).toContain("omp-ui-themes.v3.json: 2 themes");
   });
 
   it("generate keeps the committed added dates on a second run", async () => {
     const dir = await fixture();
     expect(await runThemeRepositoryCli(["generate", dir], io())).toBe(0);
-    const first = await readFile(path.join(dir, "omp-ui-themes.v2.json"), "utf8");
+    const firstV2 = await readFile(path.join(dir, "omp-ui-themes.v2.json"), "utf8");
+    const firstV3 = await readFile(path.join(dir, "omp-ui-themes.v3.json"), "utf8");
     // A month in the future does not redate themes that already have a date.
     const log = io();
     expect(await runThemeRepositoryCli(["generate", dir], log)).toBe(0);
-    expect(await readFile(path.join(dir, "omp-ui-themes.v2.json"), "utf8")).toBe(first);
+    expect(await readFile(path.join(dir, "omp-ui-themes.v2.json"), "utf8")).toBe(firstV2);
+    expect(await readFile(path.join(dir, "omp-ui-themes.v3.json"), "utf8")).toBe(firstV3);
   });
 
   it("generate refuses a repository that does not check", async () => {

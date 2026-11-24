@@ -34,3 +34,12 @@ A new user saw twelve curated palettes and had to find and add `LankfordAI/omp-u
 - Builds before this change see at most the v1 index's 48 themes.
 - The Share panel's tag list is a copy of the official `tags.json`; a new tag there needs a release before Share offers it.
 - For about a minute after a merge that edits an existing theme, installing that theme fails with the existing "does not match the repository's index" message until the index workflow commits.
+
+## Amendment (2026-11-24): Index v3 and video backdrops in theme repositories
+
+[#1320](https://github.com/LankfordAI/omp-ui/issues/1320) adds `omp-ui-themes.v3.json` (`version: 3`, 512 KiB, up to 500 entries) beside v2 and v1 so authored video themes can be shared and installed through GitHub theme repositories without breaking older clients:
+
+- **Preference without fallback.** Clients prefer `omp-ui-themes.v3.json` when present in the tree, then v2, then v1. A malformed v3 index fails rather than falling back to v2 or v1.
+- **Backward compatibility.** The generator (`buildThemeIndexes` / `omp-ui-theme-tool generate`) writes all three indexes: v3 includes `image`, `scene`, and `video` themes; v2 and v1 omit `video` themes so older clients continue browsing supported themes. Added dates are preserved from the committed v3 index (or v2 when migrating).
+- **Caps and strict base64.** Repository theme files rise to **24 MiB** (`REPOSITORY_THEME_FILE_BYTES_MAX`) to hold up to **16 MiB** decoded MP4/WebM video backdrops (`REPOSITORY_VIDEO_BYTES_MAX`) as strict base64 inline in `themes/<slug>.json`.
+- **Desktop sharing, preview, and motion.** The Share panel accepts authored video themes up to 16 MiB, Preview renders uninstalled video backdrops as still frames without autoplay or storing bytes, and installed video themes start with `origin.animate: false` and expose the per-theme Animate switch.

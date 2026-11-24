@@ -13,8 +13,11 @@ import {
   THEME_INDEX_FILE,
   THEME_INDEX_V2_BYTES_MAX,
   THEME_INDEX_V2_FILE,
+  THEME_INDEX_V3_BYTES_MAX,
+  THEME_INDEX_V3_FILE,
   parseThemeIndex,
   parseThemeIndexV2,
+  parseThemeIndexV3,
   sameThemeSeeds,
   type ThemeIndexEntry,
   type ThemeRepositoryEntry,
@@ -188,25 +191,33 @@ export async function fetchThemeRepositoryListing(
     files.set(row.path, { sha: row.sha, size });
   }
 
-  // v2 (#1210) when the tree has it; a v2 that fails to parse is an error, never a fallback to v1.
-  const v2 = files.get(THEME_INDEX_V2_FILE);
-  const indexName = v2 !== undefined ? THEME_INDEX_V2_FILE : THEME_INDEX_FILE;
-  const indexFile = v2 ?? files.get(THEME_INDEX_FILE);
-  const indexMax = v2 !== undefined ? THEME_INDEX_V2_BYTES_MAX : THEME_INDEX_BYTES_MAX;
+  // Prefer v3 (#1320), then v2 (#1210), then v1; a present index that fails to parse is an error, never a fallback.
+  const v3 = files.get(THEME_INDEX_V3_FILE);
+  const v2 = v3 === undefined ? files.get(THEME_INDEX_V2_FILE) : undefined;
+  const indexName =
+    v3 !== undefined ? THEME_INDEX_V3_FILE : v2 !== undefined ? THEME_INDEX_V2_FILE : THEME_INDEX_FILE;
+  const indexFile = v3 ?? v2 ?? files.get(THEME_INDEX_FILE);
+  const indexMax =
+    v3 !== undefined ? THEME_INDEX_V3_BYTES_MAX : v2 !== undefined ? THEME_INDEX_V2_BYTES_MAX : THEME_INDEX_BYTES_MAX;
   if (indexFile === undefined) return { ok: false, message: `no ${THEME_INDEX_FILE} at the repository root` };
   const indexRes = await get(`${RAW}/${repository}/${sha}/${indexName}`, RAW_HEADERS, indexMax, now, fetchImpl);
   if (!indexRes.ok) {
     if (indexRes.message === TOO_LARGE) {
-      return { ok: false, message: `${indexName} is larger than ${v2 !== undefined ? "512" : "64"} KiB` };
+      const limitKiB = Math.round(indexMax / 1024);
+      return { ok: false, message: `${indexName} is larger than ${limitKiB} KiB` };
     }
     if (indexRes.message === NOT_FOUND) return { ok: false, message: `no ${indexName} at the repository root` };
     return indexRes;
   }
   if (gitBlobSha(indexRes.bytes) !== indexFile.sha) return { ok: false, message: INTEGRITY };
   const indexText = decode(indexRes.bytes);
-  const index = v2 !== undefined ? parseThemeIndexV2(indexText) : parseThemeIndex(indexText);
+  const index =
+    v3 !== undefined
+      ? parseThemeIndexV3(indexText)
+      : v2 !== undefined
+        ? parseThemeIndexV2(indexText)
+        : parseThemeIndex(indexText);
   if (!index.ok) return index;
-
   const themes: ThemeRepositoryEntry[] = [];
   let skipped = 0;
   for (const entry of index.entries) {
@@ -231,18 +242,20 @@ export async function fetchRepositoryThemeFile(
   const res = await get(`${RAW}/${repository}/${commit}/${entry.path}`, RAW_HEADERS, REPOSITORY_THEME_FILE_BYTES_MAX, now, fetchImpl);
   if (!res.ok) {
     if (res.message === NOT_FOUND) return { ok: false, message: "the theme file is missing at that commit" };
-    if (res.message === TOO_LARGE) return { ok: false, message: "the theme file is larger than 6 MiB" };
+    if (res.message === TOO_LARGE) return { ok: false, message: "the theme file is larger than 24 MiB" };
     return res;
   }
   if (gitBlobSha(res.bytes) !== entry.blob) return { ok: false, message: INTEGRITY };
   return { ok: true, text: decode(res.bytes) };
 }
 
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
 /** True when the parsed file's trimmed label, seeds (sameThemeSeeds) or sniffed backdrop kind differ from the entry. */
 export function repositoryThemeMismatch(entry: ThemeIndexEntry, draft: StoredThemeDraft): boolean {
   let kind: ThemeBackdropKind | "invalid" | null = null;
   if (draft.backdrop !== null) {
-    if (draft.backdrop.from !== "bytes") {
+    if (draft.backdrop.from !== "bytes" || !STRICT_BASE64.test(draft.backdrop.data)) {
       kind = "invalid";
     } else {
       const check = checkBackdropBytes(Buffer.from(draft.backdrop.data, "base64"));

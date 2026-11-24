@@ -196,7 +196,7 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
         />
       </Row>
       <h3 className="text-base font-semibold text-ink">Theme repositories</h3>
-      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">Browse themes other people publish in public GitHub repositories. Every theme must pass the same contrast checks before it is saved, backdrops show only as images, and an installed theme never changes until you update it. omp-ui contacts GitHub only when you browse or install.</p>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">Browse themes other people publish in public GitHub repositories. Every theme must pass the same contrast checks before it is saved, installed scenes and videos start still until you allow motion, and an installed theme never changes until you update it. omp-ui contacts GitHub only when you browse or install.</p>
       <form
         className="mt-2 flex items-end gap-2"
         onSubmit={(event) => {
@@ -585,7 +585,7 @@ export function ThemeWall(props: {
           </Button>,
         );
       }
-      if (source.origin !== undefined && source.backdrop?.kind === "scene") {
+      if (source.origin !== undefined && (source.backdrop?.kind === "scene" || source.backdrop?.kind === "video")) {
         const origin = source.origin;
         row.push(
           <Switch
