@@ -132,7 +132,6 @@ export function ArtifactGallery({ onOpenArtifact, onQuickAction, onClose }: Arti
   useEffect(() => {
     const gen = ++requestGen.current;
     void fetchPages(PAGE_SIZE, gen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, filter, origin, sort]);
 
   // Library mutations: thumbnail-only events patch affected cards in place without
@@ -172,7 +171,6 @@ export function ArtifactGallery({ onOpenArtifact, onQuickAction, onClose }: Arti
     }
     const gen = ++requestGen.current;
     void fetchPages(Math.max(PAGE_SIZE, rowsLengthRef.current), gen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision, lastChange]);
 
   const loadMore = async (): Promise<void> => {

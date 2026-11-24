@@ -833,7 +833,7 @@ describe("RoutinesView notifications (#1294)", () => {
 
 describe("RoutinesView remote hosts (issue #1306)", () => {
   it("displays remote routines, preserves ADR-0101 artifact bindings read-only on save, and passes remote instanceId to updateRoutine", async () => {
-    const updateRoutine = vi.fn(async (_id, _patch, _inst) => remoteRoutine);
+    const updateRoutine = vi.fn(async () => remoteRoutine);
     const remoteProject = "/remote/proj";
     const remoteRoutine = routine({
       id: "r".repeat(22),

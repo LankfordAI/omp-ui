@@ -102,7 +102,7 @@ function button(text: string): HTMLButtonElement {
 beforeEach(() => {
   vi.clearAllMocks();
   clearThumbnailCache();
-  try { localStorage.removeItem("omp-ui:artifacts-layout"); } catch {}
+  try { localStorage.removeItem("omp-ui:artifacts-layout"); } catch { /* private-mode storage; the default layout is fine */ }
   useStore.setState({ state: backendState({ artifactLibraryEnabled: true, htmlArtifactScripts: true }), artifacts: null });
   backendMock.artifactReadPart.mockResolvedValue(page());
   backendMock.artifactList.mockResolvedValue(listResult());
