@@ -12,7 +12,10 @@ export interface SnoozeClockDeps {
   /** The live registry's records, re-read on every sync. */
   sessions: () => readonly OwnedSessionRecord[];
   /** The registry's partial write (ADR-0068): never a new Registry method. */
-  updateSession: (tabId: string, patch: Pick<OwnedSessionRecord, "snoozed" | "snoozedUntilMs">) => unknown;
+  updateSession: (
+    tabId: string,
+    patch: Pick<OwnedSessionRecord, "snoozed" | "snoozedUntilMs" | "reminderAtMs">,
+  ) => unknown;
   /** Fans the returned rows out to every renderer and joined client. */
   broadcast: () => void;
   /**
@@ -21,7 +24,6 @@ export interface SnoozeClockDeps {
    */
   onWake?: (tabIds: readonly string[]) => void;
 }
-
 /**
  * Timed snooze (issue #979): the owning host's main process keeps one timer
  * for the earliest `snoozedUntilMs` among its snoozed records. At a deadline,
@@ -54,7 +56,9 @@ export class SnoozeClock {
       if (s.snoozedUntilMs <= now) due.push(s.tabId);
       else if (next === null || s.snoozedUntilMs < next) next = s.snoozedUntilMs;
     }
-    for (const tabId of due) this.deps.updateSession(tabId, { snoozed: false, snoozedUntilMs: null });
+    for (const tabId of due) {
+      this.deps.updateSession(tabId, { snoozed: false, snoozedUntilMs: null, reminderAtMs: now });
+    }
     if (next !== null) {
       this.timer = setTimeout(() => this.sync({ notify: true }), Math.min(next - now, MAX_WAIT_MS));
     }

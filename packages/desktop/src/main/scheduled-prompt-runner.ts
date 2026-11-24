@@ -22,7 +22,7 @@ const MAX_WAIT_MS = 60_000;
 /** At most one resume attempt per tab in this window, like a staged fleet wake. */
 const RESUME_THROTTLE_MS = 60_000;
 
-type RecordPatch = Partial<Pick<OwnedSessionRecord, "scheduledPrompt" | "snoozed" | "snoozedUntilMs">>;
+type RecordPatch = Partial<Pick<OwnedSessionRecord, "scheduledPrompt" | "snoozed" | "snoozedUntilMs" | "reminderAtMs">>;
 
 /** What the runner asks of the session manager and the registry. */
 export interface ScheduledPromptRunnerDeps {
@@ -270,7 +270,7 @@ export class ScheduledPromptRunner implements FrameObserver {
             })
           : scheduled.notices,
       },
-      ...(record.snoozed ? { snoozed: false, snoozedUntilMs: null } : {}),
+      ...(record.snoozed || record.reminderAtMs !== null ? { snoozed: false, snoozedUntilMs: null, reminderAtMs: null } : {}),
     });
     this.deps.broadcast();
     return { type: "prompt", id: commandId, message: scheduled.text };

@@ -251,6 +251,7 @@ const liveState = backendState({
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,

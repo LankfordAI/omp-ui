@@ -43,7 +43,7 @@ function fixture(): { root: string; db: DatabaseSync; context: StatsReadContext;
     agentMode: "build", compactionMethod: null, approvalMode: null, serviceTier: null,
     model: "selected-but-never-requested", thinkingLevel: null, advisor: false, advisorModel: null,
     subagentModels: null, proposedPlans: [], private: false, chat: false, askSource: null,
-    fleet: null, autoTitled: false, snoozed: false, snoozedUntilMs: null, pinnedAtMs: null,
+    fleet: null, autoTitled: false, snoozed: false, snoozedUntilMs: null, reminderAtMs: null, pinnedAtMs: null,
     settledAtMs: null,
     heldPrompt: null, scheduledPrompt: null, routine: null, pullRequests: [], autoSettleOnMerge: null,
     cachedTitle: "Private title", cachedModified: null,

@@ -33,16 +33,20 @@ interface SessionStub {
   cachedModified: string | null;
   chat?: boolean;
   routine?: { id: string; name: string } | null;
+  snoozed?: boolean;
+  heldPrompt?: { sendAtMs: number | null; sentAtMs: number | null } | null;
 }
 
 function harness(opts: {
   sessions?: SessionStub[];
   liveTabs?: string[];
-  hibernateImpl?: (tabId: string, entry: LiveEntry) => Promise<boolean>;
+  hibernateIdleMinutes?: number;
+  isViewed?: (tabId: string) => boolean;
+  hibernateImpl?: (tabId: string, entry: LiveEntry, intent?: "settle" | "park") => Promise<boolean>;
 } = {}): Harness {
   const rpcSend = vi.fn<(cmd: Record<string, unknown>) => void>();
   // A parked verdict must never reach the reap; calling it fails the test.
-  const hibernate = vi.fn<(tabId: string, entry: LiveEntry) => Promise<boolean>>(
+  const hibernate = vi.fn<(tabId: string, entry: LiveEntry, intent?: "settle" | "park") => Promise<boolean>>(
     opts.hibernateImpl ??
       (async () => {
         throw new Error("hibernate must not be called on a parked verdict");
@@ -79,9 +83,9 @@ function harness(opts: {
         cachedModified: null,
       },
     ]
-  ).map((s) => ({ chat: false, routine: null, ...s }));
+  ).map((s) => ({ chat: false, routine: null, snoozed: false, heldPrompt: null, ...s }));
   const registry = {
-    getSetting: (key: string): number => (key === "hibernateIdleMinutes" ? 30 : 0),
+    getSetting: (key: string): number => (key === "hibernateIdleMinutes" ? (opts.hibernateIdleMinutes ?? 30) : 0),
     sessions,
   } as unknown as Registry;
   const deps: HibernationTrackerDeps = {
@@ -91,7 +95,7 @@ function harness(opts: {
     turns,
     getLive: (tabId) => (liveSet.has(tabId) ? entry : undefined),
     awaitingHumanAnswer: () => false,
-    isViewed: () => false,
+    isViewed: opts.isViewed ?? (() => false),
     preventsHibernation: () => false,
     hibernate,
     runSerialized: (_tabId, work) => work(),
@@ -269,7 +273,101 @@ describe("HibernationTracker routine warmth exclusion (U10, #1253, ADR-0100)", (
       await vi.advanceTimersByTimeAsync(0);
 
       expect(hibernate).toHaveBeenCalledTimes(1);
-      expect(hibernate).toHaveBeenCalledWith("routine-tab", expect.anything());
+      expect(hibernate).toHaveBeenCalledWith("routine-tab", expect.anything(), "settle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("HibernationTracker snooze-park (issue #1323)", () => {
+  it("parks an idle snoozed session immediately even with hibernateIdleMinutes=0, last-active, and viewed", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { tracker, rpcSend, hibernate } = harness({
+        hibernateIdleMinutes: 0,
+        isViewed: () => true,
+        hibernateImpl: async () => true,
+        sessions: [
+          {
+            tabId: TAB,
+            projectCwd: "/proj",
+            launchedAt: "2026-11-24T10:00:00.000Z",
+            cachedModified: "2026-11-24T10:05:00.000Z",
+            snoozed: true,
+          },
+        ],
+      });
+      // Arm the tracker so the session is past boot.
+      tracker.onFrame(TAB, { type: "agent_end" } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+      // Clear any probe triggered by agent_end so we verify requestSnoozePark directly.
+      rpcSend.mockClear();
+      hibernate.mockClear();
+
+      tracker.requestSnoozePark(TAB);
+      expect(rpcSend).toHaveBeenCalledTimes(1);
+      const probeId = lastProbeId(rpcSend);
+      tracker.onFrame(TAB, {
+        type: "response",
+        id: probeId,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(hibernate).toHaveBeenCalledTimes(1);
+      expect(hibernate).toHaveBeenCalledWith(TAB, expect.anything(), "park");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defers snooze-park while mid-turn, suppresses turnEnded attention, and parks on terminal agent_end", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { tracker, rpcSend, hibernate, attention } = harness({
+        hibernateIdleMinutes: 0,
+        hibernateImpl: async () => true,
+        sessions: [
+          {
+            tabId: TAB,
+            projectCwd: "/proj",
+            launchedAt: "2026-11-24T10:00:00.000Z",
+            cachedModified: null,
+            snoozed: true,
+          },
+        ],
+      });
+      tracker.onFrame(TAB, { type: "agent_start" } as RpcFrame);
+      tracker.requestSnoozePark(TAB);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(rpcSend).not.toHaveBeenCalled();
+      expect(hibernate).not.toHaveBeenCalled();
+
+      // Non-terminal agent_end keeps turn running — still deferred.
+      tracker.onFrame(TAB, { type: "agent_end", isTerminal: false, awaitingAsyncWork: true } as unknown as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(rpcSend).not.toHaveBeenCalled();
+      expect(attention.turnEnded).not.toHaveBeenCalled();
+
+      // Terminal agent_end drains the snoozed session into a park probe without firing turnEnded.
+      tracker.onFrame(TAB, { type: "agent_end", isTerminal: true } as unknown as RpcFrame);
+      expect(attention.turnEnded).not.toHaveBeenCalled();
+      expect(rpcSend).toHaveBeenCalledTimes(1);
+      const probeId = lastProbeId(rpcSend);
+      tracker.onFrame(TAB, {
+        type: "response",
+        id: probeId,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(hibernate).toHaveBeenCalledTimes(1);
+      expect(hibernate).toHaveBeenCalledWith(TAB, expect.anything(), "park");
     } finally {
       vi.useRealTimers();
     }

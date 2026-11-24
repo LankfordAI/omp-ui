@@ -172,7 +172,6 @@ export function buildSidebarLists(
     return x === y ? 0 : x > y ? 1 : -1;
   });
 
-  const snoozedSectionOn = state.snoozedSectionEnabled === true;
   const pinned: SidebarEntry[] = [];
   const active: SidebarEntry[] = [];
   const working: SidebarEntry[] = [];
@@ -185,8 +184,15 @@ export function buildSidebarLists(
     // clears. Marked-but-working sessions are not in the set — no card, row
     // stays where its state puts it.
     if (suppressTabIds.has(s.tabId)) continue;
-    // An unsettled pinned session stays in Pinned mid-turn, snoozed, and across
-    // app restarts/reboots: the pin is the user's "keep this in view" (issues
+    // Snoozed outranks every other placement, including Pinned (#1323): a
+    // pinned session keeps its `pinnedAtMs` while snoozed so waking or
+    // unsnoozing restores its exact slot in Pinned.
+    if (s.snoozed === true) {
+      snoozed.push(entry);
+      continue;
+    }
+    // An unsettled pinned session stays in Pinned mid-turn and across app
+    // restarts/reboots: the pin is the user's "keep this in view" (issues
     // #981, #1137). Settled still wins — a settled pin files below with the
     // rest, and returns on resume. An older remote host publishes no
     // pinnedAtMs; absent reads as unpinned.
@@ -195,18 +201,10 @@ export function buildSidebarLists(
       pinned.push(entry);
       continue;
     }
-    // Snoozed outranks every other placement, and only exists while the
-    // setting is on; with it off, flagged sessions fall through to their
-    // natural lists and keep their persisted flag (issue #935).
-    if (snoozedSectionOn && s.snoozed === true) {
-      snoozed.push(entry);
-      continue;
-    }
     if (isSettled) {
       settled.push(entry);
       continue;
     }
-    // A session blocked on the user (plan gate or blocking dialog) belongs in
     // the main list even mid-turn: Working is for sessions that need nothing
     // from the user (issue #944). Both are host-published levels, so remote rows
     // move too. A terminal or dormant session never reports turnRunning, so it
@@ -231,22 +229,22 @@ export function buildSidebarLists(
 export interface AttentionEntry {
   entry: SidebarEntry;
   mark: UnreadMark;
-  /** Derived sidebar state at build time; the filter guarantees one of ready/awaiting-answer. */
-  state: "ready" | "awaiting-answer";
+  /** Derived sidebar state at build time; guaranteed ready, awaiting-answer, or reminder. */
+  state: "ready" | "awaiting-answer" | "reminder";
 }
 
 /**
- * The attention stack (issue #1037): every flagged local session whose
- * derived state is still `ready` or `awaiting-answer` — a mark on a session
- * that went back to work (or settled/died) waits for the next unseen reply.
- * A live Routine run parked on an Approval card (local or on a joined remote
- * instance) joins as `awaiting-answer` without needing a mark; a finished
- * Routine run leaves the stack once it self-settles (ADR-0100, #1304, #1305).
+ * The attention stack (issues #1037, #1323):
+ * - Every flagged local session whose derived state is `ready` or `awaiting-answer`
+ *   — a mark on a session that went back to work (or settled/died) waits for the next unseen reply.
+ * - Every unsettled, non-snoozed session (local or joined remote, including dormant)
+ *   whose timed snooze expired (`reminderAtMs !== null`), surfaced as `"reminder"`
+ *   unless a higher-priority live `awaiting-answer` state applies.
+ * - Every live Routine run parked on an Approval card (local or joined remote) as
+ *   `awaiting-answer` without needing a mark (ADR-0100, #1304, #1305).
  * The stack is unfiltered by the sidebar search query on purpose — a flagged
  * session surfaces even while the user is filtering or a section is collapsed.
- * `derive` is the caller's `deriveSidebarSessionState`: passed in at the call
- * site so this lib keeps a type-only (never runtime) dependency on the store
- * slice. Newest mark first.
+ * Newest mark first.
  */
 export function buildAttentionEntries(
   state: BackendState,
@@ -261,29 +259,42 @@ export function buildAttentionEntries(
     instanceId: string | null,
     nickname: string | null,
   ): void => {
+    // A snoozed row never sits in Needs attention (#1323).
+    if (session.snoozed === true) return;
     // A Routine run parked on an Approval card needs a person whether or not
     // this renderer saw the reply that raised it (a client that connected
     // later, or a joined remote host, holds no mark): it is attention-only, so
     // this card is its one place in the sidebar (ADR-0100, #1255, #1304).
     const waitingRun = isRoutineRun(session) && session.live === "live" && session.awaitingHumanAnswer === true;
+    // A host-persisted timed-snooze reminder surfaces even while dormant (#1323).
+    const reminderDue = !isRoutineRun(session) && !isSessionSettled(session) && typeof session.reminderAtMs === "number";
+    const unreadMark = instanceId === null ? unread[session.tabId] : undefined;
     const mark =
-      (instanceId === null ? unread[session.tabId] : undefined) ??
-      (waitingRun ? { atMs: Number.isFinite(openOrderOf(session)) ? openOrderOf(session) : 0, snippet: null } : undefined);
+      unreadMark ??
+      (waitingRun
+        ? { atMs: Number.isFinite(openOrderOf(session)) ? openOrderOf(session) : 0, snippet: null }
+        : reminderDue
+          ? { atMs: session.reminderAtMs as number, snippet: null }
+          : undefined);
     if (mark === undefined) return;
-    // `derive` answers with the wide state union; a plain inequality guard
-    // cannot narrow `string`, so map the two kept states explicitly.
     const derived = derive(session);
-    // A live Routine run in its 60 s post-end grace that no tab ever mounted
-    // derives bare idle "live" — keep it as "ready" while live, and drop it as
-    // soon as self-Settle makes it dormant (#1305).
-    const kept =
-      derived === "ready"
-        ? "ready"
-        : derived === "awaiting-answer"
-          ? "awaiting-answer"
-          : isRoutineRun(session) && session.live === "live" && derived === "live"
-            ? "ready"
-            : null;
+    let kept: AttentionEntry["state"] | null;
+    let entryMark: UnreadMark = mark;
+    if (derived === "awaiting-answer") {
+      kept = "awaiting-answer";
+    } else if (reminderDue) {
+      kept = "reminder";
+      entryMark = { atMs: session.reminderAtMs as number, snippet: null };
+    } else if (derived === "ready") {
+      kept = "ready";
+    } else if (isRoutineRun(session) && session.live === "live" && derived === "live") {
+      // A live Routine run in its 60 s post-end grace that no tab ever mounted
+      // derives bare idle "live" — keep it as "ready" while live, and drop it as
+      // soon as self-Settle makes it dormant (#1305).
+      kept = "ready";
+    } else {
+      kept = null;
+    }
     if (kept === null) return;
     out.push({
       entry: {
@@ -295,7 +306,7 @@ export function buildAttentionEntries(
         handoff: NO_HANDOFF,
         dispatch: dispatch.get(session.tabId) ?? NO_DISPATCH,
       },
-      mark,
+      mark: entryMark,
       state: kept,
     });
   };
@@ -307,8 +318,9 @@ export function buildAttentionEntries(
     if (instance.status !== "joined") continue;
     for (const group of instance.projects) {
       for (const session of group.sessions) {
-        if (!isRoutineRun(session)) continue;
-        if (session.live !== "live" || session.awaitingHumanAnswer !== true) continue;
+        const waitingRun = isRoutineRun(session) && session.live === "live" && session.awaitingHumanAnswer === true;
+        const reminderDue = !isRoutineRun(session) && !isSessionSettled(session) && session.snoozed !== true && typeof session.reminderAtMs === "number";
+        if (!waitingRun && !reminderDue) continue;
         visit(
           session,
           projectFaceFor(state, instance.id, group.project),

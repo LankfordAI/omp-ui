@@ -282,7 +282,7 @@ export function SessionRow({
   const resumeDead = useStore((st) => st.resumeDead);
   const settleSessions = useStore((st) => st.settleSessions);
   // Settle (#980, #1005): every live row; a running turn confirms first.
-  const settleable = useStore((st) => canSettle(s, st.state?.snoozedSectionEnabled === true));
+  const settleable = canSettle(s);
   const exited = useStore((st) => st.exited[s.tabId]);
   // Issue #926 — a settle hides the dead tab even for a record that never
   // materialized on disk, so the missing row must still be able to un-hide

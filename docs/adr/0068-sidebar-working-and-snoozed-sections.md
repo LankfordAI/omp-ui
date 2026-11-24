@@ -248,3 +248,54 @@ same-version restarts and OS reboots without spawning `omp` processes at boot.
 `canSettle` admits unsettled dormant rows so they can be settled by hand without
 spawning first, and `undoSettle` calls the tab-routed `session:unsettle` when
 `target.wasLive === false` to clear `settledAtMs` without launching a process.
+
+## Addendum: ungated Snooze, park-hibernation, and host-persisted reminders (#1323, 2026-11-24)
+
+Snooze is now always available without an opt-in setting and moves from pure
+sidebar grouping to a host-enforced park state built on #1137's
+unsettled-dormant invariant (`live === "dormant"` with `settledAtMs === null`):
+
+- **`snoozedSectionEnabled` removed.** The registry setting, `BackendState`
+  field, `settings:setSnoozedSectionEnabled` channel, and Settings → General
+  row are removed outright; legacy `registry.json` files drop the stale key on
+  the next write. The **Snoozed** section still renders only when non-empty.
+- **Park-hibernation without settling.** `SessionManager.hibernate(tabId,
+  entry, intent)` takes `"settle" | "park"`. `"park"` reaps the process, kills
+  the drawer shell, disposes browser/device panes, and emits
+  `session:hibernated` without stamping `settledAtMs`. `HibernationTracker`
+  enforces `snoozed && live rpc-ui => park when safe`: idle native sessions
+  park immediately (bypassing `hibernateIdleMinutes`, `isLastActiveInProject`,
+  `settleSuspendedUntil`, and the snoozer's own `isViewed` on the initial
+  attempt). Sessions mid-turn (including non-terminal `agent_end`), awaiting a
+  human answer, running active goals/vibe workers, waiting on held-prompt
+  limit telemetry, or reporting queued/streaming/async work via `get_state`
+  defer and retry automatically on terminal `agent_end` and every 60 s while
+  snoozed (honoring `isViewed` on retries). Live PTY sessions stay flag-only
+  and keep their process untouched (same native-only rule as Working).
+- **Precedence flip.** Partition precedence is now `Snoozed > Pinned
+  (unsettled) > Settled > Needs-user > Working > Main list`. Snoozing keeps
+  `pinnedAtMs` intact so waking or manual Unsnooze restores the row's exact
+  slot in **Pinned**; pinning a snoozed row clears `snoozed` so the latest
+  gesture wins. Snoozing a settled row clears `settledAtMs` so waking returns
+  it to the main list (or **Pinned**).
+- **Host-persisted reminders (`reminderAtMs`) and OS banners.** On timed
+  expiry only (never manual Unsnooze), `SnoozeClock` clears `snoozed` and
+  `snoozedUntilMs` and stamps `OwnedSessionRecord.reminderAtMs: now`. Both
+  desktop main and `host-lite`'s session bundle run `SnoozeClock`.
+  `buildAttentionEntries` surfaces unsettled, non-snoozed rows (including
+  dormant rows, local and joined remote) with `reminderAtMs !== null` in
+  **Needs attention** (`state: "reminder"`), with right-click re-snooze/Settle
+  and dismiss (`setSessionSnoozed(tabId, false)`). `DesktopNotifier` posts
+  per-session banners for 1–2 live-timer expiries and coalesces 3+ into one
+  count banner (with the `snooze` cue), suppressed when the desktop window is
+  focused. Opening, resuming, viewing, prompting, re-snoozing, unsnoozing, or
+  settling clears `reminderAtMs`.
+- **Seamless one-click resume and multi-day presets.** Snooze-park teardown
+  drops materialized tabs from renderer memory; `openSession` auto-resumes any
+  still-mounted unsettled hibernated tab via `resumeDead` so the Settled
+  overlay never flashes. Presets expand to `In 1 hour`, `This evening`,
+  `Tomorrow morning`, `In 2 days`, `In 3 days` (deduped against `Next week` on
+  Friday), and `Next week`, grouped in a compact `Snooze ›` submenu shared
+  with the Selection bar (`Snooze again ›` on already-snoozed rows), and
+  `SnoozeUntilDialog` adds quick day chips (`2d`–`2w`) and a synced `In N days
+  at HH:MM` picker.

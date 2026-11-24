@@ -549,18 +549,25 @@ export interface OwnedSessionRecord {
    *  marker — not the header — is what distinguishes an auto-title from a
    *  typed name. Post-dates schema-1: absent normalizes to false. */
   autoTitled: boolean;
-  /** True parks the session in the sidebar's Snoozed section (issue #935):
-   *  pure grouping — the process keeps running and hibernation rules are
-   *  unchanged. Post-dates schema-1: absent normalizes to false. */
+  /** True parks the session in the sidebar's Snoozed section (issues #935, #1323):
+   *  idle native sessions hibernate without settling (`settledAtMs` stays null).
+   *  Post-dates schema-1: absent normalizes to false. */
   snoozed: boolean;
-  /** Epoch ms at which the owning host's main process clears `snoozed`
-   *  (timed snooze, issue #979). Null for an indefinite snooze and whenever
-   *  `snoozed` is false. Post-dates schema-1: absent normalizes to null. */
+  /** Epoch ms at which the owning host's main process clears `snoozed` and
+   *  stamps `reminderAtMs` (timed snooze, issues #979, #1323). Null for an
+   *  indefinite snooze and whenever `snoozed` is false. Post-dates schema-1:
+   *  absent normalizes to null. */
   snoozedUntilMs: number | null;
+  /** Epoch ms when a timed snooze expired and surfaced the session as a
+   *  reminder in the Attention stack (issue #1323); null while snoozed,
+   *  settled, or acknowledged (opened/resumed/viewed/dismissed). Post-dates
+   *  schema-1: absent normalizes to null. */
+  reminderAtMs: number | null;
   /** Epoch ms when the user pinned the session (issue #981); null while
-   *  unpinned. A pinned live session renders in the sidebar's Pinned group,
-   *  ordered by this stamp, exempt from Working and Snoozed. The owning host
-   *  stamps it. Post-dates schema-1: absent normalizes to null. */
+   *  unpinned. An unsettled, non-snoozed pinned session renders in the
+   *  sidebar's Pinned group, ordered by this stamp; snoozing keeps the pin
+   *  intact so waking restores it to Pinned. The owning host stamps it.
+   *  Post-dates schema-1: absent normalizes to null. */
   pinnedAtMs: number | null;
   /** Epoch ms when the session was settled (issue #1137) — by manual Settle,
    *  idle hibernation, plan handoff, worktree finish, or merged pull request;

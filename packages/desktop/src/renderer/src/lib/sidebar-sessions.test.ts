@@ -34,6 +34,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000,
     heldPrompt: null,
@@ -305,7 +306,6 @@ describe("Working and Snoozed sections (issue #935)", () => {
 
   it("parks a snoozed live in-turn session in snoozed, outranking working", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [group("/a", "alpha", [session("busy", { turnRunning: true, snoozed: true })])],
     });
     const lists = buildSidebarLists(state, "");
@@ -316,7 +316,6 @@ describe("Working and Snoozed sections (issue #935)", () => {
 
   it("parks a snoozed dormant session in snoozed, not settled", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [group("/a", "alpha", [session("dormant", { live: "dormant", snoozed: true })])],
     });
     const lists = buildSidebarLists(state, "");
@@ -324,9 +323,8 @@ describe("Working and Snoozed sections (issue #935)", () => {
     expect(lists.settled).toEqual([]);
   });
 
-  it("distributes snoozed-flagged sessions by liveness when the setting is off", () => {
+  it("always partitions snoozed sessions into snoozed with no opt-in setting (#1323)", () => {
     const state = backendState({
-      // snoozedSectionEnabled defaults to false.
       projects: [
         group("/a", "alpha", [
           session("idle", { snoozed: true }),
@@ -336,15 +334,14 @@ describe("Working and Snoozed sections (issue #935)", () => {
       ],
     });
     const lists = buildSidebarLists(state, "");
-    expect(lists.snoozed).toEqual([]);
-    expect(ids(lists.active)).toEqual(["idle"]);
-    expect(ids(lists.working)).toEqual(["busy"]);
-    expect(ids(lists.settled)).toEqual(["dormant"]);
+    expect(ids(lists.snoozed)).toEqual(["idle", "busy", "dormant"]);
+    expect(lists.active).toEqual([]);
+    expect(lists.working).toEqual([]);
+    expect(lists.settled).toEqual([]);
   });
 
   it("orders working and snoozed newest open first", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("w-old", { turnRunning: true, launchedAt: "2026-08-19T10:00:00.000Z" }),
@@ -359,9 +356,8 @@ describe("Working and Snoozed sections (issue #935)", () => {
     expect(ids(lists.snoozed)).toEqual(["s-new", "s-old"]);
   });
 
-  it("returns a query match in its snoozed section when the setting is on", () => {
+  it("returns a query match in its snoozed section", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [group("/a", "alpha", [session("parked", { snoozed: true, title: "Parked plan" })])],
     });
     const lists = buildSidebarLists(state, "parked");
@@ -401,7 +397,6 @@ describe("Working and Snoozed sections (issue #935)", () => {
 
   it("keeps a snoozed session awaiting an answer in snoozed", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("parked", { turnRunning: true, awaitingHumanAnswer: true, snoozed: true }),
@@ -452,7 +447,6 @@ describe("background work in flight (issue #1026)", () => {
 
   it("pin and snooze outrank background work", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("bg-pin", { turnRunning: false, pinnedAtMs: 1_000 }),
@@ -477,9 +471,8 @@ describe("background work in flight (issue #1026)", () => {
 });
 
 describe("Pinned group (issue #981)", () => {
-  it("keeps a live pinned session in pinned mid-turn and snoozed, ordered by pin time, not open order", () => {
+  it("places a snoozed pinned session in Snoozed while keeping un-snoozed pinned rows in Pinned (#1323)", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("idle"),
@@ -490,15 +483,14 @@ describe("Pinned group (issue #981)", () => {
       ],
     });
     const lists = buildSidebarLists(state, "");
-    expect(ids(lists.pinned)).toEqual(["busy-pin", "late-pin", "snoozed-pin"]);
+    expect(ids(lists.pinned)).toEqual(["busy-pin", "late-pin"]);
     expect(ids(lists.active)).toEqual(["idle"]);
     expect(lists.working).toEqual([]);
-    expect(lists.snoozed).toEqual([]);
+    expect(ids(lists.snoozed)).toEqual(["snoozed-pin"]);
   });
 
-  it("files a pinned session with no process under settled, or snoozed when also snoozed", () => {
+  it("files a settled pinned session under settled, or snoozed when also snoozed", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("gone", { pinnedAtMs: 1_000, live: "dormant" }),
@@ -574,7 +566,6 @@ describe("Routine runs (ADR-0100, issue #1261)", () => {
 
   it("files a local routine run into no section, whatever its state, while coding sessions stay", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       projects: [
         group("/a", "alpha", [
           session("coding"),
@@ -592,7 +583,6 @@ describe("Routine runs (ADR-0100, issue #1261)", () => {
 
   it("excludes a joined instance's routine runs from every sidebar section (#1304)", () => {
     const state = backendState({
-      snoozedSectionEnabled: true,
       remoteInstances: [
         remoteInstance({
           projects: [
@@ -689,5 +679,42 @@ describe("Routine runs (ADR-0100, issue #1261)", () => {
   it("drops a marked routine run while its turn is working", () => {
     const state = backendState({ projects: [group("/a", "alpha", [session("run", { routine, turnRunning: true })])] });
     expect(buildAttentionEntries(state, { run: { atMs: 1, snippet: null } }, () => "working")).toEqual([]);
+  });
+});
+
+describe("Snooze reminders in Attention stack (issue #1323)", () => {
+  it("surfaces local and joined-remote dormant unsettled rows with reminderAtMs, suppresses duplicate rows, and hides snoozed/settled ones", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [
+          session("local-due", { live: "dormant", settledAtMs: null, reminderAtMs: 5_000 }),
+          session("local-snoozed", { live: "dormant", settledAtMs: null, snoozed: true, reminderAtMs: 6_000 }),
+          session("local-settled", { live: "dormant", settledAtMs: 1_000, reminderAtMs: 7_000 }),
+        ]),
+      ],
+      remoteInstances: [
+        remoteInstance({
+          id: "inst-r",
+          nickname: "Remote-Box",
+          status: "joined",
+          projects: [
+            group("/r", "beta", [
+              session("remote-due", { live: "dormant", settledAtMs: null, reminderAtMs: 8_000 }),
+            ]),
+          ],
+        }),
+      ],
+    });
+    const entries = buildAttentionEntries(state, {}, (s) => s.live);
+    expect(entries.map((a) => [a.entry.session.tabId, a.state, a.entry.instanceId])).toEqual([
+      ["remote-due", "reminder", "inst-r"],
+      ["local-due", "reminder", null],
+    ]);
+
+    const suppress = new Set(entries.map((a) => a.entry.session.tabId));
+    const lists = buildSidebarLists(state, "", undefined, suppress);
+    expect(ids(lists.active)).toEqual([]);
+    expect(ids(lists.snoozed)).toEqual(["local-snoozed"]);
+    expect(ids(lists.settled)).toEqual(["local-settled"]);
   });
 });

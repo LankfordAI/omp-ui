@@ -136,16 +136,13 @@ describe("settleSessions (issue #980)", () => {
     expect(store().lifecycleConfirmation).toBeNull();
   });
 
-  it("settles an already-settled dormant row only to take it out of Snoozed, while a dormant unsettled row always settles (issue #1137)", async () => {
-    const state = twoSessions(
-      { live: "dormant", settledAtMs: 1_000, snoozed: true },
-      { live: "dormant", settledAtMs: 1_000 },
-    );
-    h.useStore.setState({ state: { ...state, snoozedSectionEnabled: false } });
-    await store().settleSessions([h.TAB, OTHER]);
-    expect(h.mockBackend.settleSession).not.toHaveBeenCalled();
-
-    h.useStore.setState({ state: { ...state, snoozedSectionEnabled: true } });
+  it("settles a snoozed dormant row and any unsettled dormant row, skipping already-settled non-snoozed rows (issues #1137, #1323)", async () => {
+    h.useStore.setState({
+      state: twoSessions(
+        { live: "dormant", settledAtMs: 1_000, snoozed: true },
+        { live: "dormant", settledAtMs: 1_000 },
+      ),
+    });
     await store().settleSessions([h.TAB, OTHER]);
     expect(h.mockBackend.settleSession.mock.calls).toEqual([[h.TAB]]);
 
@@ -156,7 +153,6 @@ describe("settleSessions (issue #980)", () => {
     await store().settleSessions([h.TAB, OTHER]);
     expect(h.mockBackend.settleSession.mock.calls).toEqual([[h.TAB]]);
   });
-
   it("records no undo for a settle main skipped, and says so", async () => {
     h.useStore.setState({ state: twoSessions() });
     h.mockBackend.settleSession.mockResolvedValueOnce(false);
@@ -174,7 +170,7 @@ describe("undoSettle (issue #980)", () => {
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 
-  it("undoes a bulk settle as one entry: resumes every session and restores its snooze", async () => {
+  it("undoes a bulk settle as one entry: restores snoozed row without spawning and resumes non-snoozed live row (#1323)", async () => {
     h.useStore.setState({
       state: twoSessions({ snoozed: true, snoozedUntilMs: 123 }),
       tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
@@ -194,10 +190,8 @@ describe("undoSettle (issue #980)", () => {
     const resumed = h.mockBackend.spawnSession.mock.calls.map(
       (call) => (call as unknown as [{ origin: string; resumeTabId: string }])[0],
     );
-    expect(resumed.map((r) => [r.origin, r.resumeTabId])).toEqual([
-      ["resume", h.TAB],
-      ["resume", OTHER],
-    ]);
+    // Only OTHER resumes a process; h.TAB was snoozed so restoring snooze keeps it parked dormant.
+    expect(resumed.map((r) => [r.origin, r.resumeTabId])).toEqual([["resume", OTHER]]);
     // A second Mod+Z has nothing left.
     expect(store().undoSettle()).toBe(false);
   });

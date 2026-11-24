@@ -38,7 +38,6 @@ const backendMock = {
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
-  setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
@@ -138,6 +137,7 @@ const state = backendState({
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,
@@ -178,6 +178,7 @@ const state = backendState({
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,
@@ -418,27 +419,30 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     useStore.setState({ state: withFirst({ live: "dormant" }) });
     renderSidebar();
     openContextMenu(row("Owned session"));
-    expect(itemLabels()).toEqual(["Ask about this session", "Migrate…"]);
+    expect(itemLabels()).toEqual(["Ask about this session", "Migrate…", "Snooze›"]);
     act(() => openMenuItems()[0]!.click());
     expect(askAboutSession).toHaveBeenCalledWith("tab-1");
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("offers Settle, Ask, and Pin but not Migrate on an idle live local row", () => {
+  it("offers Settle, Ask, Pin, and Snooze but not Migrate on an idle live local row", () => {
     renderSidebar();
     openContextMenu(row("Owned session"));
-    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Pin"]);
+    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Pin", "Snooze›"]);
   });
 
-  it("opens no menu on a row with no saved transcript", () => {
-    useStore.setState({ state: withFirst({ sessionId: null, live: "dormant" }) });
+  it("opens no menu on a missing row with no saved transcript", () => {
+    useStore.setState({ state: withFirst({ sessionId: null, live: "missing" }) });
     renderSidebar();
-    const event = openContextMenu(row("Owned session"));
+    const missingRow = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) =>
+      b.textContent?.includes("Owned session"),
+    )!;
+    const event = openContextMenu(missingRow);
     expect(event.defaultPrevented).toBe(false);
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("offers Ask, never Migrate, on a dormant chat row", () => {
+  it("offers Ask and Snooze, never Migrate, on a dormant chat row", () => {
     const chat: SessionSummary = {
       ...state.projects[0]!.sessions[0]!,
       tabId: "chat-c1",
@@ -449,16 +453,16 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     useStore.setState({ state: { ...state, chats: [{ ...chat, live: "dormant", settledAtMs: 1_000 }] } });
     renderSidebar();
     openContextMenu(row("Brainstorm names"));
-    expect(itemLabels()).toEqual(["Ask about this session"]);
+    expect(itemLabels()).toEqual(["Ask about this session", "Snooze›"]);
     act(() => openMenuItems()[0]!.click());
     expect(askAboutSession).toHaveBeenCalledWith("chat-c1");
   });
 
-  it("offers Settle, Ask, Migrate, and Pin on an unsettled dormant row in the main list (issue #1137)", () => {
+  it("offers Settle, Ask, Migrate, Pin, and Snooze on an unsettled dormant row in the main list (issue #1137)", () => {
     useStore.setState({ state: withFirst({ live: "dormant", settledAtMs: null }) });
     renderSidebar();
     openContextMenu(row("Owned session"));
-    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Migrate…", "Pin"]);
+    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Migrate…", "Pin", "Snooze›"]);
   });
 });
 
@@ -681,6 +685,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,
@@ -1096,7 +1101,6 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
 
   beforeEach(() => {
     backendMock.setSessionSnoozed.mockClear();
-    backendMock.setSnoozedSectionEnabled.mockClear();
   });
 
   it("renders Working (n), opens on demand, and moves an in-turn live row into it", () => {
@@ -1115,9 +1119,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
 
   it("keeps Working (0) visible and docked directly above Settled, below Snoozed", () => {
     useStore.setState({
-      state: stateWith([sess("parked", { snoozed: true }), sess("old", { live: "dormant" })], {
-        snoozedSectionEnabled: true,
-      }),
+      state: stateWith([sess("parked", { snoozed: true }), sess("old", { live: "dormant" })]),
     });
     renderSidebar();
     const headings = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].map(
@@ -1126,68 +1128,95 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(headings).toEqual(["Snoozed (1)", "Working (0)", "Settled (1)"]);
   });
 
-  it("with the setting off, shows no Snoozed section or Snooze item and keeps a snoozed-flagged row in the main list", () => {
-    useStore.setState({ state: stateWith([sess("parked", { snoozed: true })]) });
-    renderSidebar();
-    expect(sectionToggle("Snoozed")).toBeUndefined();
-    expect(rowButton("parked")).toBeDefined();
-    openContextMenu(rowButton("parked")!);
-    const labels = menuItemLabels();
-    expect(labels).not.toContain("Snooze");
-    expect(labels).not.toContain("Unsnooze");
-  });
-
-  it("with the setting on, Snooze parks a row and a snoozed row offers Unsnooze", () => {
+  it("Snooze submenu is always available without a setting, parks a row, and a snoozed row offers Unsnooze + Snooze again (#1323)", () => {
     useStore.setState({
-      state: stateWith([sess("parked"), sess("done", { snoozed: true })], { snoozedSectionEnabled: true }),
+      state: stateWith([
+        sess("parked"),
+        sess("done", { snoozed: true }),
+        sess("gone", { live: "missing" }),
+      ]),
     });
     renderSidebar();
     openContextMenu(rowButton("parked")!);
-    expect(menuItemLabels()).toContain("Snooze");
-    act(() => {
-      openMenuItems().find((b) => b.textContent === "Snooze")!.click();
-    });
+    const trigger = openMenuItems().find((b) => b.textContent?.startsWith("Snooze"));
+    expect(trigger).toBeDefined();
+    act(() => trigger!.click());
+    const indef = openMenuItems().find((b) => b.textContent === "Indefinitely");
+    expect(indef).toBeDefined();
+    act(() => indef!.click());
     expect(backendMock.setSessionSnoozed).toHaveBeenCalledWith("parked", true);
 
     expect(sectionToggle("Snoozed")!.textContent).toBe("Snoozed (1)");
     act(() => sectionToggle("Snoozed")!.click());
     openContextMenu(rowButton("done")!);
     expect(menuItemLabels()).toContain("Unsnooze");
+    expect(menuItemLabels().some((l) => l.startsWith("Snooze again"))).toBe(true);
     act(() => {
       openMenuItems().find((b) => b.textContent === "Unsnooze")!.click();
     });
     expect(backendMock.setSessionSnoozed).toHaveBeenCalledWith("done", false);
+
+    // Missing rows do not offer new Snooze (missing rows show their missing title attribute).
+    act(() => sectionToggle("Settled")!.click());
+    const missingRow = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) =>
+      b.textContent?.includes("gone"),
+    )!;
+    openContextMenu(missingRow);
+    expect(menuItemLabels().some((l) => l.startsWith("Snooze"))).toBe(false);
   });
 
-  it("timed snooze sends its deadline, and a snoozed row offers no timed items (issue #979)", () => {
+  it("timed snooze submenu sends preset deadlines and opens upgraded SnoozeUntilDialog (#979, #1323)", () => {
     useStore.setState({
-      state: stateWith([sess("parked"), sess("done", { snoozed: true, snoozedUntilMs: Date.now() + 3_600_000 })], {
-        snoozedSectionEnabled: true,
-      }),
+      state: stateWith([sess("parked"), sess("done", { snoozed: true, snoozedUntilMs: Date.now() + 3_600_000 })]),
     });
     renderSidebar();
     const before = Date.now();
     openContextMenu(rowButton("parked")!);
-    expect(menuItemLabels()).toEqual(
-      expect.arrayContaining(["Snooze", "Snooze 1 hour", "Snooze until tomorrow morning", "Snooze until next week", "Snooze until…"]),
-    );
     act(() => {
-      openMenuItems().find((b) => b.textContent === "Snooze 1 hour")!.click();
+      openMenuItems().find((b) => b.textContent?.startsWith("Snooze"))!.click();
+    });
+    const labels = menuItemLabels();
+    expect(labels.some((l) => l.startsWith("In 1 hour"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("Tomorrow morning"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("In 2 days"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("Next week"))).toBe(true);
+    expect(labels).toContain("Indefinitely");
+    expect(labels).toContain("Custom…");
+    act(() => {
+      openMenuItems().find((b) => b.textContent?.startsWith("In 1 hour"))!.click();
     });
     const [tabId, snoozed, untilMs] = backendMock.setSessionSnoozed.mock.calls.at(-1) as unknown as [string, boolean, number];
     expect([tabId, snoozed]).toEqual(["parked", true]);
     expect(untilMs - before).toBeGreaterThanOrEqual(3_600_000);
     expect(untilMs - before).toBeLessThan(3_600_000 + 5_000);
 
+    // Custom… opens the upgraded dialog with day chips and synced inputs.
+    openContextMenu(rowButton("parked")!);
+    act(() => {
+      openMenuItems().find((b) => b.textContent?.startsWith("Snooze"))!.click();
+    });
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Custom…")!.click();
+    });
+    const daysInput = document.body.querySelector<HTMLInputElement>('input[aria-label="Days from now"]')!;
+    expect(daysInput.value).toBe("2");
+    const chip5d = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "5d")!;
+    act(() => chip5d.click());
+    expect(daysInput.value).toBe("5");
+    const snoozeConfirm = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Snooze")!;
+    act(() => snoozeConfirm.click());
+    const customCall = backendMock.setSessionSnoozed.mock.calls.at(-1) as unknown as [string, boolean, number];
+    expect(customCall[0]).toBe("parked");
+    expect(customCall[1]).toBe(true);
+    expect(customCall[2]).toBeGreaterThan(Date.now() + 4 * 86_400_000);
+
     act(() => sectionToggle("Snoozed")!.click());
     expect(document.body.textContent).toMatch(/snoozed until \w+ \d\d:\d\d/);
-    openContextMenu(rowButton("done")!);
-    expect(menuItemLabels().filter((l) => l.startsWith("Snooze") || l === "Unsnooze")).toEqual(["Unsnooze"]);
   });
 
   it("persists the Snoozed collapse choice to its own localStorage key", () => {
     useStore.setState({
-      state: stateWith([sess("done", { snoozed: true })], { snoozedSectionEnabled: true }),
+      state: stateWith([sess("done", { snoozed: true })]),
     });
     renderSidebar();
     const toggle = sectionToggle("Snoozed")!;
@@ -1205,15 +1234,12 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     // click below flips a known state. Snoozed is collapsed by default too.
     act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({
-      state: stateWith(
-        [
-          sess("idle"),
-          sess("busy", { turnRunning: true }),
-          sess("parked", { snoozed: true }),
-          sess("old", { live: "dormant" }),
-        ],
-        { snoozedSectionEnabled: true },
-      ),
+      state: stateWith([
+        sess("idle"),
+        sess("busy", { turnRunning: true }),
+        sess("parked", { snoozed: true }),
+        sess("old", { live: "dormant" }),
+      ]),
     });
     renderSidebar();
     act(() => sectionToggle("Working")!.click());
@@ -1507,32 +1533,36 @@ describe("Sidebar attention stack (issue #1037)", () => {
     expect(heading()).toBeNull();
   });
 
-  it("surfaces a flagged session with no row anywhere, card only (#1038)", () => {
-    const parked = {
+  it("surfaces a dormant unsettled reminder in Needs attention, opens on click, and supports right-click re-snooze (#1323)", () => {
+    const reminded = {
       ...state.projects[0]!.sessions[0]!,
-      tabId: "parked",
-      title: "parked",
-      cachedTitle: "parked",
-      snoozed: true,
+      tabId: "reminded",
+      title: "reminded",
+      cachedTitle: "reminded",
+      live: "dormant" as const,
+      settledAtMs: null,
+      snoozed: false,
+      reminderAtMs: Date.now() - 5_000,
     };
     useStore.setState({
       state: backendState({
-        projects: [{ ...state.projects[0]!, sessions: [parked] }],
-        snoozedSectionEnabled: true,
+        projects: [{ ...state.projects[0]!, sessions: [reminded] }],
       }),
-      rpc: { parked: rpcTabState({ status: "ready" }) },
     });
-    act(() => useStore.getState().markUnread("parked", null));
     renderSidebar();
-    // The card is the session's only representation: no row in the main list,
-    // and the flagged-away-from view leaves the collapsed section with no
-    // rows of its own to hide.
-    expect(rowButton("parked")).toBeUndefined();
-    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
-      b.textContent?.startsWith("Snoozed"),
-    );
-    expect(toggle).toBeUndefined();
-    expect(cards()[0]!.textContent).toContain("parked");
+    // Reminder card is the session's only representation — no duplicate main-list row.
+    expect(rowButton("reminded")).toBeUndefined();
+    const cardButtons = cards().filter((b) => b.getAttribute("aria-label") !== "Dismiss reminder");
+    expect(cardButtons).toHaveLength(1);
+    expect(cardButtons[0]!.textContent).toContain("reminded");
+    expect(cardButtons[0]!.textContent).toContain("reminder");
+    expect(cardButtons[0]!.textContent).toContain("Snooze ended — click to resume");
+    expect(cards().some((b) => b.getAttribute("aria-label") === "Dismiss reminder")).toBe(true);
+
+    // Right-clicking the reminder card opens the row menu with Snooze and Settle.
+    openContextMenu(cardButtons[0]!);
+    expect(openMenuItems().some((b) => b.textContent?.startsWith("Snooze"))).toBe(true);
+    expect(openMenuItems().some((b) => b.textContent === "Settle")).toBe(true);
   });
 
   it("a flagged session reads once: no duplicate main-list row while its card shows (#1038)", () => {

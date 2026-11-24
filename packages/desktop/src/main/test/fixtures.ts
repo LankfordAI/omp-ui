@@ -36,7 +36,6 @@ interface RegistrySettings {
   experimentsFlagSplitSeeded: boolean;
   councilDefaultOnSeeded: boolean;
   themeAgentAccessDefaultOnSeeded: boolean;
-  snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
   deviceAgentAccess: boolean;
@@ -128,6 +127,7 @@ export function ownedSessionRecord(
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: null,
     heldPrompt: null,
@@ -179,7 +179,6 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // Default true so seeds exercise post-flip registries (#1177); themeAgentAccess
     // below models an explicit opt-out rather than the legacy off default.
     themeAgentAccessDefaultOnSeeded: true,
-    snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,
     deviceAgentAccess: false,

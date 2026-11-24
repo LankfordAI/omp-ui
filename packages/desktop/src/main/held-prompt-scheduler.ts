@@ -34,7 +34,10 @@ const RESUME_THROTTLE_MS = 60_000;
 /** What the scheduler asks of the session manager and the registry. */
 export interface HeldPromptSchedulerDeps {
   sessions: () => readonly OwnedSessionRecord[];
-  updateSession: (tabId: string, patch: Pick<OwnedSessionRecord, "heldPrompt">) => unknown;
+  updateSession: (
+    tabId: string,
+    patch: Partial<Pick<OwnedSessionRecord, "heldPrompt" | "snoozed" | "snoozedUntilMs" | "reminderAtMs">>,
+  ) => unknown;
   broadcast: () => void;
   lineageDir: (record: OwnedSessionRecord) => string;
   /** True while the tab has a live native process that is not booting, held, mid-turn, or waiting on the user. */
@@ -307,6 +310,10 @@ export class HeldPromptScheduler implements FrameObserver {
     state.inFlight = null;
     if (this.deps.isLive(tabId)) {
       if (!state.ready || !this.deps.canSendNow(tabId)) return false;
+      if (record.snoozed || record.reminderAtMs !== null) {
+        this.deps.updateSession(tabId, { snoozed: false, snoozedUntilMs: null, reminderAtMs: null });
+        this.deps.broadcast();
+      }
       state.inFlight = held.id;
       this.deps.send(tabId, this.command(payload));
       return true;

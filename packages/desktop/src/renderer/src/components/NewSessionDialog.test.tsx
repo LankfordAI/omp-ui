@@ -153,7 +153,6 @@ const backendMock = {
   }),
   setSessionAutoTitled: vi.fn(async () => {}),
   setSessionSnoozed: vi.fn(async () => {}),
-  setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   // The joined instance answers the same channels through the proxy (issue #416):

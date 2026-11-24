@@ -7596,6 +7596,68 @@ describe("merged-finish settle (issue #924)", () => {
     }
   });
 
+  it("snooze-park reaps an idle native session without setting settledAtMs, and resume/prompt/view clear snooze & reminder (#1323)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    // Arm the tracker past boot.
+    rpc.frame({ type: "agent_end" });
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: Date.now() + 86_400_000, settledAtMs: null });
+    manager.requestSnoozePark(TAB);
+    // Answer the pre-kill get_state probe as idle.
+    const sentCmds = rpc.send.mock.calls.map((call: unknown[]) => call[0]);
+    const probe = sentCmds.find(
+      (cmd): cmd is { type: "get_state"; id: string } =>
+        typeof cmd === "object" && cmd !== null && "type" in cmd && cmd.type === "get_state" && "id" in cmd && typeof cmd.id === "string",
+    );
+    expect(probe).toBeDefined();
+    rpc.frame({
+      type: "response",
+      id: probe!.id,
+      command: "get_state",
+      success: true,
+      data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+    });
+    await vi.waitFor(() => expect(manager.isLive(TAB)).toBe(false));
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: true,
+      settledAtMs: null,
+    });
+
+    // Simulate expiry stamping reminderAtMs, then resume: clears snoozed, snoozedUntilMs, reminderAtMs.
+    registry.updateSession(TAB, { snoozed: false, snoozedUntilMs: null, reminderAtMs: Date.now() });
+    await resumeRpc(manager);
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: false,
+      snoozedUntilMs: null,
+      reminderAtMs: null,
+    });
+
+    // Viewing a live reminded session clears reminderAtMs.
+    registry.updateSession(TAB, { reminderAtMs: Date.now() });
+    manager.setViewedTab("desktop", TAB);
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.reminderAtMs).toBeNull();
+
+    // Sending a human prompt to a live snoozed session clears snooze and reminder.
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: Date.now() + 60_000, reminderAtMs: null });
+    manager.rpcSend(TAB, { type: "prompt", id: "u1", message: "back to work" });
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: false,
+      snoozedUntilMs: null,
+      reminderAtMs: null,
+    });
+  });
+
+  it("snooze-park leaves a live PTY session running (#1323)", async () => {
+    const { manager, registry } = setup({ mode: "pty" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+    manager.requestSnoozePark(TAB);
+    await Promise.resolve();
+    expect(manager.isLive(TAB)).toBe(true);
+  });
+
   it("persists settledAtMs across settle, hibernate, resume, and killAll (issue #1137)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     // Fresh spawn starts unsettled (settledAtMs: null).
