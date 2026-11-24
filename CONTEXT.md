@@ -2036,9 +2036,10 @@ graphite or light row (ADR-0094).
 _Avoid_: base colours, palette, swatches
 
 **Backdrop**:
-The picture a theme may carry behind the whole app: a still image or a
-**scene**. It is blurred once on its own layer and shown as authored, never
-dimmed; text never sits on it directly (ADR-0094).
+The picture or loop a theme may carry behind the whole app: a still image, an
+animated SVG **scene**, or a local looping **video** (MP4/WebM). It is blurred
+once on its own layer and shown as authored, never dimmed; text never sits on
+it directly (ADR-0094).
 _Avoid_: wallpaper, background image
 
 **Scene**:
@@ -2062,8 +2063,8 @@ _Avoid_: text panel, glass card, frosted card
 
 **Backdrop motion**:
 The Settings → Appearance switch (**Animate backdrops**, on by default) that
-lets a **scene** animate. A scene still stops while the window is hidden or the
-system asks for reduced motion (ADR-0094).
+lets a **scene** or video **backdrop** move. Both still pause while the window
+is hidden or the system asks for reduced motion (ADR-0094).
 _Avoid_: animated themes, motion toggle
 
 **Theme mode**:

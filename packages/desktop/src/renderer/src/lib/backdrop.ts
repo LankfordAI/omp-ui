@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import {
   backdropFloors,
+  backdropKindForMime,
   stillScene,
   type ThemeBackdropKind,
   type ThemeBackdropMime,
@@ -23,6 +24,7 @@ export interface BackdropAsset {
   url: string;
   stillUrl: string;
   kind: ThemeBackdropKind;
+  mime: ThemeBackdropMime;
 }
 
 /** One load per hash, kept for the life of the page; a failed load is dropped so a later switch retries. */
@@ -52,16 +54,18 @@ async function fetchBackdropAsset(assetHash: string): Promise<BackdropAsset> {
 
 /** Builds the same URLs from bytes the editor already holds, for a draft. */
 export function backdropAssetFromBytes(bytes: Uint8Array, mime: ThemeBackdropMime): BackdropAsset {
-  if (mime !== "image/svg+xml") {
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
-    return { url, stillUrl: url, kind: "image" };
+  const kind = backdropKindForMime(mime);
+  if (kind === "scene") {
+    const text = new TextDecoder().decode(bytes);
+    return {
+      url: URL.createObjectURL(new Blob([text], { type: "image/svg+xml" })),
+      stillUrl: URL.createObjectURL(new Blob([stillScene(text)], { type: "image/svg+xml" })),
+      kind: "scene",
+      mime,
+    };
   }
-  const text = new TextDecoder().decode(bytes);
-  return {
-    url: URL.createObjectURL(new Blob([text], { type: "image/svg+xml" })),
-    stillUrl: URL.createObjectURL(new Blob([stillScene(text)], { type: "image/svg+xml" })),
-    kind: "scene",
-  };
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  return { url, stillUrl: url, kind, mime };
 }
 
 /** Revokes a draft asset's URLs. Cached assets from `loadBackdropAsset` are never released. */

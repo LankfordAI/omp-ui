@@ -222,7 +222,7 @@ import {
   type VaultDetection,
   authoredThemeId,
   BACKDROP_DEFAULT_BLUR,
-  BACKDROP_IMAGE_BYTES_MAX,
+  BACKDROP_BYTES_MAX,
   type SaveStoredThemeResult,
   type ThemeApplyResult,
   type ThemeList,
@@ -2697,7 +2697,9 @@ export class MainBackend {
     }
     const stat = await fs.promises.stat(realFile);
     if (!stat.isFile()) return invalid("backdrop.path does not exist");
-    if (stat.size > BACKDROP_IMAGE_BYTES_MAX) return invalid("image backdrops can be at most 4 MiB");
+    if (stat.size > BACKDROP_BYTES_MAX) {
+      return invalid("backdrops can be at most 16 MiB (4 MiB for images and scenes)");
+    }
     const bytes = await fs.promises.readFile(realFile);
     return saveStoredTheme(this.storedThemeDeps, {
       ...draft,

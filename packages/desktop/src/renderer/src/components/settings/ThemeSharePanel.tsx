@@ -20,7 +20,7 @@ import { Button } from "../ui";
 import { FIELD } from "./rows";
 
 const GUIDE_URL = "https://github.com/LankfordAI/omp-ui-themes/blob/main/CONTRIBUTING.md";
-
+const VIDEO_SHARE_ERROR = "The official repository accepts image and SVG backdrops only; video backdrops stay local.";
 /**
  * Share an authored theme to the official theme repository (#1212, ADR-0097):
  * collect the details, save the theme file and the theme details file with two
@@ -41,15 +41,25 @@ export function ThemeSharePanel(props: {
   const [rights, setRights] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const hasVideoBackdrop = source.backdrop?.kind === "video";
   const slugValid = THEME_SLUG.test(slug) && slug.length <= THEME_SLUG_CHARS_MAX;
   const authorValid = author.trim() === "" || isThemeAuthor(author.trim());
   const valid =
-    slugValid && authorValid && tags.length >= 1 && tags.length <= THEME_TAGS_MAX && description.trim() !== "" && rights;
-
+    !hasVideoBackdrop &&
+    slugValid &&
+    authorValid &&
+    tags.length >= 1 &&
+    tags.length <= THEME_TAGS_MAX &&
+    description.trim() !== "" &&
+    rights;
   const toggleTag = (tag: string): void =>
     setTags((current) => (current.includes(tag) ? current.filter((x) => x !== tag) : [...current, tag]));
 
   const saveTheme = async (): Promise<void> => {
+    if (hasVideoBackdrop) {
+      setSaveError(VIDEO_SHARE_ERROR);
+      return;
+    }
     setSaveError(null);
     let file: ThemeFile;
     try {
@@ -74,6 +84,10 @@ export function ThemeSharePanel(props: {
   };
 
   const saveDetails = (): void => {
+    if (hasVideoBackdrop) {
+      setSaveError(VIDEO_SHARE_ERROR);
+      return;
+    }
     setSaveError(null);
     downloadBlob(
       `${slug}.details.json`,
@@ -94,6 +108,11 @@ export function ThemeSharePanel(props: {
         <li>Open a pull request; the checks run on their own.</li>
       </ol>
 
+      {hasVideoBackdrop && (
+        <p role="alert" className="mt-2 text-sm text-rose">
+          {VIDEO_SHARE_ERROR}
+        </p>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm text-ink-mid">
           File name

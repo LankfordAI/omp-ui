@@ -447,7 +447,8 @@
 }
 /* Blurred once here, so no plane above needs a filter (#511). The image
  * overhangs by three blur radii so the blur never fades at the edges. */
-.backdrop-layer > img {
+.backdrop-layer > img,
+.backdrop-layer > video {
   position: absolute;
   inset: calc(var(--backdrop-blur, 0px) * -3);
   width: calc(100% + var(--backdrop-blur, 0px) * 6);

@@ -55,6 +55,9 @@ describe("checkThemeRepository", () => {
     bytes.set([0x89, 0x50, 0x4e, 0x47]);
     return bytes;
   };
+  const mp4Data = Buffer.from([
+    0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+  ]).toString("base64");
 
   it.each<[string, Record<string, string | Uint8Array | null>, RegExp]>([
     ["a stray file", { "screenshot.png": "x" }, /^screenshot\.png: not allowed/],
@@ -100,6 +103,17 @@ describe("checkThemeRepository", () => {
         }),
       },
       /image backdrops can be at most 1 MiB/,
+    ],
+    [
+      "a video backdrop",
+      {
+        "themes/night.json": themeText("Night", "#101010", {
+          mime: "video/mp4",
+          data: mp4Data,
+          blur: 0,
+        }),
+      },
+      /video backdrops are not accepted/,
     ],
     [
       "a featured path that does not exist",

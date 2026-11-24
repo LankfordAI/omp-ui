@@ -2,14 +2,14 @@
 // host (issue #1168). Pure — the renderer parses files with it before saving.
 import { isObject } from "./guards";
 import { AUTHORED_THEME_ID_PREFIX, STORED_ID, type ThemeGateFailure, type ThemeSource } from "./theme";
-import { BACKDROP_BLUR_MAX, BACKDROP_IMAGE_BYTES_MAX, LEGACY_DIM_KEY, type ThemeBackdropMime } from "./theme-backdrop";
+import { BACKDROP_BLUR_MAX, BACKDROP_BYTES_MAX, LEGACY_DIM_KEY, type ThemeBackdropMime } from "./theme-backdrop";
 import { isThemeSeeds, themeColoursFromSeeds, type ThemeSeeds } from "./theme-seeds";
 import { stripJsonc } from "./vscode-theme";
 
 export const THEME_FILE_FORMAT = "omp-ui-theme";
 export const THEME_FILE_VERSION = 1;
-/** An omp-ui theme file larger than this cannot hold a valid one (a 4 MiB backdrop as base64, plus seeds). */
-export const THEME_FILE_BYTES_MAX = 6 * 1024 * 1024;
+/** An omp-ui theme file larger than this cannot hold a valid one (a 16 MiB video backdrop as base64, plus seeds). */
+export const THEME_FILE_BYTES_MAX = 24 * 1024 * 1024;
 
 /** What every authoring route hands the host. */
 export interface StoredThemeDraft {
@@ -39,8 +39,8 @@ export interface ThemeFile {
 }
 
 const LABEL_MAX = 80;
-/** Base64 length of the largest accepted image backdrop. */
-const BACKDROP_DATA_MAX = Math.ceil(BACKDROP_IMAGE_BYTES_MAX / 3) * 4;
+/** Base64 length of the largest accepted backdrop. */
+const BACKDROP_DATA_MAX = Math.ceil(BACKDROP_BYTES_MAX / 3) * 4;
 const ASSET_HASH = /^[0-9a-f]{64}$/;
 
 const hasOnlyKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
@@ -94,9 +94,13 @@ const MALFORMED = { ok: false, message: "the theme file is malformed" } as const
 export function parseThemeFile(text: string): { ok: true; draft: StoredThemeDraft } | { ok: false; message: string } {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsonc(text));
+    parsed = JSON.parse(text);
   } catch {
-    return MALFORMED;
+    try {
+      parsed = JSON.parse(stripJsonc(text));
+    } catch {
+      return MALFORMED;
+    }
   }
   if (!isObject(parsed) || Array.isArray(parsed)) return MALFORMED;
   if (parsed.format !== THEME_FILE_FORMAT) return { ok: false, message: "this is not an omp-ui theme file" };

@@ -3439,6 +3439,87 @@ describe("Settings Appearance page theme mode and Your themes (issues #999, #116
     root = null;
     expect(currentThemePreview()).toBeNull();
   });
+
+  it("picks an MP4 backdrop, keeps its draft preview alive across Preview-in-app toggles, saves bytes, and rejects invalid files", async () => {
+    const mp4 = new Uint8Array([
+      0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+    ]);
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    let seq = 0;
+    const revoked: string[] = [];
+    URL.createObjectURL = vi.fn(() => `blob:draft-video-${++seq}`);
+    URL.revokeObjectURL = vi.fn((url: string) => {
+      revoked.push(url);
+    });
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      backendMock.saveStoredTheme.mockResolvedValueOnce({ ok: true, source: { id: "custom-video-abcdef" } });
+      await openEditor();
+      const picker = document.querySelector<HTMLInputElement>('[data-testid="theme-backdrop-picker"]')!;
+      expect(picker.accept).toContain(".mp4");
+      expect(picker.accept).toContain(".webm");
+
+      // Invalid file surfaces checkBackdropBytes rejection.
+      const badFile = new File([new Uint8Array([1, 2, 3, 4])], "bad.bin", { type: "application/octet-stream" });
+      Object.defineProperty(badFile, "arrayBuffer", { value: async () => new Uint8Array([1, 2, 3, 4]).buffer });
+      Object.defineProperty(picker, "files", { configurable: true, value: [badFile] });
+      await act(async () => {
+        picker.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("MP4 or WebM");
+
+      // Valid MP4 mounts a static frame-0 specimen video (never calls play) and gates floor styling on loadeddata.
+      const goodFile = new File([mp4], "loop.mp4", { type: "video/mp4" });
+      Object.defineProperty(goodFile, "arrayBuffer", { value: async () => mp4.buffer });
+      Object.defineProperty(picker, "files", { configurable: true, value: [goodFile] });
+      await act(async () => {
+        picker.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const sample = document.querySelector<HTMLElement>('[data-testid="theme-editor-sample"]')!;
+      const video = sample.querySelector("video")!;
+      expect(video).not.toBeNull();
+      expect(video.muted).toBe(true);
+      expect(video.autoplay).toBe(false);
+      expect(video.loop).toBe(false);
+      expect(video.getAttribute("preload")).toBe("auto");
+      expect(playSpy).not.toHaveBeenCalled();
+      const surface = sample.querySelector<HTMLElement>(".bg-surface")!;
+      expect(surface.style.backgroundColor).toBe("");
+      await act(async () => {
+        video.dispatchEvent(new Event("loadeddata"));
+      });
+      expect(surface.style.backgroundColor).toContain("color-mix");
+      expect(pauseSpy).toHaveBeenCalled();
+
+      // Toggling Preview in app off and back on must not revoke the draft Blob URL.
+      const previewSwitch = document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Preview in app"]')!;
+      click(previewSwitch);
+      await vi.waitFor(() => expect(currentThemePreview()).not.toBeNull());
+      click(previewSwitch);
+      await vi.waitFor(() => expect(currentThemePreview()).toBeNull());
+      expect(revoked).toEqual([]);
+      click(previewSwitch);
+      await vi.waitFor(() => expect(currentThemePreview()?.backdrop).toMatchObject({ kind: "video", mime: "video/mp4" }));
+
+      click(buttonWithText("Save")!);
+      await act(async () => {});
+      expect(backendMock.saveStoredTheme).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backdrop: expect.objectContaining({
+            from: "bytes",
+            data: Buffer.from(mp4).toString("base64"),
+          }),
+        }),
+      );
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+      playSpy.mockRestore();
+      pauseSpy.mockRestore();
+    }
+  });
 });
 
 describe("Settings Appearance page Theme repositories (#1178)", () => {
@@ -3738,6 +3819,23 @@ describe("Settings Appearance page theme wall filters, sort and paging (#1211)",
     expect(labels()).toEqual(["Theme 01", "Theme 03", "Theme 04"]);
   });
 
+  it("Animated filter includes local video backdrop themes and shows a video backdrop chip", async () => {
+    const videoTheme: ThemeSource = {
+      ...sourceFromDraft("custom-ridge-abcdef", "Autumn Ridge", { canvas: "#1a1b26" }),
+      backdrop: { assetHash: "e".repeat(64), kind: "video", mime: "video/mp4", blur: 12 },
+    };
+    useStore.setState({ settingsPage: "appearance", state: backendState({ storedThemes: [videoTheme] }) });
+    await renderSettings();
+    const card = themeCard("Autumn Ridge (custom)");
+    expect(card.textContent).toContain("video backdrop");
+    click(
+      [...document.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Backdrop"] button')].find(
+        (b) => b.textContent === "Animated",
+      )!,
+    );
+    expect(document.querySelector('[aria-label="Autumn Ridge (custom) theme"]')).not.toBeNull();
+  });
+
   it("search matches tags and authors as well as labels", async () => {
     await open(LISTING);
     const search = document.querySelector<HTMLInputElement>('input[aria-label="Search themes"]')!;
@@ -3884,6 +3982,21 @@ describe("Settings Appearance page Share panel (#1212)", () => {
     click(saveTheme());
     await act(async () => {});
     expect(panel()!.querySelector('[role="alert"]')?.textContent).toContain("no backdrop channel");
+    expect(downloads).toEqual([]);
+  });
+
+  it("shows an immediate alert and disables both saves for a video-backdrop theme", async () => {
+    const WITH_VIDEO: ThemeSource = {
+      ...sourceFromDraft("custom-video-abcdef", "Video Night", { canvas: "#1a1b26" }),
+      backdrop: { assetHash: "d".repeat(64), kind: "video", mime: "video/mp4", blur: 12 },
+    };
+    await openShare(WITH_VIDEO);
+    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe(
+      "The official repository accepts image and SVG backdrops only; video backdrops stay local.",
+    );
+    await fill();
+    expect(saveDetails().disabled).toBe(true);
+    expect(saveTheme().disabled).toBe(true);
     expect(downloads).toEqual([]);
   });
 

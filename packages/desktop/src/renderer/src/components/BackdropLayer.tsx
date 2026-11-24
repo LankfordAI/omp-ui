@@ -1,16 +1,16 @@
-import { useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { applyBackdropChrome, loadBackdropAsset, useDraftBackdropAsset, type BackdropAsset } from "../lib/backdrop";
 import { useBackdropMotion } from "../lib/backdrop-motion";
 import { currentThemePreview, useTheme } from "../lib/themes";
 
 /**
  * The theme's backdrop, painted once under the whole app (issue #1168,
- * ADR-0094). Shown only through `<img>`, so a scene runs no script and loads
- * no subresource; blurred here so no plane above needs a filter; never
+ * ADR-0094). Images and scenes render through `<img>` (so a scene runs no
+ * script and loads no subresource); video loops render through a muted,
+ * looping `<video>`; blurred once here so no plane above needs a filter; never
  * dimmed, so it shows as authored (#1187).
- * A scene animates only while motion is on, the window is visible and the
- * system does not ask for reduced motion: neither signal reaches inside an
- * image, so the layer swaps in the scene's still instead.
+ * Scenes and videos animate only while motion is on, the window is visible,
+ * the system does not ask for reduced motion, and `origin.animate !== false`.
  */
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
@@ -67,30 +67,72 @@ export function BackdropLayer(): ReactElement | null {
     : draft ?? (loaded !== null && loaded.hash === hash ? loaded.asset : null);
 
   // An installed repository theme's scene stays still until the user allows it (#1178).
-  const animate = asset !== null && asset.kind === "scene" && motion && !reducedMotion && !hidden &&
+  const animate =
+    asset !== null &&
+    (asset.kind === "scene" || asset.kind === "video") &&
+    motion &&
+    !reducedMotion &&
+    !hidden &&
     theme.origin?.animate !== false;
-  const src = asset === null ? null : animate ? asset.url : asset.stillUrl;
+  const src = asset === null ? null : asset.kind === "video" ? asset.url : animate ? asset.url : asset.stillUrl;
 
-  // Ready once this exact image has decoded; the floors and the transparent
+  // Ready once this exact media URL has decoded; the floors and the transparent
   // stage are written only then, so a failed load leaves today's paint.
   const [readySrc, setReadySrc] = useState<string | null>(null);
-  const ready = src !== null && readySrc !== null && (readySrc === asset?.url || readySrc === asset?.stillUrl);
+  const ready =
+    src !== null &&
+    readySrc !== null &&
+    (asset?.kind === "video"
+      ? readySrc === asset.url
+      : readySrc === asset?.url || readySrc === asset?.stillUrl);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    if (asset?.kind !== "video") return;
+    const video = videoRef.current;
+    if (video === null) return;
+    video.muted = true;
+    video.defaultMuted = true;
+    if (animate) {
+      void video.play()?.catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [asset?.url, asset?.kind, animate, ready]);
 
   useEffect(() => {
     applyBackdropChrome(theme, ready);
   }, [theme, ready]);
   useEffect(() => () => applyBackdropChrome(theme, false), [theme]);
 
-  if (src === null) return null;
+  if (src === null || asset === null) return null;
   return (
     <div aria-hidden className="backdrop-layer">
-      <img
-        alt=""
-        draggable={false}
-        src={src}
-        onLoad={() => setReadySrc(src)}
-        onError={() => setReadySrc(null)}
-      />
+      {asset.kind === "video" ? (
+        <video
+          key={asset.url}
+          ref={videoRef}
+          src={asset.url}
+          muted
+          loop
+          playsInline
+          preload="auto"
+          disablePictureInPicture
+          disableRemotePlayback
+          tabIndex={-1}
+          aria-hidden
+          onLoadedData={() => setReadySrc(asset.url)}
+          onError={() => setReadySrc(null)}
+        />
+      ) : (
+        <img
+          alt=""
+          draggable={false}
+          src={src}
+          onLoad={() => setReadySrc(src)}
+          onError={() => setReadySrc(null)}
+        />
+      )}
     </div>
   );
 }

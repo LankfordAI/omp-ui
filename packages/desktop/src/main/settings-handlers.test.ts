@@ -216,6 +216,14 @@ describe("theme backdrop reads (issue #1168)", () => {
         mime: "image/svg+xml",
         data: Buffer.from(svg).toString("base64"),
       });
+      const mp4 = new Uint8Array([
+        0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+      ]);
+      const mp4Hash = await deps.backdrops.put(mp4);
+      await expect(handlers[CH.readThemeBackdrop](mp4Hash)).resolves.toEqual({
+        mime: "video/mp4",
+        data: Buffer.from(mp4).toString("base64"),
+      });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

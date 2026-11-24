@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { backdropFloors, type BackdropFloors } from "@omp-ui/core/theme-backdrop";
 import { loadBackdropAsset, type BackdropAsset } from "../../lib/backdrop";
 import { cn } from "../../lib/cn";
@@ -50,22 +50,67 @@ function planeStyle(plane: "void" | "sunken" | "surface", floor: number | null):
 /**
  * The backdrop's still frame, blurred once: style.css's .backdrop-layer,
  * with this theme's blur.
- * Never the animated scene: samples do not move (ADR-0094 §6, ADR-0096 §7).
+ * Never the animated scene or playing video: samples do not move (ADR-0094 §6, ADR-0096 §7).
  */
-function SpecimenBackdrop({ stillUrl, blur }: { stillUrl: string; blur: number }) {
+function SpecimenBackdrop({
+  asset,
+  blur,
+  onReady,
+  onError,
+}: {
+  asset: BackdropAsset;
+  blur: number;
+  onReady: () => void;
+  onError: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    if (asset.kind !== "video") return;
+    const el = videoRef.current;
+    if (el === null) return;
+    el.muted = true;
+    el.defaultMuted = true;
+    el.pause();
+  }, [asset.kind, asset.stillUrl]);
+
+  const mediaStyle: CSSProperties = {
+    inset: `${-3 * blur}px`,
+    width: `calc(100% + ${6 * blur}px)`,
+    height: `calc(100% + ${6 * blur}px)`,
+    filter: `blur(${blur}px)`,
+  };
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <img
-        alt=""
-        src={stillUrl}
-        className="absolute max-w-none object-cover"
-        style={{
-          inset: `${-3 * blur}px`,
-          width: `calc(100% + ${6 * blur}px)`,
-          height: `calc(100% + ${6 * blur}px)`,
-          filter: `blur(${blur}px)`,
-        }}
-      />
+      {asset.kind === "video" ? (
+        <video
+          key={asset.stillUrl}
+          ref={videoRef}
+          src={asset.stillUrl}
+          muted
+          playsInline
+          preload="auto"
+          disablePictureInPicture
+          disableRemotePlayback
+          tabIndex={-1}
+          aria-hidden="true"
+          className="absolute max-w-none object-cover"
+          style={mediaStyle}
+          onLoadedData={(event) => {
+            event.currentTarget.pause();
+            onReady();
+          }}
+          onError={onError}
+        />
+      ) : (
+        <img
+          alt=""
+          src={asset.stillUrl}
+          className="absolute max-w-none object-cover"
+          style={mediaStyle}
+          onLoad={onReady}
+          onError={onError}
+        />
+      )}
     </div>
   );
 }
@@ -282,13 +327,24 @@ export function ThemeSpecimen(props: {
 }): ReactElement {
   const { theme, variant, className } = props;
   const asset = useSpecimenAsset(theme, props.asset);
+  const [readyUrl, setReadyUrl] = useState<string | null>(null);
+  const assetUrl = asset?.stillUrl ?? null;
+  useEffect(() => {
+    setReadyUrl(null);
+  }, [assetUrl]);
   const backdrop = asset !== null ? theme.backdrop : null;
-  const floors = backdrop !== null ? backdropFloors(theme.tokens) : null;
+  const backdropReady =
+    backdrop !== null && asset !== null && (asset.kind !== "video" || readyUrl === asset.stillUrl);
+  const floors = backdropReady ? backdropFloors(theme.tokens) : null;
   const layer =
     backdrop !== null && asset !== null ? (
-      <SpecimenBackdrop stillUrl={asset.stillUrl} blur={backdrop.blur} />
+      <SpecimenBackdrop
+        asset={asset}
+        blur={backdrop.blur}
+        onReady={() => setReadyUrl(asset.stillUrl)}
+        onError={() => setReadyUrl(null)}
+      />
     ) : null;
-
   if (variant === "card") {
     return (
       <div
