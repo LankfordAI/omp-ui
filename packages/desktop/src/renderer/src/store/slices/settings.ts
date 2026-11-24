@@ -136,6 +136,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setWorkspacePolicy(policy) {
+      try {
+        await backend.setWorkspacePolicy(policy);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async ensureCompactionMethods() {
       if (get().compactionMethods.status === "loaded") return;
       if (compactionMethodsInflight !== null) return compactionMethodsInflight;

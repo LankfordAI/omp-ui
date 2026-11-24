@@ -510,7 +510,7 @@ describe("DeleteSessionDialog", () => {
     expect(checkbox).not.toBeNull();
     expect(checkbox!.disabled).toBe(true);
     expect((checkbox!.closest("label") as HTMLLabelElement).title).toBe(
-      "a session is mid-turn in the project",
+      "session “Busy” is mid-turn",
     );
     unmountDialog();
   });
@@ -788,7 +788,7 @@ describe("DeleteSessionDialog", () => {
     // the primary button disables with the reason instead of falling through.
     const deleteButton = buttonByText("merge & delete");
     expect(deleteButton.disabled).toBe(true);
-    expect(deleteButton.title).toBe("a session is mid-turn in the project");
+    expect(deleteButton.title).toBe("session “Busy” is mid-turn");
     expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
     expect(confirmDeleteSession).not.toHaveBeenCalled();
     unmountDialog();

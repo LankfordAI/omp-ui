@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { MergeBackStatus } from "@omp-ui/core/types";
 import { displayMessage } from "../backend";
 import type { BulkDeleteConfirmation, DeleteConfirmation } from "../store";
-import { findOwner, findRecord, runningSessionTitleOnCheckout, skipConfirmationCovers, useStore } from "../store";
+import { checkoutOccupant, findOwner, findRecord, occupantActivityPhrase, skipConfirmationCovers, useStore } from "../store";
 import { projectKey } from "../lib/project-key";
 import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "../lib/format";
@@ -46,11 +47,12 @@ export function DeleteSessionDialog({
   const worktreePath = confirmation.worktreePath;
   const n = confirmation.cascade.length;
   const offerOptOut = skipConfirmationCovers(confirmation);
-  // A session mid-turn in the project checkout: merging moves the destination
-  // branch out from under it. The deleted session's own tab is excluded.
-  const busyTitle = useStore((s) =>
-    runningSessionTitleOnCheckout(s, projectCwd, confirmation.tabId),
+  // Another live session occupying the project checkout: merging moves the
+  // destination branch out from under it. The deleted session's own tab is excluded.
+  const occupant = useStore(
+    useShallow((s) => checkoutOccupant(s, projectCwd, confirmation.tabId, instanceId)),
   );
+  const busyTitle = occupant?.title ?? null;
 
   useEffect(() => {
     if (branch === null || projectCwd === undefined) return;
@@ -107,8 +109,8 @@ export function DeleteSessionDialog({
       ? undefined
       : mergeStatus.destinationCheckout === "other"
         ? `${mergeStatus.destination} is checked out in another worktree`
-        : onProjectCheckout && busyTitle !== null
-          ? "a session is mid-turn in the project"
+        : onProjectCheckout && occupant !== null
+          ? `session “${occupant.title}” ${occupantActivityPhrase(occupant.reason)}`
           : mergeStatus === null
             ? undefined
             : !mergeStatus.destinationExists

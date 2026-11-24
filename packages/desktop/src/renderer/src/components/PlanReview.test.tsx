@@ -233,8 +233,10 @@ function sessionRecord(tabId: string, title: string) {
 function stateWithSessions(
   titles: Record<string, string>,
   worktrees: Record<string, SessionWorktree> = {},
+  workspacePolicy: "auto" | "worktree" | "checkout" = "checkout",
 ) {
   return backendState({
+    workspacePolicy,
     projects: [
       {
         project: {
@@ -683,22 +685,21 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
     expect(input).not.toBeNull();
-    // Minted once on first pick; once the base resolves the mint names its
-    // cut point (issue #405): omp-ui/<base>/<hex> (ADR-0018 app scratch work).
-    expect(input.value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    // Prefilled from the plan slug so Plan->Build worktrees start with a PR-ready name.
+    expect(input.value).toBe("fix-login-race");
     const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
     expect(base).not.toBeNull();
-    // Base defaults to the checkout's current branch once the fields mount.
+    // Base defaults to defaultBranch once the fields mount.
     await act(async () => {});
     expect(base.value).toBe("main");
     // The Git-branch fieldset is a same-session-contexts concern: hidden here.
     expect(document.body.textContent).not.toContain("Git branch");
 
-    // Re-picking the active selection keeps the minted name (issue #225).
-    const minted = input.value;
+    // Re-picking the active selection keeps the current name (issue #225).
+    const chosen = input.value;
     await act(async () => contextRow("worktree session").click());
     expect(document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value).toBe(
-      minted,
+      chosen,
     );
   });
 
@@ -805,12 +806,12 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         destination: { kind: "worktree"; branch: string };
       };
       expect(options.worktree).toEqual({
-        branch: expect.stringMatching(/^p\/TECH-123\/[0-9a-f]{8}$/),
+        branch: "fix-login-race",
         baseRef: "main",
         baseBranch: "TECH-123",
       });
       expect(options).toMatchObject({
-        destination: { kind: "worktree", branch: options.worktree.branch },
+        destination: { kind: "worktree", branch: "fix-login-race" },
       });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
@@ -847,8 +848,8 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     await act(async () => contextRow("worktree session").click());
     const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
-    expect(second).toMatch(/^p\/main\/[0-9a-f]{8}$/);
-    expect(second).not.toBe(first);
+    expect(second).toBe("fix-login-race");
+    expect(first).toBe("fix-login-race");
   });
 
   it("routes the worktree fields to the owning remote instance (issue #488)", async () => {
@@ -900,7 +901,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect([...base.options].map((o) => o.textContent)).toContain("feature/y");
     expect(
       document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value,
-    ).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    ).toBe("fix-login-race");
   });
 
   it("picking the worktree context from a worktree planning session prefills the planning branch and hides the base (issue #316)", async () => {
@@ -1036,34 +1037,28 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     return { resolveSuggest };
   }
 
-  it("keeps the mint hash while the plan names the base (issue #428)", async () => {
+  it("prefills the worktree branch from the resolved model suggestion (Slice 2)", async () => {
     backendMock.suggestBranchName.mockResolvedValue("fix/login-race");
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
 
-    // The plan's name goes to the base fields and the finish dialog, never
-    // into this field's hash tail.
-    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toBe("fix/login-race");
     expect(backendMock.suggestBranchName).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the mint when the row is picked before the model answers (issue #428)", async () => {
+  it("updates an untouched slug prefill when the model suggestion arrives late", async () => {
     const { resolveSuggest } = deferredSuggestion();
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
-    const minted = branchInput().value;
-    expect(minted).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toBe("fix-login-race");
 
     await act(async () => {
       resolveSuggest("fix/login-race");
     });
 
-    // The late answer lands in the base fields only; the mint stands as the
-    // session branch, byte-identical.
-    expect(branchInput().value).toBe(minted);
-    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toBe("fix/login-race");
   });
 
   it("prefills the new base with the plan slug and follows the model after it (issue #422)", async () => {
@@ -1078,33 +1073,25 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     // Selected, so typing replaces the prefill instead of appending to it.
     expect(newBaseInput().selectionStart).toBe(0);
     expect(newBaseInput().selectionEnd).toBe(newBaseInput().value.length);
-    expect(branchInput().value).toMatch(/^p\/fix-login-race\/[0-9a-f]{8}$/);
 
     await act(async () => {
       resolveSuggest("feat/x");
     });
 
     expect(newBaseInput().value).toBe("feat/x");
-    // The branch keeps following its base, hash tail intact.
-    expect(branchInput().value).toMatch(/^p\/feat\/x\/[0-9a-f]{8}$/);
   });
 
-  it("prefills a resolved suggestion on reveal and keeps the mint hash (issue #428)", async () => {
+  it("prefills a resolved suggestion on reveal of new base", async () => {
     backendMock.suggestBranchName.mockResolvedValue("feat/x");
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
-    // The untouched session branch is the mint, not the plan's name.
-    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toBe("feat/x");
 
     await revealNewBase();
 
     expect(newBaseInput().value).toBe("feat/x");
-    // The mint follows its new base: the middle segment changes, the hash
-    // tail stays (issue #405) — never `omp-ui/<base>/<base>`.
-    expect(branchInput().value).toMatch(/^p\/feat\/x\/[0-9a-f]{8}$/);
   });
-
   it("never overwrites a typed branch or base name with the suggestion (issue #422)", async () => {
     const { resolveSuggest } = deferredSuggestion();
     render();
@@ -1164,18 +1151,18 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     }
   });
 
-  it("degrades to the mint and the plan slug when the model declines (issue #422)", async () => {
+  it("falls back to the plan slug when the model declines (issue #422)", async () => {
     backendMock.suggestBranchName.mockResolvedValue(null);
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
 
-    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toBe("fix-login-race");
     await revealNewBase();
     expect(newBaseInput().value).toBe("fix-login-race");
   });
 
-  it("dispatches the mint with no base to create (issue #428)", async () => {
+  it("dispatches the suggested worktree branch with no base to create", async () => {
     const realExecutePlan = useStore.getState().executePlan;
     const executePlanSpy = vi.fn();
     useStore.setState({ executePlan: executePlanSpy });
@@ -1194,13 +1181,33 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         worktree: { branch: string; baseRef: string | null; baseBranch: string | null };
         destination: { kind: "worktree"; branch: string };
       };
-      const mint = options.worktree.branch;
-      expect(mint).toMatch(/^p\/main\/[0-9a-f]{8}$/);
-      expect(options.worktree).toEqual({ branch: mint, baseRef: "main", baseBranch: null });
-      expect(options.destination).toEqual({ kind: "worktree", branch: mint });
+      expect(options.worktree).toEqual({ branch: "fix/login-race", baseRef: "main", baseBranch: null });
+      expect(options.destination).toEqual({ kind: "worktree", branch: "fix/login-race" });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
     }
+  });
+
+  it("defaults PlanReview context to worktree under auto policy when on defaultBranch or when checkout is occupied", async () => {
+    useStore.setState({
+      state: stateWithSessions({ [TAB]: "Planning session" }, {}, "auto"),
+      branches: { "/p": { ...branches, current: "main", defaultBranch: "main" } },
+    });
+    render();
+    await act(async () => {});
+    expect(document.body.querySelector("#plan-worktree-branch")).not.toBeNull();
+    expect(buttonByText("execute in worktree session")).toBeDefined();
+
+    // On a non-default feature branch with no occupant, auto keeps "existing".
+    act(() => root!.unmount());
+    useStore.setState({
+      state: stateWithSessions({ [TAB]: "Planning session" }, {}, "auto"),
+      branches: { "/p": { ...branches, current: "feature/y", defaultBranch: "main" } },
+    });
+    render();
+    await act(async () => {});
+    expect(document.body.querySelector("#plan-worktree-branch")).toBeNull();
+    expect(buttonByText("execute in this session")).toBeDefined();
   });
 });
 

@@ -16,6 +16,7 @@ import {
   ROUTINE_DEFAULT_WARN_COST_USD,
   isSessionRoutine,
 } from "./routine";
+import { parseWorktreeSetup, validateWorktreeSetup } from "./worktree-setup";
 import { isProjectIcon } from "./project-icon";
 import { parsePullRequestLinks } from "./pull-requests";
 import { parseKeybindingOverrides, type KeybindingOverrides } from "./keybindings";
@@ -42,9 +43,11 @@ import type {
   ApprovalMode,
   AskSource,
   GlassChrome,
+  FinishOutcome,
   KnowledgeHome,
   ProjectIcon,
   OwnedSessionRecord,
+  ProjectWorktreeSetup,
   PlanFormat,
   PlanImplementationSource,
   SessionExperiment,
@@ -56,12 +59,15 @@ import type {
   TranscriptWidth,
   VaultNoteVoice,
   VaultRegistry,
+  WorkspacePolicy,
 } from "./types";
 
 export interface RegistrySettings {
   defaultMode: SessionMode;
   /** Initial Plan/Build posture for newly created native sessions. */
   defaultAgentMode: AgentMode;
+  /** Default workspace policy for new Build sessions: auto | worktree | checkout. */
+  workspacePolicy: WorkspacePolicy;
   /** Preferred first compaction method captured by fresh native sessions; null defers to omp. */
   defaultCompactionMethod: string | null;
   /** How the agent authors plans for review (see core/plan-extension.ts). */
@@ -274,6 +280,11 @@ export const SETTINGS: SettingDescriptors = {
   defaultAgentMode: validatedSetting<AgentMode>(
     () => "plan",
     (value): value is AgentMode => value === "build",
+  ),
+  workspacePolicy: validatedSetting<WorkspacePolicy>(
+    () => "auto",
+    (value): value is WorkspacePolicy =>
+      value === "auto" || value === "worktree" || value === "checkout",
   ),
   defaultCompactionMethod: validatedSetting<string | null>(
     () => null,
@@ -932,6 +943,17 @@ function parseRegistryData(raw: unknown): RegistryData | null {
         repositoryKey: typeof p.repositoryKey === "string" ? p.repositoryKey : null,
         // Late-added like repositoryKey (#1000): a malformed icon loads as null.
         icon: isProjectIcon(p.icon) ? p.icon : null,
+        workspacePolicy:
+          p.workspacePolicy === "auto" ||
+          p.workspacePolicy === "worktree" ||
+          p.workspacePolicy === "checkout"
+            ? p.workspacePolicy
+            : null,
+        lastFinishOutcome:
+          p.lastFinishOutcome === "merge" || p.lastFinishOutcome === "keep"
+            ? p.lastFinishOutcome
+            : null,
+        worktreeSetup: parseWorktreeSetup(p.worktreeSetup),
       };
     });
   const sessions = sessionsValue
@@ -1305,6 +1327,9 @@ export class Registry {
       knowledgeHome: null,
       repositoryKey: null,
       icon: null,
+      workspacePolicy: null,
+      lastFinishOutcome: null,
+      worktreeSetup: null,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);
@@ -1455,6 +1480,38 @@ export class Registry {
       const project = draft.projects.find((candidate) => candidate.path === projectPath);
       if (!project || project.browserClock === on) return false;
       project.browserClock = on;
+      return true;
+    });
+  }
+
+  /** Sets (or clears, with null) the project's workspace policy override. */
+  setProjectWorkspacePolicy(projectPath: string, policy: WorkspacePolicy | null): void {
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || (project.workspacePolicy ?? null) === policy) return false;
+      project.workspacePolicy = policy;
+      return true;
+    });
+  }
+
+  /** Records the project's last successful Finish worktree outcome. */
+  setProjectLastFinishOutcome(projectPath: string, outcome: FinishOutcome | null): void {
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || (project.lastFinishOutcome ?? null) === outcome) return false;
+      project.lastFinishOutcome = outcome;
+      return true;
+    });
+  }
+
+  /** Sets (or clears, with null) the project's opt-in worktree setup config. */
+  setProjectWorktreeSetup(projectPath: string, setup: ProjectWorktreeSetup | null): boolean {
+    const validated = validateWorktreeSetup(setup);
+    return this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project) return false;
+      if (JSON.stringify(project.worktreeSetup ?? null) === JSON.stringify(validated)) return false;
+      project.worktreeSetup = validated;
       return true;
     });
   }

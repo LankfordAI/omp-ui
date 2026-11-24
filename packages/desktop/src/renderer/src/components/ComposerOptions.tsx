@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { projectKey } from "../lib/project-key";
 import { useDismissal } from "../lib/use-dismissal";
-import { runningSessionTitleOnCheckout, useStore } from "../store";
-import type { BranchChipExternalRequest } from "./BranchChip";
+import { checkoutOccupant, useStore } from "../store";
+import { BranchChip, type BranchChipExternalRequest } from "./BranchChip";
 import {
   ComposerOptionsContent,
   useComposerOptionsState,
@@ -50,8 +50,14 @@ export function ComposerOptions({
   const pulling = useStore((s) => key !== undefined && s.branchActivity[key]?.pulling === true);
   const pushing = useStore((s) => key !== undefined && s.branchActivity[key]?.pushing === true);
   const pullGitBranch = useStore((s) => s.pullGitBranch);
-  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
-
+  const busyTitle = useStore((s) => {
+    const other = checkoutOccupant(s, projectCwd, tabId, instanceId);
+    if (other !== null) return other.title;
+    if (s.rpc[tabId]?.status === "running") {
+      return checkoutOccupant(s, projectCwd, undefined, instanceId)?.title ?? "a session";
+    }
+    return null;
+  });
   const [open, setOpen] = useState(false);
   const [branchRequest, setBranchRequest] = useState<BranchChipExternalRequest | null>(null);
   const [availableHeight, setAvailableHeight] = useState<number | undefined>();
@@ -126,13 +132,17 @@ export function ComposerOptions({
   const showPullCap = branchVisible && (pulling || (resolvable && behind > 0));
   const pullCapDisabled = refreshing || pulling || pushing;
 
+  const closeBranchPopover = (): void => {
+    setBranchRequest({ nonce: ++requestNonce.current, close: true });
+  };
+
   const openBranch = (request: Omit<BranchChipExternalRequest, "nonce"> = {}): void => {
     const next = { ...request, nonce: ++requestNonce.current };
     if (compact !== undefined) {
       compact.onOpen(next);
     } else {
+      setOpen(false);
       setBranchRequest(next);
-      setOpen(true);
     }
   };
 
@@ -171,7 +181,16 @@ export function ComposerOptions({
         aria-haspopup="dialog"
         aria-expanded={compact?.open ?? open}
         title="prompt options"
-        onClick={() => compact !== undefined ? compact.onOpen() : setOpen((o) => !o)}
+        onClick={() => {
+          if (compact !== undefined) {
+            compact.onOpen();
+          } else {
+            setOpen((o) => {
+              if (!o) closeBranchPopover();
+              return !o;
+            });
+          }
+        }}
         className={cn(
           // 14px like the placeholder above it (round-4 judge, Typography 1):
           // the primary session control must not be the smallest text in the card.
@@ -179,7 +198,7 @@ export function ComposerOptions({
           // `+`, this, Voice, and send are all bordered boxes at the 6px radius;
           // the pill was a third shape among two.
           "tap-target inline-flex h-7 min-w-0 shrink items-center gap-1 border border-line px-2.5 text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
-          showPullCap ? "rounded-l-md" : "rounded-md",
+          (compact === undefined ? branchVisible : showPullCap) ? "rounded-l-md" : "rounded-md",
           compact !== undefined && "h-auto min-h-11 flex-1 flex-wrap justify-start gap-x-1 gap-y-0 py-1",
         )}
       >
@@ -210,7 +229,7 @@ export function ComposerOptions({
         >
           {pillThinking}
         </span>
-        {branchVisible && (
+        {compact !== undefined && branchVisible && (
           <>
             {dot}
             <span data-pill-segment="branch" className="flex min-w-0 shrink items-center gap-1">
@@ -218,7 +237,7 @@ export function ComposerOptions({
                   its neighbours (`build`, model, thinking) are proportional; a
                   mono island mid-pill read as code that wasn't. The `⎇` glyph
                   matches every other branch mark in the app (issue #1046). */}
-              <span className={cn("truncate", compact !== undefined ? "max-w-40" : "max-w-32")}>
+              <span className="max-w-40 truncate">
                 ⎇ {workspace?.mode === "worktree" ? workspace.branch : info?.current ?? "detached"}
               </span>
             </span>
@@ -226,6 +245,24 @@ export function ComposerOptions({
         )}
         <Chevron open={false} className="rotate-90 text-ink-faint" />
       </button>
+      {compact === undefined && !chat && (
+        <BranchChip
+          tabId={tabId}
+          projectCwd={projectCwd}
+          instanceId={instanceId}
+          workspace={workspace}
+          onWorkspaceChange={onWorkspaceChange}
+          workspaceDisabled={workspaceDisabled}
+          onCreateWorktree={onCreateWorktree}
+          finishTabId={finishTabId}
+          externalRequest={branchRequest}
+          placement="float"
+          density="desktop"
+          triggerVariant="strip"
+          joinRight={showPullCap}
+          onMenuOpen={() => setOpen(false)}
+        />
+      )}
       {showPullCap && (
         <button
           type="button"
@@ -273,7 +310,7 @@ export function ComposerOptions({
         <ComposerOptionsContent
           key={compactLayout ? "loader" : "popover"}
           hotkeyOpens={!compactLayout}
-          scrollable={constrained}
+          showBranch={compactLayout}
           tabId={tabId}
           disabled={disabled}
           chat={chat}
@@ -287,7 +324,7 @@ export function ComposerOptions({
           offerMachine={offerMachine}
           machineDisabled={machineDisabled}
           onPickMachine={onPickMachine}
-          branchRequest={compact === undefined ? branchRequest : undefined}
+          branchRequest={undefined}
           onModeSelected={() => {
             close();
             onModeSelected();

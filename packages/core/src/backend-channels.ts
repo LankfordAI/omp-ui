@@ -12,6 +12,7 @@ import type {
   BranchDiff,
   BranchList,
   BranchListOptions,
+  CheckoutReservationResult,
   ConsoleProgram,
   DeleteSessionPreview,
   DeleteSessionResult,
@@ -25,6 +26,7 @@ import type {
   DiagnosticsPreview,
   DirBrowseResult,
   DiscardedApplyResult,
+  FinishOutcome,
   DiscardedChange,
   GlassChrome,
   ImageAttachment,
@@ -51,6 +53,7 @@ import type {
   ProjectOpenAvailability,
   ProjectOpenTarget,
   RemoteVsCodeTarget,
+  ProjectWorktreeSetup,
   ProjectScalarResult,
   ProjectSpendCapsResult,
   SpendCapKey,
@@ -89,6 +92,8 @@ import type {
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WorktreeSyncResult,
+  WorktreeSetupState,
+  WorkspacePolicy,
 } from "./types";
 import type { LiveAudioEntry, LiveAudioLoad, LiveHistoryEntry, LiveHistoryTurn } from "./live-voice";
 import type { SubagentModelMap } from "./subagent-model";
@@ -222,6 +227,9 @@ import {
   transcriptWidthCodec,
   updateTrainCodec,
   vaultNoteVoiceCodec,
+  workspacePolicyCodec,
+  finishOutcomeCodec,
+  projectWorktreeSetupCodec,
   worktreeReleaseOptionsCodec,
   fleetDetachedExecRequestCodec,
   fleetDispatchRequestCodec,
@@ -457,6 +465,30 @@ export const BACKEND_CHANNELS = {
     channel: "project:setBrowserClock",
     ...request<[projectPath: string, on: boolean], void>([str(), bool()]),
   },
+  /** Sets or clears the project's workspace policy override (null inherits host default). */
+  setProjectWorkspacePolicy: {
+    channel: "project:setWorkspacePolicy",
+    ...request<[projectPath: string, policy: WorkspacePolicy | null], void>([
+      str(),
+      nullable(workspacePolicyCodec),
+    ]),
+  },
+  /** Records or clears the project's last successful Finish worktree outcome. */
+  setProjectLastFinishOutcome: {
+    channel: "project:setLastFinishOutcome",
+    ...request<[projectPath: string, outcome: FinishOutcome | null], void>([
+      str(),
+      nullable(finishOutcomeCodec),
+    ]),
+  },
+  /** Sets or clears the project's opt-in worktree setup config. */
+  setProjectWorktreeSetup: {
+    channel: "project:setWorktreeSetup",
+    ...request<[projectPath: string, setup: ProjectWorktreeSetup | null], void>([
+      str(),
+      nullable(projectWorktreeSetupCodec),
+    ]),
+  },
   /** Sets or clears the project's Knowledge home (CONTEXT.md "Knowledge home"); applies to the next spawn. */
   setProjectKnowledgeHome: {
     channel: "project:setKnowledgeHome",
@@ -551,6 +583,10 @@ export const BACKEND_CHANNELS = {
   setDefaultAgentMode: {
     channel: "settings:setDefaultAgentMode",
     ...request<[mode: AgentMode], void>([agentModeCodec]),
+  },
+  setWorkspacePolicy: {
+    channel: "settings:setWorkspacePolicy",
+    ...request<[policy: WorkspacePolicy], void>([workspacePolicyCodec]),
   },
   listCompactionMethods: {
     channel: "settings:listCompactionMethods",
@@ -1796,9 +1832,25 @@ export const BACKEND_CHANNELS = {
   },
   convertToWorktree: {
     channel: "session:convert-to-worktree",
-    ...request<[tabId: string, branch: string, baseRef: string | null, baseBranch: string | null], void>(
-      [str(), str(), nullable(str()), nullable(str())],
-    ),
+    ...request<
+      [
+        tabId: string,
+        branch: string,
+        baseRef: string | null,
+        baseBranch: string | null,
+        mode?: "mint" | "checkout",
+      ],
+      void
+    >([str(), str(), nullable(str()), nullable(str()), trailingOptional(oneOf("mint", "checkout"))]),
+  },
+  /**
+   * Host-serialized checkout reservation for an unprompted Build session:
+   * claims `projectCwd` if free, or returns `{ status: "occupied", ... }` so
+   * two blank Build tabs opened side-by-side never collide on first prompt.
+   */
+  reserveCheckout: {
+    channel: "session:reserve-checkout",
+    ...request<[tabId: string], CheckoutReservationResult>([str()]),
   },
   /**
    * Merges the destination INTO the session's worktree checkout so conflicts
@@ -2066,6 +2118,11 @@ export const BACKEND_CHANNELS = {
   onCollabChanged: {
     channel: "collab:changed",
     ...event<[tabId: string, state: CollabTabState | null]>(),
+  },
+  /** Per-tab worktree setup progress (allowlisted files / async post-create command). */
+  onWorktreeSetupState: {
+    channel: "worktree:setupState",
+    ...event<[tabId: string, state: WorktreeSetupState | null]>(),
   },
   ptyResize: {
     channel: "pty:resize",

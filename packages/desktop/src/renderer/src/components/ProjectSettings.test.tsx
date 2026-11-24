@@ -26,6 +26,8 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setProjectBrowserClock: vi.fn(async () => {}),
+  setProjectWorkspacePolicy: vi.fn(async () => {}),
+  setProjectWorktreeSetup: vi.fn(async () => {}),
   setProjectKnowledgeHome: vi.fn<(projectPath: string, home: ProjectRecord["knowledgeHome"]) => Promise<void>>(async () => {}),
   vaultNames: vi.fn(async () => [] as string[]),
   getCouncilRoster: vi.fn(async () => ({
@@ -824,5 +826,39 @@ describe("ProjectSettings", () => {
     expect(backendMock.getCouncilRoster).toHaveBeenCalledWith(PROJECT);
     expect(document.body.textContent).toContain("Add member");
     expect(document.body.textContent).toContain("No members — /council asks you to add some first.");
+  });
+
+  it("renders the Workspace tab with policy override and worktree setup editor, routing mutations for local and remote projects", async () => {
+    await renderDialog();
+    await act(async () => tabButton("Workspace").click());
+    expect(tabButton("Workspace").getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("Default workspace");
+    expect(document.body.textContent).toContain("Worktree setup");
+
+    const worktreePolicyBtn = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Worktree",
+    )!;
+    await act(async () => worktreePolicyBtn.click());
+    expect(backendMock.setProjectWorkspacePolicy).toHaveBeenCalledWith(PROJECT, "worktree");
+
+    const pathsInput = document.body.querySelector<HTMLTextAreaElement>("#project-worktree-copy-paths")!;
+    const cmdInput = document.body.querySelector<HTMLInputElement>("#project-worktree-post-cmd")!;
+    const taSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    const inSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      taSetter.call(pathsInput, ".env\n.env.local");
+      pathsInput.dispatchEvent(new Event("input", { bubbles: true }));
+      inSetter.call(cmdInput, "npm ci --prefer-offline");
+      cmdInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const saveBtn = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Save worktree setup",
+    )!;
+    await act(async () => saveBtn.click());
+    expect(backendMock.setProjectWorktreeSetup).toHaveBeenCalledWith(PROJECT, {
+      copyPaths: [".env", ".env.local"],
+      copyMode: "copy",
+      postCreateCommand: "npm ci --prefer-offline",
+    });
   });
 });

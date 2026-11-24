@@ -81,6 +81,10 @@ import type {
   DiscardedApplyResult,
   DiscardedChange,
   PushResult,
+  WorkspacePolicy,
+  FinishOutcome,
+  ProjectWorktreeSetup,
+  WorktreeSetupState,
 } from "@omp-ui/core/types";
 import type { Annotation } from "../lib/annotations";
 import type { DraftSessionReference } from "../lib/session-references";
@@ -566,6 +570,8 @@ export interface DeleteConfirmation {
   worktreePath: string | null;
   /** Plan-handoff descendants deleted with this session; empty = plain delete (issue #309). */
   cascade: PlanHandoffDescendant[];
+  /** True iff this session's worktree is unshared, clean, and 0 commits ahead of its base. */
+  worktreeEmptyClean?: boolean;
 }
 
 /** One row of a bulk Delete (issue #988): the single-delete facts, per row. */
@@ -791,6 +797,7 @@ export interface SettingsSlice {
   replaceMcpEndpoint(state: McpEndpointState): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
+  setWorkspacePolicy(policy: WorkspacePolicy): Promise<void>;
   ensureCompactionMethods(): Promise<void>;
   setDefaultCompactionMethod(method: string | null): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
@@ -1439,6 +1446,24 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     instanceId?: string | null,
   ): Promise<void>;
   setProjectBrowserClock(projectPath: string, on: boolean, instanceId?: string | null): Promise<void>;
+  setProjectWorkspacePolicy(
+    projectPath: string,
+    policy: WorkspacePolicy | null,
+    instanceId?: string | null,
+  ): Promise<void>;
+  setProjectLastFinishOutcome(
+    projectPath: string,
+    outcome: FinishOutcome | null,
+    instanceId?: string | null,
+  ): Promise<void>;
+  setProjectWorktreeSetup(
+    projectPath: string,
+    setup: ProjectWorktreeSetup | null,
+    instanceId?: string | null,
+  ): Promise<void>;
+  /** Live worktree setup progress keyed by tabId (`worktree:setupState`). */
+  worktreeSetupState: Record<string, WorktreeSetupState>;
+  dismissWorktreeSetupState(tabId: string): void;
   setProjectKnowledgeHome(projectPath: string, home: KnowledgeHome | null, instanceId?: string | null): Promise<void>;
   /** Project settings' icon actions (issue #1000), run on the owning instance; resolves to the stored icon. */
   setProjectIcon(projectPath: string, icon: ProjectIconRequest, instanceId?: string | null): Promise<ProjectIcon | null>;
@@ -1552,7 +1577,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    */
   convertSessionToWorktree(
     tabId: string,
-    opts: { branch: string; baseRef: string | null; baseBranch: string | null },
+    opts:
+      | { branch: string; baseRef: string | null; baseBranch: string | null }
+      | { checkout: { branch: string } },
   ): Promise<void>;
   /**
    * The composer machine chip (issue #936): re-homes an unprompted native

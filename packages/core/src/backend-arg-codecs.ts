@@ -77,6 +77,7 @@ import type {
   DiagnosticsExportRequest,
   DocumentAttachment,
   GlassChrome,
+  FinishOutcome,
   ImageAttachment,
   KnowledgeHome,
   ProjectIconRequest,
@@ -84,6 +85,7 @@ import type {
   OmpSettingValue,
   PlanFormat,
   ProjectOpenTarget,
+  ProjectWorktreeSetup,
   RemoteBind,
   RemoteInstanceInput,
   RemoteInstancePatch,
@@ -94,6 +96,7 @@ import type {
   TranscriptWidth,
   UpdateTrain,
   VaultNoteVoice,
+  WorkspacePolicy,
   WorktreeReleaseOptions,
   WatchdogAdvisorEntry,
   WatchdogDocument,
@@ -352,6 +355,13 @@ const artifactThemeCodec: ArgCodec<{ dark: boolean; tokens: Record<string, strin
 export const artifactExportHtmlCodec = objectOf<ArtifactExportHtmlSourceRequest>({artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec, theme: artifactThemeCodec});
 export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
+export const workspacePolicyCodec: ArgCodec<WorkspacePolicy> = oneOf("auto", "worktree", "checkout");
+export const finishOutcomeCodec: ArgCodec<FinishOutcome> = oneOf("merge", "keep");
+export const projectWorktreeSetupCodec: ArgCodec<ProjectWorktreeSetup> = objectOf<ProjectWorktreeSetup>({
+  copyPaths: arrayOf(str()),
+  copyMode: oneOf("copy", "symlink"),
+  postCreateCommand: nullable(str()),
+});
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");
 export const approvalModeCodec: ArgCodec<ApprovalMode> = oneOf(...APPROVAL_MODES);
 export const spendCapKeyCodec: ArgCodec<SpendCapKey> = oneOf("warnCost", "maxCost");

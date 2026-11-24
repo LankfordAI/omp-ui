@@ -13,6 +13,7 @@ export {
   listBranches,
   listRemoteNames,
   parseBranchStatus,
+  parseWorktreeBranches,
   pullBranch,
   pushBranch,
   readDefaultBranch,
@@ -38,6 +39,7 @@ export {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
+  isEmptyCleanWorktree,
   finalizeMintBranch,
   isWithin,
   landedInDestination,
@@ -61,6 +63,16 @@ export {
   worktreeCheckoutMissing,
   worktreeProjectDir,
 } from "./worktree";
+export {
+  applyWorktreeFiles,
+  isSafeWorktreeSetupPattern,
+  parseWorktreeSetup,
+  validateWorktreeSetup,
+  WORKTREE_SETUP_MAX_COMMAND_LENGTH,
+  WORKTREE_SETUP_MAX_PATH_LENGTH,
+  WORKTREE_SETUP_MAX_PATHS,
+  type ApplyWorktreeFilesResult,
+} from "./worktree-setup";
 export { applyDiscardedChange, listDiscardedChanges } from "./discarded-changes";
 export {
   baseBranchSegment,

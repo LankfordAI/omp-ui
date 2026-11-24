@@ -94,15 +94,15 @@ export function useComposerOptionsState({
 /** Shared option groups; only sizing and nested-menu placement adapt to a sheet. */
 export function ComposerOptionsContent({
   compact = false,
-  scrollable = false,
+  showBranch = compact,
   branchRequest,
   modelExtras,
   sessionExtras,
   ...props
 }: ComposerOptionsContentProps & {
   compact?: boolean;
-  /** Constrained desktop popovers need the same in-flow menus as sheets. */
-  scrollable?: boolean;
+  /** Render BranchChip inside the workspace footer (true in compact sheet and compact loader; false in desktop popover where BranchChip lives on the strip). */
+  showBranch?: boolean;
   branchRequest?: BranchChipExternalRequest | null;
   modelExtras?: ReactNode;
   sessionExtras?: ReactNode;
@@ -117,7 +117,7 @@ export function ComposerOptionsContent({
   const advisorOn = useStore((s) => findRecord(s.state, tabId)?.advisor ?? false);
   const autoTitle = `auto — omp classifies each prompt; this turn: ${thinkingLevel ?? "—"}`;
   const levelText = thinkingLevel ?? "think —";
-  const sheetMenus = compact || scrollable;
+  const density = compact ? "touch" : "desktop";
   const fastRow = (
     <OptionRow compact={compact} icon={<IconFast />}>
       <FastModeControl tabId={tabId} layout="sheet" disabled={disabled} className={cn("w-full", compact ? "min-h-11" : "min-h-8")} />
@@ -186,7 +186,7 @@ export function ComposerOptionsContent({
             <IconRefresh className="size-2.5" />
             <span className={cn(advisorOn && "sr-only")}>restarts session</span>
           </span>
-          <AdvisorControl tabId={tabId} disabled={disabled} layout={sheetMenus ? "sheet" : "inline"} />
+          <AdvisorControl tabId={tabId} disabled={disabled} placement="flow" density={density} />
         </OptionRow>
         {/* Preserve the compact sheet's always-available session toggle. */}
         {compact && !fastVisible && fastRow}
@@ -195,16 +195,36 @@ export function ComposerOptionsContent({
 
       <section
         aria-label="workspace"
-        hidden={!(branchVisible || (machineVisible && onPickMachine !== undefined))}
+        hidden={!((showBranch && branchVisible) || (machineVisible && onPickMachine !== undefined))}
         className={cn(
           "-mx-1 -mb-1 mt-1 flex min-w-0 flex-wrap items-center gap-1.5 rounded-b-md border-t border-line bg-raised px-2 py-1.5",
           compact && "gap-2 py-2",
         )}
       >
-        {!chat && (
-          <BranchChip projectCwd={projectCwd} instanceId={instanceId} workspace={workspace} onWorkspaceChange={onWorkspaceChange} workspaceDisabled={workspaceDisabled} onCreateWorktree={onCreateWorktree} finishTabId={finishTabId} externalRequest={branchRequest} layout={sheetMenus ? "sheet" : "inline"} />
+        {showBranch && !chat && (
+          <BranchChip
+            tabId={tabId}
+            projectCwd={projectCwd}
+            instanceId={instanceId}
+            workspace={workspace}
+            onWorkspaceChange={onWorkspaceChange}
+            workspaceDisabled={workspaceDisabled}
+            onCreateWorktree={onCreateWorktree}
+            finishTabId={finishTabId}
+            externalRequest={branchRequest}
+            placement="flow"
+            density={density}
+          />
         )}
-        {offerMachine && onPickMachine !== undefined && <MachineChip tabId={tabId} disabled={machineDisabled} onPick={onPickMachine} layout={sheetMenus ? "sheet" : "inline"} />}
+        {offerMachine && onPickMachine !== undefined && (
+          <MachineChip
+            tabId={tabId}
+            disabled={machineDisabled}
+            onPick={onPickMachine}
+            placement="flow"
+            density={density}
+          />
+        )}
       </section>
     </>
   );

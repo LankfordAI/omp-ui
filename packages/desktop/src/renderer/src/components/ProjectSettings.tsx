@@ -11,7 +11,7 @@ import { ModelPalette } from "./ModelSelector";
 import { KnowledgeHomeSection } from "./KnowledgeHomeSection";
 import { ProjectIconSection } from "./ProjectIconSection";
 import { CouncilRosterEditor } from "./CouncilRoster";
-import { Button, Label, Modal, Switch } from "./ui";
+import { Button, ChoiceCapsule, Label, Modal, Switch } from "./ui";
 
 /**
  * The project's standing model pins (issue #257): the default main model and
@@ -342,6 +342,7 @@ export type ProjectSettingsSectionId =
   | "skills"
   | "tools"
   | "models"
+  | "workspace"
   | "advisors"
   | "council"
   | "browser"
@@ -353,6 +354,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; label: string }[] = [
   { id: "skills", label: "Skills" },
   { id: "tools", label: "Tools" },
   { id: "models", label: "Default models" },
+  { id: "workspace", label: "Workspace" },
   { id: "advisors", label: "Advisors" },
   { id: "council", label: "Council" },
   { id: "browser", label: "Browser" },
@@ -396,6 +398,25 @@ export function ProjectSettings({
   const [active, setActive] = useState<ProjectSettingsSectionId>(initialSection ?? "mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
+  const setProjectWorkspacePolicy = useStore((s) => s.setProjectWorkspacePolicy);
+  const setProjectWorktreeSetup = useStore((s) => s.setProjectWorktreeSetup);
+  const [setupPathsText, setSetupPathsText] = useState(() =>
+    (project?.worktreeSetup?.copyPaths ?? []).join("\n"),
+  );
+  const [setupMode, setSetupMode] = useState<"copy" | "symlink">(
+    () => project?.worktreeSetup?.copyMode ?? "copy",
+  );
+  const [setupCmd, setSetupCmd] = useState(() => project?.worktreeSetup?.postCreateCommand ?? "");
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupSaved, setSetupSaved] = useState(false);
+  useEffect(() => {
+    setSetupPathsText((project?.worktreeSetup?.copyPaths ?? []).join("\n"));
+    setSetupMode(project?.worktreeSetup?.copyMode ?? "copy");
+    setSetupCmd(project?.worktreeSetup?.postCreateCommand ?? "");
+    setSetupError(null);
+    setSetupSaved(false);
+  }, [project?.path, project?.worktreeSetup]);
+  const globalWorkspacePolicy = useStore((s) => s.state?.workspacePolicy ?? "auto");
   const councilEnabled = useStore((s) => s.state?.councilEnabled === true);
   const sections = councilEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "council");
 
@@ -516,6 +537,129 @@ export function ProjectSettings({
                 Default models
               </h3>
               <ProjectModelPins project={project} instanceId={instanceId} />
+            </section>
+          )}
+
+          {active === "workspace" && (
+            <section aria-labelledby="project-settings-workspace" className="space-y-4 px-4 py-4">
+              <h3 id="project-settings-workspace" className="text-sm font-semibold text-ink">
+                Workspace
+              </h3>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-ink">Default workspace</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+                    Shared checkout for a lone session or Plan mode; automatic worktree when another Build session is active.
+                  </p>
+                </div>
+                <ChoiceCapsule
+                  label="project default workspace"
+                  value={project.workspacePolicy ?? "inherit"}
+                  options={[
+                    { value: "inherit", label: `Inherit (${globalWorkspacePolicy})` },
+                    { value: "auto", label: "Auto" },
+                    { value: "worktree", label: "Worktree" },
+                    { value: "checkout", label: "Checkout" },
+                  ] as const}
+                  onChange={(value) =>
+                    void setProjectWorkspacePolicy(
+                      project.path,
+                      value === "inherit" ? null : value,
+                      instanceId,
+                    )
+                  }
+                  optionClassName="tab-label px-2"
+                />
+              </div>
+              <div className="space-y-3 border-t border-line pt-4">
+                <div>
+                  <p className="text-xs font-medium text-ink">Worktree setup</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+                    Opt-in per-project setup applied when a fresh worktree is created. Only gitignored repo-relative paths match; tracked files are never overwritten.
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="project-worktree-copy-paths" className="block text-xs text-ink-faint">
+                    Gitignored files or globs (one per line)
+                  </label>
+                  <textarea
+                    id="project-worktree-copy-paths"
+                    rows={3}
+                    spellCheck={false}
+                    placeholder={".env\n.env.local"}
+                    value={setupPathsText}
+                    onChange={(event) => {
+                      setSetupPathsText(event.target.value);
+                      setSetupSaved(false);
+                    }}
+                    className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">Carry mode</span>
+                  <ChoiceCapsule
+                    label="worktree file carry mode"
+                    value={setupMode}
+                    options={[
+                      { value: "copy", label: "Copy" },
+                      { value: "symlink", label: "Symlink" },
+                    ] as const}
+                    onChange={(value) => {
+                      setSetupMode(value);
+                      setSetupSaved(false);
+                    }}
+                    optionClassName="tab-label px-2"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="project-worktree-post-cmd" className="block text-xs text-ink-faint">
+                    Post-create command
+                  </label>
+                  <input
+                    id="project-worktree-post-cmd"
+                    type="text"
+                    spellCheck={false}
+                    placeholder="npm ci --prefer-offline"
+                    value={setupCmd}
+                    onChange={(event) => {
+                      setSetupCmd(event.target.value);
+                      setSetupSaved(false);
+                    }}
+                    className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="xs"
+                    variant="solid"
+                    onClick={() => {
+                      const copyPaths = setupPathsText
+                        .split(/\r?\n/)
+                        .map((line) => line.trim())
+                        .filter((line) => line !== "");
+                      const postCreateCommand = setupCmd.trim() === "" ? null : setupCmd.trim();
+                      const payload =
+                        copyPaths.length === 0 && postCreateCommand === null
+                          ? null
+                          : { copyPaths, copyMode: setupMode, postCreateCommand };
+                      setSetupError(null);
+                      void setProjectWorktreeSetup(project.path, payload, instanceId)
+                        .then(() => setSetupSaved(true))
+                        .catch((err) =>
+                          setSetupError(err instanceof Error ? err.message : String(err)),
+                        );
+                    }}
+                  >
+                    Save worktree setup
+                  </Button>
+                  {setupSaved && <span className="text-xs text-ink-faint">Saved</span>}
+                  {setupError !== null && (
+                    <span role="alert" className="text-xs text-rose">
+                      {setupError}
+                    </span>
+                  )}
+                </div>
+              </div>
             </section>
           )}
 

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import { relativeTime } from "../lib/format";
-import { useStore } from "../store";
+import { occupantActivityPhrase, useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { commitsText, useFinishWorktree, type FinishStep } from "./useFinishWorktree";
 import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
@@ -179,18 +179,18 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         )}
         {c.newBranch === null &&
           status.destinationCheckout === "project" &&
-          c.busyTitle !== null && (
+          c.occupant !== null && (
             <p className={copperClass}>
-              {`session “${c.busyTitle}” is mid-turn in the project — merging moves ${targetName} under it`}
+              {`session “${c.occupant.title}” ${occupantActivityPhrase(c.occupant.reason)} — merging moves ${targetName} under it`}
             </p>
           )}
         {/* The switch variant of the busy row (#431): a new-branch or
             checked-out-nowhere destination moves the project checkout, which is
-            what a mid-turn session there cannot tolerate. The mode conditions of
+            what another active session there cannot tolerate. The mode conditions of
             the two rows are disjoint, so they can never stack. */}
-        {c.checkoutTarget !== null && c.busyTitle !== null && (
+        {c.checkoutTarget !== null && c.occupant !== null && (
           <p className={copperClass}>
-            {`session “${c.busyTitle}” is mid-turn in the project — returning would move its checkout to ${c.checkoutTarget}, so the checkout is left alone`}
+            {`session “${c.occupant.title}” ${occupantActivityPhrase(c.occupant.reason)} — returning would move its checkout to ${c.checkoutTarget}, so the checkout is left alone`}
           </p>
         )}
       </>
@@ -353,78 +353,37 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           </section>
         )}
 
-        {/* 2. Where the work goes. The worktree's own branch is not a
-            destination; "new branch…" cuts one from a chosen start point. */}
-        <div>
-          <label htmlFor={`${ids}-dest`} className={labelClass}>
-            where the work goes
-          </label>
-          <select
-            id={`${ids}-dest`}
-            className={fieldClass}
-            // Inert once the run finished (issue #414): picking another
-            // destination would re-key the status read and discard the done
-            // phase — the session that owed it has already been returned.
-            disabled={done || c.resolutionBusy}
-            value={c.newBranch !== null ? NEW_BRANCH_SENTINEL : (c.destination ?? "")}
-            onChange={(event) => {
-              if (event.target.value === NEW_BRANCH_SENTINEL) c.chooseNewBranch();
-              else c.setDestination(event.target.value);
-            }}
-          >
-            {c.destination === null && c.newBranch === null && (
-              <option value="" disabled>
-                checking the repo…
-              </option>
-            )}
-            {c.branches.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-            <option value={NEW_BRANCH_SENTINEL}>new branch…</option>
-          </select>
-          {c.newBranch !== null && (
-            <div className="mt-2 space-y-2">
-              <div>
-                <label htmlFor={`${ids}-nb-name`} className={labelClass}>
-                  branch name
-                </label>
-                <input
-                  id={`${ids}-nb-name`}
-                  className={fieldClass}
-                  value={c.newBranch.name}
-                  placeholder="release/next"
-                  spellCheck={false}
-                  disabled={c.resolutionBusy}
-                  onChange={(event) => c.setNewBranch({ name: event.target.value })}
-                />
-              </div>
-              <div>
-                <label htmlFor={`${ids}-nb-from`} className={labelClass}>
-                  cut from
-                </label>
-                <select
-                  id={`${ids}-nb-from`}
-                  className={fieldClass}
-                  value={c.newBranch.from}
-                  disabled={c.resolutionBusy}
-                  onChange={(event) => c.setNewBranch({ from: event.target.value })}
-                >
-                  {c.newBranch.from === "" && <option value="" disabled />}
-                  {c.branches.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 3. How it lands. */}
+        {/* 2. How it lands — peer outcomes: Push & PR (keep branch) and Merge. */}
         <div className="space-y-2">
+          <label className={radioRowClass}>
+            <input
+              type="radio"
+              name={`${ids}-outcome`}
+              className="mt-0.5 size-3.5 accent-current"
+              checked={c.outcome === "keep"}
+              disabled={done || c.resolutionBusy}
+              onChange={() => c.setOutcome("keep")}
+            />
+            <span className="min-w-0 flex-1 space-y-1">
+              <span className="block text-ink">Push &amp; PR (keep branch)</span>
+              <span className={`block ${quietClass}`}>the branch survives the finish; rename it, then publish or open a pull request</span>
+              {c.outcome === "keep" && (
+                <span className="block">
+                  <label htmlFor={`${ids}-rename`} className={labelClass}>
+                    rename branch to
+                  </label>
+                  <input
+                    id={`${ids}-rename`}
+                    className={fieldClass}
+                    value={c.rename}
+                    spellCheck={false}
+                    disabled={done || c.resolutionBusy}
+                    onChange={(event) => c.setRename(event.target.value)}
+                  />
+                </span>
+              )}
+            </span>
+          </label>
           <label
             className={mergeBlocked ? `${radioRowClass} pointer-events-none text-ink-dim` : radioRowClass}
             title={
@@ -444,7 +403,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               name={`${ids}-outcome`}
               className="mt-0.5 size-3.5 accent-current"
               checked={c.outcome === "merge"}
-              disabled={mergeBlocked || c.resolutionBusy}
+              disabled={done || mergeBlocked || c.resolutionBusy}
               onChange={() => c.setOutcome("merge")}
             />
             <span className="min-w-0 space-y-1">
@@ -454,36 +413,78 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               {mergeSublabel()}
             </span>
           </label>
-          <label className={radioRowClass}>
-            <input
-              type="radio"
-              name={`${ids}-outcome`}
-              className="mt-0.5 size-3.5 accent-current"
-              checked={c.outcome === "keep"}
-              disabled={c.resolutionBusy}
-              onChange={() => c.setOutcome("keep")}
-            />
-            <span className="min-w-0 space-y-1">
-              <span className="block text-ink">keep the branch</span>
-              <span className={`block ${quietClass}`}>the branch survives the finish; rename it if you like</span>
-              {c.outcome === "keep" && (
-                <span className="block">
-                  <label htmlFor={`${ids}-rename`} className={labelClass}>
-                    rename branch to
+        </div>
+
+        {/* 3. Where the work goes — hidden when keeping the branch unless blocked fallback or new-branch creation is active. */}
+        {(c.outcome === "merge" || mergeBlocked || c.newBranch !== null) && (
+          <div>
+            <label htmlFor={`${ids}-dest`} className={labelClass}>
+              where the work goes
+            </label>
+            <select
+              id={`${ids}-dest`}
+              className={fieldClass}
+              // Inert once the run finished (issue #414): picking another
+              // destination would re-key the status read and discard the done
+              // phase — the session that owed it has already been returned.
+              disabled={done || c.resolutionBusy}
+              value={c.newBranch !== null ? NEW_BRANCH_SENTINEL : (c.destination ?? "")}
+              onChange={(event) => {
+                if (event.target.value === NEW_BRANCH_SENTINEL) c.chooseNewBranch();
+                else c.setDestination(event.target.value);
+              }}
+            >
+              {c.destination === null && c.newBranch === null && (
+                <option value="" disabled>
+                  checking the repo…
+                </option>
+              )}
+              {c.branches.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              <option value={NEW_BRANCH_SENTINEL}>new branch…</option>
+            </select>
+            {c.newBranch !== null && (
+              <div className="mt-2 space-y-2">
+                <div>
+                  <label htmlFor={`${ids}-nb-name`} className={labelClass}>
+                    branch name
                   </label>
                   <input
-                    id={`${ids}-rename`}
+                    id={`${ids}-nb-name`}
                     className={fieldClass}
-                    value={c.rename}
+                    value={c.newBranch.name}
+                    placeholder="release/next"
                     spellCheck={false}
                     disabled={c.resolutionBusy}
-                    onChange={(event) => c.setRename(event.target.value)}
+                    onChange={(event) => c.setNewBranch({ name: event.target.value })}
                   />
-                </span>
-              )}
-            </span>
-          </label>
-        </div>
+                </div>
+                <div>
+                  <label htmlFor={`${ids}-nb-from`} className={labelClass}>
+                    cut from
+                  </label>
+                  <select
+                    id={`${ids}-nb-from`}
+                    className={fieldClass}
+                    value={c.newBranch.from}
+                    disabled={c.resolutionBusy}
+                    onChange={(event) => c.setNewBranch({ from: event.target.value })}
+                  >
+                    {c.newBranch.from === "" && <option value="" disabled />}
+                    {c.branches.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 4. What becomes of the session — independent of the two above. */}
         <div>
@@ -593,7 +594,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         {c.phase.s === "done" && (
           <div className="space-y-1.5 rounded-md border border-line bg-raised px-3 py-2.5">
             <p className="text-xs leading-snug text-ink">
-              {`merged ${commitsText(c.phase.commits)} into ${c.phase.destination}`}
+              {c.phase.kind === "kept"
+                ? `kept branch ${c.phase.branch}`
+                : `merged ${commitsText(c.phase.commits)} into ${c.phase.destination}`}
             </p>
             {c.pushState.s === "idle" && donePush !== null && (
               <Button size="xs" onClick={donePush.onClick}>
@@ -610,7 +613,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 {/* The chip's own busy row, in spirit: the mid-turn session is
                     either another tab on this checkout or this one itself. */}
                 <p className={copperClass}>
-                  {`session “${c.busyTitle ?? record.title}” is mid-turn — the branch is shared as it stands`}
+                  {`session “${c.occupant?.title ?? record.title}” ${occupantActivityPhrase(c.occupant?.reason ?? "running")} — the branch is shared as it stands`}
                 </p>
                 <div className="flex gap-1.5">
                   {donePush !== null && (

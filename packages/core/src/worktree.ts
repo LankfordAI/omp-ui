@@ -18,6 +18,7 @@ import type {
   MergePreview,
   WorktreeBranchRemoval,
   WorktreeSyncResult,
+  SessionWorktree,
 } from "./types";
 
 const ADD_TIMEOUT_MS = 60_000;
@@ -131,7 +132,19 @@ export async function finalizeMintBranch(
 ): Promise<[string, string | null]> {
   const prefix = worktreeBranchPrefix(projectCwd);
   const current = await currentBranch(projectCwd);
-  const segment = baseBranchSegment(baseBranch, baseRef, current === "" ? null : current);
+  // On a detached HEAD with no explicit baseRef, stay HEAD-relative so
+  // detached cut-from-HEAD stays honest (issue #272). Otherwise, when
+  // baseRef is null on a named branch, prefer the repo's default branch over
+  // a checked-out feature branch so new worktrees don't accidentally stack.
+  const defaultBranch =
+    baseRef === null && current !== "" ? await readDefaultBranch(projectCwd) : null;
+  const usableDefault =
+    defaultBranch !== null && (await hasRef(projectCwd, `refs/heads/${defaultBranch}`))
+      ? defaultBranch
+      : null;
+  const resolvedRef =
+    baseRef !== null ? baseRef : (usableDefault ?? (current !== "" ? current : null));
+  const segment = baseBranchSegment(baseBranch, resolvedRef, current === "" ? null : current);
   const finalBranch =
     isMintedWorktreeBranch(branch, prefix) && segment !== null
       ? composeWorktreeBranch(
@@ -140,9 +153,6 @@ export async function finalizeMintBranch(
           branch.slice(branch.lastIndexOf("/") + 1),
         )
       : branch;
-  // A named checkout always yields a start point, so git's reflog stops
-  // reading "Created from HEAD" on branches; detached stays HEAD-relative.
-  const resolvedRef = baseRef !== null ? baseRef : (current !== "" ? current : null);
   return [finalBranch, resolvedRef];
 }
 
@@ -282,10 +292,28 @@ export async function linkProjectOmpDir(
  * worktrees root (isWithin).
  */
 export async function removeWorktree(projectCwd: string, worktreePath: string): Promise<void> {
-  const link = path.join(worktreePath, ".omp");
-  if (sameCheckoutPath(link, path.join(projectCwd, ".omp"))) {
-    await fs.promises.rm(link, { force: true }).catch(() => {});
-  }
+  // Unlink symlinks inside worktreePath (including omp-ui's `.omp` link and
+  // any opt-in worktreeSetup symlinks) before git worktree remove / recursive rm,
+  // so neither git nor Windows junction walks ever touch targets in projectCwd.
+  const unlinkSymlinks = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 8) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === ".git") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        await fs.promises.unlink(full).catch(() => {});
+      } else if (entry.isDirectory()) {
+        await unlinkSymlinks(full, depth + 1);
+      }
+    }
+  };
+  await unlinkSymlinks(worktreePath, 0);
   try {
     await git(projectCwd, ["worktree", "remove", "--force", worktreePath], {
       timeoutMs: REMOVE_TIMEOUT_MS,
@@ -536,6 +564,29 @@ export async function readWorktreeDirty(
     return !sameCheckoutPath(path.join(worktreePath, ".omp"), path.join(projectCwd, ".omp"));
   } catch {
     return null;
+  }
+}
+
+/**
+ * True iff the worktree is clean (ignoring omp-ui's `.omp` link) and has 0
+ * commits ahead of its resolved base (or defaultBranch). Returns false on any
+ * git error or unreadable state (fail-safe: never silently reclaim if uncertain).
+ */
+export async function isEmptyCleanWorktree(
+  projectCwd: string,
+  worktree: SessionWorktree,
+): Promise<boolean> {
+  try {
+    const dirty = await readWorktreeDirty(projectCwd, worktree.path);
+    if (dirty !== false) return false;
+    const resolved = await resolveMergeDestination(projectCwd, worktree.base);
+    const dest = resolved.destination ?? (await readDefaultBranch(projectCwd));
+    if (dest === null) return false;
+    if (!(await hasRef(projectCwd, `refs/heads/${worktree.branch}`))) return false;
+    if (!(await hasRef(projectCwd, `refs/heads/${dest}`))) return false;
+    return await isAncestor(projectCwd, worktree.branch, dest);
+  } catch {
+    return false;
   }
 }
 

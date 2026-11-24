@@ -114,12 +114,14 @@ export function WorktreeBranchFields({
   useEffect(() => {
     if (touched) return;
     if (info === undefined) return;
-    // Default to the checkout's current branch; when the list is empty or
-    // the checkout detaches, the only base is HEAD itself — the state must
-    // follow the select so a stale non-null baseRef is never submitted.
+    // Default to the repo's default branch when present in local branches so
+    // new worktrees don't accidentally stack onto a feature branch checked out
+    // in the main tree; fall back to current when defaultBranch is absent.
+    const defaultUsable =
+      info.defaultBranch !== null && info.branches.includes(info.defaultBranch);
     const next =
-      info.branches.length > 0 && info.current !== null
-        ? (info.current ?? info.defaultBranch)
+      info.branches.length > 0
+        ? (defaultUsable ? info.defaultBranch : info.current)
         : null;
     if (next !== baseRef) onBaseRefChange(next);
   }, [info, baseRef, onBaseRefChange, touched]);
@@ -148,8 +150,8 @@ export function WorktreeBranchFields({
   // HEAD-only collapse: that is what made "current HEAD" look like the only
   // base a project had (issue #439).
   const loading = info === undefined;
-  // No local branches, or a detached HEAD: nothing to cut from but HEAD itself.
-  const headOnly = !loading && (branchNames.length === 0 || info.current === null);
+  // No local branches: nothing to cut from but HEAD itself.
+  const headOnly = !loading && branchNames.length === 0;
   const creatingBase = (baseBranch ?? null) !== null;
   // The sentinel lives only in the top select's value space; `__new__` is a
   // legal refname, so the option rows never carry it.
@@ -159,11 +161,14 @@ export function WorktreeBranchFields({
   ) : headOnly ? (
     <option value="">current HEAD</option>
   ) : (
-    baseOptions.map((name) => (
-      <option key={name} value={name}>
-        {name}
-      </option>
-    ))
+    <>
+      {baseOptions.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+      {info?.current === null && <option value="">current HEAD</option>}
+    </>
   );
 
   // A prefill must land selected: the reveal autofocus puts the caret at the

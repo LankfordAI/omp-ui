@@ -25,6 +25,7 @@ import {
   type UpdateTrain,
   type VaultNoteVoice,
   type RoutineSpendDefaultsInput,
+  type WorkspacePolicy,
 } from "@omp-ui/core";
 import {
   commitStoredTheme,
@@ -40,6 +41,7 @@ import { ROUTINES_DISABLED_ERROR } from "./routine-scheduler";
 type SettingsHandlerChannels =
   | typeof CH.setDefaultMode
   | typeof CH.setDefaultAgentMode
+  | typeof CH.setWorkspacePolicy
   | typeof CH.listCompactionMethods
   | typeof CH.setDefaultCompactionMethod
   | typeof CH.setPlanFormat
@@ -140,6 +142,7 @@ export function registerSettingsHandlers(
     [CH.setDefaultMode]: (value: SessionMode) => commit("defaultMode", value),
     [CH.listCompactionMethods]: () => deps.supportedCompactionMethods(),
     [CH.setDefaultAgentMode]: (value: AgentMode) => commit("defaultAgentMode", value),
+    [CH.setWorkspacePolicy]: (value: WorkspacePolicy) => commit("workspacePolicy", value),
     [CH.setDefaultCompactionMethod]: async (method: string | null) => {
       if (method !== null) {
         const supported = await deps.supportedCompactionMethods();

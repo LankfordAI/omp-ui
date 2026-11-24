@@ -79,13 +79,11 @@ export class WorktreeOps {
   async convert(
     tabId: string,
     projectCwd: string,
-    branch: string,
-    baseRef: string | null,
-    baseBranch: string | null,
+    spec:
+      | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
+      | { checkout: { branch: string } },
   ): Promise<SessionWorktree> {
-    const { worktree } = await this.prepareSpawn(projectCwd, {
-      mint: { branch, baseRef, baseBranch },
-    });
+    const { worktree } = await this.prepareSpawn(projectCwd, spec);
     if (worktree === null) throw new Error("worktree conversion produced no checkout");
     this.deps.registry.updateSession(tabId, { worktree });
     return worktree;

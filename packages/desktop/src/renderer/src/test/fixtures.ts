@@ -8,6 +8,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     chats: [],
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
+    workspacePolicy: "auto",
     defaultCompactionMethod: null,
     planFormat: "html",
     hibernateIdleMinutes: 30,

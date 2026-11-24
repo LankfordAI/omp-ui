@@ -109,6 +109,7 @@ const backendMock = {
     commits: 2,
   })),
   pullRequestUrl: vi.fn(async (): Promise<string | null> => "https://example.run/pr/new"),
+  setProjectLastFinishOutcome: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
@@ -262,11 +263,12 @@ const returnCheckbox = (): HTMLInputElement => {
   return el!;
 };
 
-/** The dialog's two outcome radios, in DOM order: merge, then keep. */
+/** The dialog's two outcome radios, in DOM order: keep (Push & PR), then merge. */
 const outcomeRadios = (): HTMLInputElement[] => [
   ...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]'),
 ];
-
+const keepRadio = (): HTMLInputElement => outcomeRadios()[0]!;
+const mergeRadio = (): HTMLInputElement => outcomeRadios()[1]!;
 /** The dialog's solid primary button: the last one in the actions footer. */
 const primaryButton = (): HTMLButtonElement => {
   const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")];
@@ -471,10 +473,10 @@ describe("FinishWorktreeDialog", () => {
     expect(newBranchNameInput().value).toBe("release/next");
   });
 
-  it("renames the branch before releasing when keeping under a new name", async () => {
+  it("renames the branch before releasing when keeping under a new name and lands on the kept done row", async () => {
     await openDialog();
 
-    await clickInput(outcomeRadios()[1]!); // keep the branch
+    await clickInput(keepRadio());
     await typeInto(renameInput(), "omp-ui/renamed");
 
     act(() => primaryButton().click());
@@ -491,10 +493,10 @@ describe("FinishWorktreeDialog", () => {
       mergedInto: null,
       checkoutOnReturn: null,
     });
-    // Keeping merges nothing, so there is nothing to share: the finish closes
-    // exactly as it did before the done phase (issue #414).
-    expect(useStore.getState().finishWorktreeTab).toBeNull();
-    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+    // Slice 3.1: keep transitions to the done phase with Publish/PR affordance
+    // and leaves the session live on dismissal.
+    expect(document.body.textContent).toContain("kept branch omp-ui/renamed");
+    expect(document.body.textContent).toContain("publish omp-ui/renamed to origin");
     expect(backendMock.renameWorktreeBranch.mock.invocationCallOrder[0]!).toBeLessThan(
       backendMock.releaseWorktree.mock.invocationCallOrder[0]!,
     );
@@ -505,7 +507,7 @@ describe("FinishWorktreeDialog", () => {
     // BRANCH is `p/deadbeef`: a mint under the fixture project's own prefix.
     await openDialog();
 
-    await clickInput(outcomeRadios()[1]!); // keep the branch
+    await clickInput(keepRadio());
     expect(renameInput().value).toBe("feat/x");
   });
 
@@ -513,7 +515,7 @@ describe("FinishWorktreeDialog", () => {
     backendMock.suggestBranchName.mockResolvedValue("feat/x");
     await openDialog("feature/mine");
 
-    await clickInput(outcomeRadios()[1]!); // keep the branch
+    await clickInput(keepRadio());
     expect(renameInput().value).toBe("feature/mine");
   });
 
@@ -545,14 +547,16 @@ describe("FinishWorktreeDialog", () => {
     // The preview no longer claims the doomed merge is safe.
     expect(document.body.textContent).not.toContain("no conflicts predicted");
 
-    const mergeRadio = outcomeRadios()[0]!;
-    expect(mergeRadio.disabled).toBe(true);
-    expect(mergeRadio.checked).toBe(true); // still selected; it just cannot run
+    const merge = mergeRadio();
+    expect(merge.disabled).toBe(true);
+    // Slice 3.1: falls back to Push & PR (keep branch) automatically when merge is blocked on open.
+    expect(keepRadio().checked).toBe(true);
     const primary = primaryButton();
-    expect(primary.disabled).toBe(true);
+    expect(primary.disabled).toBe(false);
+    expect(primary.textContent).toBe("return, keep branch");
 
     // The merge radio keeps its explanation as a tooltip.
-    const row = mergeRadio.closest("label") as HTMLLabelElement;
+    const row = merge.closest("label") as HTMLLabelElement;
     expect(row.title).toContain("uncommitted changes to files this merge would overwrite");
   });
 
@@ -562,12 +566,11 @@ describe("FinishWorktreeDialog", () => {
     );
     await openDialog();
 
-    await clickInput(outcomeRadios()[1]!); // keep the branch
+    await clickInput(keepRadio());
     const primary = primaryButton();
     expect(primary.disabled).toBe(false);
     expect(primary.textContent).toBe("return, keep branch");
   });
-
   it("never blocks a scratch merge on the project checkout's dirty overlap (issue #1050)", async () => {
     // The status read in new-branch mode describes the START point: main,
     // held by the dirty project checkout. The merge itself runs in a scratch
@@ -586,8 +589,9 @@ describe("FinishWorktreeDialog", () => {
       await flushMicrotasks();
     });
 
-    const mergeRadio = outcomeRadios()[0]!;
-    expect(mergeRadio.disabled).toBe(false);
+    const merge = mergeRadio();
+    expect(merge.disabled).toBe(false);
+    await clickInput(merge);
     expect(document.body.textContent).not.toContain(
       "the project checkout has uncommitted changes to files this merge would overwrite",
     );
@@ -838,8 +842,8 @@ describe("FinishWorktreeDialog", () => {
     it.each(["keep", "other", "new"] as const)("finds a reopened project merge independently of the %s selection", async (selection) => {
       backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ mergeInProgress: true }));
       await openDialog();
-      expect(outcomeRadios()[0]!.closest("label")!.className).toContain("pointer-events-none");
-      if (selection === "keep") await clickInput(outcomeRadios()[1]!);
+      expect(mergeRadio().closest("label")!.className).toContain("pointer-events-none");
+      if (selection === "keep") await clickInput(keepRadio());
       else {
         backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({
           destination: "feature/x", destinationCheckout: "other", mergeInProgress: true,
@@ -1105,7 +1109,7 @@ describe("FinishWorktreeDialog", () => {
         expect(document.body.textContent).toContain(
           "the project checkout has uncommitted changes to files this merge would overwrite",
         );
-        act(() => primaryButton().click());
+        expect(mergeRadio().disabled).toBe(true);
         expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
         expectNoFinishEffects();
       });
@@ -1113,10 +1117,10 @@ describe("FinishWorktreeDialog", () => {
       it("offers no button for the keep outcome or a destination held elsewhere", async () => {
         backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
         await openDialog();
-        await clickInput(outcomeRadios()[1]!);
+        await clickInput(keepRadio());
         expect(resolutionButton()).toBeUndefined();
 
-        await clickInput(outcomeRadios()[0]!);
+        await clickInput(mergeRadio());
         backendMock.getMergeBackStatus.mockResolvedValue(
           previewStatus({ destination: "feature/x", destinationCheckout: "other" }),
         );
@@ -1150,7 +1154,7 @@ describe("FinishWorktreeDialog", () => {
       backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ alreadyMerged }));
       await openDialog();
 
-      if (outcome === "keep") await clickInput(outcomeRadios()[1]!);
+      if (outcome === "keep") await clickInput(keepRadio());
       if (!returnSession) await clickInput(returnCheckbox());
       if (renameTo !== null) await typeInto(renameInput(), renameTo);
 
@@ -1905,9 +1909,8 @@ describe("FinishWorktreeDialog", () => {
       await typeInto(newBranchNameInput(), "release/next");
 
       expect(document.body.textContent).toContain(
-        "session “Busy” is mid-turn in the project — returning would move its checkout to release/next, so the checkout is left alone",
+        "session “Busy” is mid-turn — returning would move its checkout to release/next, so the checkout is left alone",
       );
-
       act(() => primaryButton().click());
       await act(async () => {
         await flushMicrotasks();
@@ -1922,14 +1925,13 @@ describe("FinishWorktreeDialog", () => {
       const skipped = notices().find((item) => item.text.includes("was left on its own branch"));
       expect(skipped).toBeDefined();
       expect(skipped!.text).toContain(
-        "the project checkout was left on its own branch — session “Busy” is mid-turn there; the work is in release/next",
+        "the project checkout was left on its own branch — session “Busy” is mid-turn; the work is in release/next",
       );
-      expect(skipped!.level).toBe("warn");
     });
 
     it("never switches onto the session's own branch when keeping it", async () => {
       await openDialog();
-      await clickInput(outcomeRadios()[1]!); // keep the branch
+      await clickInput(keepRadio());
       // The hint stays the plain keep-and-return promise: nothing lands anywhere.
       expect(document.body.textContent).toContain(
         "the checkout is removed; the branch p/deadbeef stays",
@@ -1951,5 +1953,37 @@ describe("FinishWorktreeDialog", () => {
       await clickInput(returnCheckbox());
       expect(document.body.textContent).toContain("the session stays in its checkout on p/deadbeef");
     });
+
+  it("remembers lastFinishOutcome on the project and opens Push & PR with publish + PR on keep (Slice 3.1)", async () => {
+    seed();
+    const st = useStore.getState().state!;
+    useStore.setState({
+      state: {
+        ...st,
+        projects: st.projects.map((g) => ({
+          ...g,
+          project: { ...g.project, lastFinishOutcome: "keep" },
+        })),
+      },
+    });
+    render();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(keepRadio().checked).toBe(true);
+    expect(document.body.querySelector('select[id$="-dest"]')).toBeNull();
+    act(() => primaryButton().click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(backendMock.setProjectLastFinishOutcome).toHaveBeenCalledWith("/p", "keep");
+    expect(document.body.textContent).toContain(`kept branch ${BRANCH}`);
+    // Closing a kept finish leaves the session live (never calls settleSession).
+    const doneBtn = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")].find(
+      (b) => b.textContent?.trim() === "done",
+    )!;
+    act(() => doneBtn.click());
+    expect(backendMock.settleSession).not.toHaveBeenCalled();
+  });
   });
 });

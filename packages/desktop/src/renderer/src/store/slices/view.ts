@@ -833,22 +833,100 @@ export function findWorktreeAt(
 }
 
 /**
- * The title of a session mid-turn on the given checkout, or null when none.
- * Matched on the effective cwd, so a running worktree session guards its own
- * checkout, not the project root its tab is registered under. `excludeTabId`
- * drops one tab from consideration (the caller's own); absent, every tab counts.
+ * Finds the owning host's session holding a linked worktree at `holderPath`,
+ * preferring live/unsettled sessions over dormant/settled ones.
  */
-export function runningSessionTitleOnCheckout(
+export function findWorktreeHolderSession(
+  state: BackendState | null,
+  instanceId: string | null,
+  holderPath: string,
+): SessionSummary | null {
+  if (state === null) return null;
+  const norm = (p: string): string => {
+    const s = p.replace(/[\\/]+/g, "/").replace(/\/+$/, "") || "/";
+    return /^[A-Za-z]:\//.test(s) ? s.toLowerCase() : s;
+  };
+  const target = norm(holderPath);
+  const matches = hostSessions(state, instanceId).filter(
+    (s) => s.worktree !== null && norm(s.worktree.path) === target,
+  );
+  if (matches.length === 0) return null;
+  const rank = (s: SessionSummary): number =>
+    (s.live === "live" ? 2 : 0) + (s.settledAtMs === null ? 1 : 0);
+  matches.sort((a, b) => rank(b) - rank(a) || b.launchedAt.localeCompare(a.launchedAt));
+  return matches[0]!;
+}
+
+export interface CheckoutOccupant {
+  tabId: string;
+  title: string;
+  reason: "running" | "build-live" | "pty-live";
+}
+
+/** Formats an occupant's state into short human-readable prose for warnings. */
+export function occupantActivityPhrase(reason: CheckoutOccupant["reason"]): string {
+  if (reason === "running") return "is mid-turn";
+  if (reason === "pty-live") return "is running in a terminal on this checkout";
+  return "is active in Build mode on this checkout";
+}
+
+/**
+ * Another live, unsettled, non-snoozed session occupying `cwd` on `instanceId`,
+ * or null when the checkout is free. Scans all sessions on that host (not only
+ * mounted local tabs) and ranks mid-turn (`"running"`) ahead of idle Build or
+ * live PTY sessions.
+ */
+export function checkoutOccupant(
   s: Pick<UiStore, "state" | "tabs" | "rpc">,
   cwd: string | undefined,
   excludeTabId?: string,
-): string | null {
-  if (cwd === undefined) return null;
-  const tab = s.tabs.find(
-    (t) =>
-      t.tabId !== excludeTabId &&
-      sessionCwd(findRecord(s.state, t.tabId)) === cwd &&
-      s.rpc[t.tabId]?.status === "running",
-  );
-  return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
+  instanceId: string | null = null,
+): CheckoutOccupant | null {
+  if (cwd === undefined || s.state === null) return null;
+  let fallback: CheckoutOccupant | null = null;
+  for (const rec of hostSessions(s.state, instanceId)) {
+    if (rec.tabId === excludeTabId) continue;
+    if (sessionCwd(rec) !== cwd) continue;
+    if (rec.live !== "live" || rec.settledAtMs !== null || rec.snoozed) continue;
+    const title = rec.title ?? "a session";
+    if (rec.turnRunning === true || s.rpc[rec.tabId]?.status === "running") {
+      return { tabId: rec.tabId, title, reason: "running" };
+    }
+    if (fallback === null) {
+      if (rec.mode === "rpc-ui" && rec.agentMode === "build" && rec.sessionId !== null) {
+        fallback = { tabId: rec.tabId, title, reason: "build-live" };
+      } else if (rec.mode === "pty") {
+        fallback = { tabId: rec.tabId, title, reason: "pty-live" };
+      }
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Resolves a project's effective workspace policy on `instanceId`:
+ * project override -> host global setting -> `"auto"`.
+ */
+export function effectiveWorkspacePolicy(
+  state: BackendState | null,
+  projectCwd: string | undefined,
+  instanceId: string | null = null,
+): "auto" | "worktree" | "checkout" {
+  const projects =
+    state === null
+      ? []
+      : instanceId === null
+        ? state.projects
+        : (findInstance(state, instanceId)?.projects ?? []);
+  const project =
+    projectCwd === undefined
+      ? undefined
+      : projects.find((group) => group.project.path === projectCwd)?.project;
+  const localOverride = project?.workspacePolicy ?? null;
+  if (localOverride === "auto" || localOverride === "worktree" || localOverride === "checkout") {
+    return localOverride;
+  }
+  const global = state?.workspacePolicy;
+  if (global === "auto" || global === "worktree" || global === "checkout") return global;
+  return "auto";
 }

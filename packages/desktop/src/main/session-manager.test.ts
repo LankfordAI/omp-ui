@@ -10712,3 +10712,148 @@ describe("project scope guidance arm (#1226, #1227)", () => {
     expect(scopeText(arms[0]!).includes("omp-ui_fleet_dispatch")).toBe(atReady);
   });
 });
+
+describe("reserveCheckout & checkout-mode convertToWorktree (Slice 2)", () => {
+  it("serializes two blank Build tabs on the same project and releases the claim on settle or Plan switch", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const tab2 = "tab-2";
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: tab2,
+        projectCwd: registry.sessions[0]!.projectCwd,
+        agentMode: "build",
+        sessionId: null,
+      }),
+    );
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24, planMode: false });
+    const rpc1 = rpcInstances.at(-1)!;
+    rpc1.kill.mockImplementation(() => rpc1.exit(0));
+    await manager.spawn({ origin: "resume", resumeTabId: tab2, cols: 80, rows: 24, planMode: false });
+    const rpc2 = rpcInstances.at(-1)!;
+    rpc2.kill.mockImplementation(() => rpc2.exit(0));
+
+    expect(manager.reserveCheckout(TAB)).toEqual({ status: "claimed" });
+    expect(manager.reserveCheckout(TAB)).toEqual({ status: "claimed" });
+    const second = manager.reserveCheckout(tab2);
+    expect(second.status).toBe("occupied");
+    if (second.status === "occupied") expect(second.occupantTabId).toBe(TAB);
+
+    await manager.settleSession(TAB);
+    expect(manager.reserveCheckout(tab2)).toEqual({ status: "claimed" });
+  });
+
+  it("silently reclaims an empty/clean worktree on settleSession while preserving a dirty worktree (Slice 3.2)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+
+    const { tabId: emptyTab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/empty-clean", baseRef: "main", baseBranch: null } },
+    });
+    const rpcEmpty = rpcInstances.at(-1)!;
+    rpcEmpty.kill.mockImplementation(() => rpcEmpty.exit(0));
+    const emptyWt = registry.sessions.find((s) => s.tabId === emptyTab)!.worktree!;
+    expect(fs.existsSync(emptyWt.path)).toBe(true);
+    await manager.settleSession(emptyTab);
+    expect(registry.sessions.find((s) => s.tabId === emptyTab)!.worktree).toBeNull();
+    expect(fs.existsSync(emptyWt.path)).toBe(false);
+
+    const { tabId: dirtyTab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/has-commit", baseRef: "main", baseBranch: null } },
+    });
+    const rpcDirty = rpcInstances.at(-1)!;
+    rpcDirty.kill.mockImplementation(() => rpcDirty.exit(0));
+    const dirtyWt = registry.sessions.find((s) => s.tabId === dirtyTab)!.worktree!;
+    fs.writeFileSync(path.join(dirtyWt.path, "work.txt"), "work\n");
+    await manager.settleSession(dirtyTab);
+    expect(registry.sessions.find((s) => s.tabId === dirtyTab)!.worktree?.path).toBe(dirtyWt.path);
+    expect(fs.existsSync(dirtyWt.path)).toBe(true);
+  });
+
+  it("serializes empty-worktree reclaim in settleSession against a concurrent resume", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/settle-race", baseRef: "main", baseBranch: null } },
+    });
+    const rpcFirst = rpcInstances.at(-1)!;
+    rpcFirst.kill.mockImplementation(() => rpcFirst.exit(0));
+    const wt = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+    expect(fs.existsSync(wt.path)).toBe(true);
+
+    const settlePromise = manager.settleSession(tabId);
+    const resumePromise = manager.spawn({
+      origin: "resume",
+      resumeTabId: tabId,
+      cols: 80,
+      rows: 24,
+      planMode: false,
+    });
+    const [settled] = await Promise.all([settlePromise, resumePromise]);
+    expect(settled).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(false);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    const rpcResumed = rpcInstances.at(-1)!;
+    expect(rpcResumed).not.toBe(rpcFirst);
+    expect(rpcResumed.dead).toBe(false);
+  });
+  it("runs opt-in worktreeSetup copyPaths and async postCreateCommand, emitting worktree:setupState (Slice 3.3)", async () => {
+    const { manager, registry, sent } = setup();
+    const project = await gitProject(base);
+    fs.writeFileSync(path.join(project, ".gitignore"), ".env\n");
+    await execFileP("git", ["add", ".gitignore"], { cwd: project });
+    await execFileP("git", ["commit", "-q", "-m", "ignore env"], { cwd: project });
+    fs.writeFileSync(path.join(project, ".env"), "HELLO=world\n");
+
+    registry.addProject(project);
+    registry.setProjectWorktreeSetup(project, {
+      copyPaths: [".env"],
+      copyMode: "copy",
+      postCreateCommand: "echo setup-ok > setup-marker.txt",
+    });
+
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/with-setup", baseRef: "main", baseBranch: null } },
+    });
+    const wt = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+    expect(fs.readFileSync(path.join(wt.path, ".env"), "utf8")).toBe("HELLO=world\n");
+
+    await vi.waitFor(() => {
+      expect(
+        sent.some(
+          (msg) =>
+            msg.channel === Core.CH.onWorktreeSetupState &&
+            msg.args[0] === tabId &&
+            (msg.args[1] as { phase?: string } | null)?.phase === "done",
+        ),
+      ).toBe(true);
+    });
+    expect(fs.readFileSync(path.join(wt.path, "setup-marker.txt"), "utf8").trim()).toBe("setup-ok");
+  });
+});

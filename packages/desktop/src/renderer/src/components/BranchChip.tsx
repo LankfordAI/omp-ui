@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { projectKey } from "../lib/project-key";
 import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
 import { useDismissal } from "../lib/use-dismissal";
-import { runningSessionTitleOnCheckout, useStore } from "../store";
+import { checkoutOccupant, findWorktreeHolderSession, occupantActivityPhrase, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
 import {
   baseBranchSegment,
@@ -55,20 +56,20 @@ const NETWORK_POLL_INTERVAL_MS = 60_000;
 
 /** The checkout, pull, or push awaiting the busy-session confirm. */
 type Pending =
-  | { kind: "checkout"; branch: string }
+  | { kind: "checkout"; branch: string; create: boolean }
   | { kind: "pull" }
   | { kind: "push"; branch: string }
   | { kind: "resolve" };
-
 export interface BranchChipExternalRequest {
   /** Monotonic nonce so repeated clicks re-trigger the effect. */
   nonce: number;
   confirmPull?: boolean;
   error?: string | null;
+  close?: boolean;
 }
 
-
 export function BranchChip({
+  tabId,
   projectCwd,
   instanceId = null,
   workspace,
@@ -77,19 +78,26 @@ export function BranchChip({
   onCreateWorktree,
   finishTabId,
   externalRequest,
-  layout = "inline",
+  placement = "float",
+  density = "desktop",
+  triggerVariant = "chip",
+  joinRight = false,
+  onMenuOpen,
 }: {
+  /** Optional owning tab id (used to convert an unprompted session into an existing-branch worktree). */
+  tabId?: string;
   projectCwd?: string;
   /** The remote instance owning the checkout (issue #416); null for this host. */
   instanceId?: string | null;
-  /** Sheet menus expand in the scroller instead of floating above the chip. */
-  layout?: "inline" | "sheet";
-  /**
-   * The composer's pending-workspace selection (issue #227), offered only
-   * while the session is unprompted and has no worktree of its own. Absent
-   * (the default) the popover is the branch menu alone, for prompted or
-   * worktree sessions.
-   */
+  placement?: "float" | "flow";
+  /** `touch` applies 44px mobile touch targets. */
+  density?: "desktop" | "touch";
+  /** `strip` renders as a composer strip cap beside the prompt-options button. */
+  triggerVariant?: "chip" | "strip";
+  /** Strip-only: square the right corners when a pull cap sits to the right. */
+  joinRight?: boolean;
+  /** Called when the BranchChip popover opens (used for mutual exclusion with prompt options). */
+  onMenuOpen?: () => void;
   workspace?: WorkspaceSelection;
   /**
    * The functional form merges against the latest selection: one event can
@@ -133,20 +141,29 @@ export function BranchChip({
   const pushing = useStore(
     (s) => key !== undefined && s.branchActivity[key]?.pushing === true,
   );
+  const state = useStore((s) => s.state);
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
+  const createBranch = useStore((s) => s.createBranch);
   const pullGitBranch = useStore((s) => s.pullGitBranch);
   const pushGitBranch = useStore((s) => s.pushGitBranch);
   const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
   const spawnGitResolution = useStore((s) => s.spawnGitResolution);
-  // A session mid-turn on this checkout: a plain checkout or a fast-forward
-  // would move the working tree out from under it, so both earn a confirm.
-  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
+  const openSession = useStore((s) => s.openSession);
+  const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
+  const newWorktreeSession = useStore((s) => s.newWorktreeSession);
+  // Another live session occupying this checkout: a checkout, `checkout -b`,
+  // pull, push, or resolve affects its working tree / HEAD, so all earn a confirm.
+  const occupant = useStore(useShallow((s) => checkoutOccupant(s, projectCwd, undefined, instanceId)));
+  const busyTitle = occupant?.title ?? null;
+  const busyPhrase = occupant !== null ? occupantActivityPhrase(occupant.reason) : "is mid-turn";
   const openFinishWorktree = useStore((s) => s.openFinishWorktree);
-
+  const [openingWorktreeBranch, setOpeningWorktreeBranch] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const [mode, setMode] = useState<"list" | "create" | "worktree">("list");
+  const [mode, setMode] = useState<"list" | "create" | "worktree" | "held">("list");
+  const [heldBranch, setHeldBranch] = useState<string | null>(null);
+  const [createStartPoint, setCreateStartPoint] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** True while the create-now conversion is in flight (button label). */
@@ -155,8 +172,6 @@ export function BranchChip({
   const [publishing, setPublishing] = useState(false);
   /** The checkout, pull, or push awaiting the busy-session confirm. */
   const [confirm, setConfirm] = useState<Pending | null>(null);
-
-  /** Wraps the trigger *and* the popover, so one containment test covers both. */
   const rootRef = useRef<HTMLSpanElement>(null);
   /** Focus returns here when Escape closes the popover. */
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -170,23 +185,28 @@ export function BranchChip({
     menuOpenRef.current = false;
     setFilter("");
     setMode("list");
+    setHeldBranch(null);
+    setCreateStartPoint(null);
     setName("");
     setError(null);
     setConfirm(null);
   };
 
   /**
-   * Escape peels one layer at a time: the new-branch form and the busy-session
-   * confirm are sub-states of the open popover, not separate surfaces.
+   * Escape peels one layer at a time: the new-branch form, held-branch actions,
+   * and the busy-session confirm are sub-states of the open popover, not
+   * separate surfaces.
    */
   const escapeStage = (): void => {
     if (mode === "create") {
       setMode("list");
+      setCreateStartPoint(null);
       setName("");
       return;
     }
-    if (mode === "worktree") {
+    if (mode === "worktree" || mode === "held") {
       setMode("list");
+      setHeldBranch(null);
       return;
     }
     if (confirm !== null) {
@@ -195,16 +215,20 @@ export function BranchChip({
     }
     closeMenu();
   };
-
   useEffect(() => {
     if (externalRequest == null) return;
+    if (externalRequest.close) {
+      closeMenu();
+      return;
+    }
     setMenuOpen(true);
     menuOpenRef.current = true;
     setMode("list");
+    setHeldBranch(null);
+    setCreateStartPoint(null);
     setConfirm(externalRequest.confirmPull ? { kind: "pull" } : null);
     setError(externalRequest.error ?? null);
   }, [externalRequest]);
-
   // First paint reads local refs only: mounting a project must not reach the
   // network. Upstream freshness arrives on open, focus, or visibility instead.
   useEffect(() => {
@@ -367,22 +391,29 @@ export function BranchChip({
    * pick only — re-picking the active selection keeps the minted name and
    * any edits (issue #225 semantics, preserved).
    */
-  const enterWorktree = (): void => {
+  const enterWorktree = (seedBaseRef?: string): void => {
     if (!worktreeOffered || worktreeLocked) return;
     if (workspace !== undefined && workspace.mode === "worktree") {
+      if (seedBaseRef !== undefined) {
+        onWorkspaceChange?.((prev) =>
+          prev.mode === "worktree"
+            ? { ...prev, baseRef: seedBaseRef, baseBranch: null, baseTouched: true }
+            : prev,
+        );
+      }
       setMode("worktree");
       return;
     }
+    const prefix = worktreeBranchPrefix(projectCwd);
     onWorkspaceChange?.({
       mode: "worktree",
-      branch: mintBranchName(worktreeBranchPrefix(projectCwd)),
-      baseRef: null,
+      branch: mintBranchName(prefix, seedBaseRef),
+      baseRef: seedBaseRef ?? null,
       baseBranch: null,
-      baseTouched: false,
+      baseTouched: seedBaseRef !== undefined,
     });
     setMode("worktree");
   };
-
   const pickCheckout = (): void => {
     onWorkspaceChange?.({ mode: "checkout" });
     closeMenu();
@@ -409,6 +440,7 @@ export function BranchChip({
       closeMenu();
       return;
     }
+    onMenuOpen?.();
     setMenuOpen(true);
     menuOpenRef.current = true;
     // Fresh list *and* fresh upstream on every open — another tab (or the user
@@ -421,16 +453,29 @@ export function BranchChip({
       closeMenu();
       return;
     }
-    // The busy confirm guards plain checkout only: `checkout -b` does not move
-    // the working tree, so the create flow skips it.
+    // Moving HEAD (plain checkout or `checkout -b`) causes another session's
+    // next commit in this checkout to land on the wrong branch — both earn a confirm.
     const restating =
-      confirm !== null && confirm.kind === "checkout" && confirm.branch === branch;
-    if (!create && busyTitle !== null && !restating) {
-      setConfirm({ kind: "checkout", branch });
+      confirm !== null &&
+      confirm.kind === "checkout" &&
+      confirm.branch === branch &&
+      confirm.create === create;
+    if (busyTitle !== null && !restating) {
+      setConfirm({ kind: "checkout", branch, create });
       return;
     }
     setError(null);
-    const err = await checkoutGitBranch(projectCwd, branch, create ? { create: true } : undefined, instanceId);
+    let err: string | null;
+    if (create && createStartPoint !== null) {
+      try {
+        await createBranch(projectCwd, branch, createStartPoint, instanceId);
+        err = await checkoutGitBranch(projectCwd, branch, undefined, instanceId);
+      } catch (e) {
+        err = displayMessage(e);
+      }
+    } else {
+      err = await checkoutGitBranch(projectCwd, branch, create ? { create: true } : undefined, instanceId);
+    }
     if (err !== null) {
       setError(err);
       setConfirm(null);
@@ -438,7 +483,24 @@ export function BranchChip({
     }
     closeMenu();
   };
-
+  const openBranchInWorktree = async (branch: string): Promise<void> => {
+    if (openingWorktreeBranch) return;
+    setOpeningWorktreeBranch(true);
+    setError(null);
+    try {
+      if (worktreeOffered && tabId !== undefined && !worktreeLocked) {
+        await convertSessionToWorktree(tabId, { checkout: { branch } });
+      } else {
+        await newWorktreeSession(projectCwd, { checkout: { branch } }, instanceId);
+      }
+      closeMenu();
+    } catch (err) {
+      setError(displayMessage(err));
+      setConfirm(null);
+    } finally {
+      setOpeningWorktreeBranch(false);
+    }
+  };
   const attemptPull = async (): Promise<void> => {
     if (!pullEnabled) return;
     if (busyTitle !== null && confirm?.kind !== "pull") {
@@ -536,11 +598,28 @@ export function BranchChip({
   );
   const displayedError = error;
 
+  const worktrees = info.worktrees ?? {};
+  const holderPathFor = (branch: string): string | null =>
+    branch !== current && typeof worktrees[branch] === "string" ? worktrees[branch]! : null;
+  const activeHeldPath = heldBranch === null ? null : holderPathFor(heldBranch);
+  const activeHeldSession =
+    activeHeldPath === null
+      ? null
+      : findWorktreeHolderSession(state, instanceId, activeHeldPath);
+
   return (
-    <span ref={rootRef} className={cn("relative flex min-w-0", layout === "sheet" && "w-full flex-wrap [&_button]:min-h-11")}>
+    <span
+      ref={rootRef}
+      className={cn(
+        "relative flex min-w-0",
+        placement === "flow" && "w-full flex-wrap",
+        density === "touch" && "[&_button]:min-h-11",
+      )}
+    >
       <button
         ref={triggerRef}
         type="button"
+        data-pill-segment={triggerVariant === "strip" ? "branch" : undefined}
         aria-expanded={menuOpen}
         title={
           workspace?.mode === "worktree"
@@ -551,34 +630,54 @@ export function BranchChip({
               : `branch — ${current ?? "detached HEAD"} · ${behindReading} (click to switch)`
         }
         onClick={toggleMenu}
-        className="tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
-      >
-        <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
-          <circle cx="5" cy="4" r="1.6" {...ICON_STROKE} />
-          <circle cx="5" cy="12" r="1.6" {...ICON_STROKE} />
-          <circle cx="11" cy="6" r="1.6" {...ICON_STROKE} />
-          <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...ICON_STROKE} />
-        </svg>
-        <span className="min-w-0 max-w-44 truncate">
-          {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
-        </span>
-        {workspace?.mode === "worktree" && (
-          <span className="shrink-0 text-ink-dim">· worktree</span>
+        className={cn(
+          triggerVariant === "strip"
+            ? cn(
+                "tap-target inline-flex h-7 min-w-0 shrink items-center gap-1 border border-l-0 border-line px-2 text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
+                joinRight ? "rounded-none" : "rounded-r-md",
+              )
+            : "tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink",
         )}
-        {resolvable && behind > 0 && (
+      >
+        {triggerVariant === "strip" ? (
           <>
-            {/* Behind is a neutral fact; only divergence — where the fix is
-                manual — earns copper. The arrow is decoration, so the count
-                reaches assistive tech as prose instead. */}
-            <span
-              aria-hidden
-              className={cn("tabular-nums", diverged ? "text-copper" : "text-ink-dim")}
-            >
-              ↓ {behind}
+            <span className="min-w-0 max-w-36 truncate">
+              ⎇ {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
             </span>
-            <span className="sr-only">
-              {behindReading}
+            {workspace?.mode === "worktree" && (
+              <span className="shrink-0 text-ink-dim">· worktree</span>
+            )}
+          </>
+        ) : (
+          <>
+            <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+              <circle cx="5" cy="4" r="1.6" {...ICON_STROKE} />
+              <circle cx="5" cy="12" r="1.6" {...ICON_STROKE} />
+              <circle cx="11" cy="6" r="1.6" {...ICON_STROKE} />
+              <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...ICON_STROKE} />
+            </svg>
+            <span className="min-w-0 max-w-44 truncate">
+              {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
             </span>
+            {workspace?.mode === "worktree" && (
+              <span className="shrink-0 text-ink-dim">· worktree</span>
+            )}
+            {resolvable && behind > 0 && (
+              <>
+                {/* Behind is a neutral fact; only divergence — where the fix is
+                    manual — earns copper. The arrow is decoration, so the count
+                    reaches assistive tech as prose instead. */}
+                <span
+                  aria-hidden
+                  className={cn("tabular-nums", diverged ? "text-copper" : "text-ink-dim")}
+                >
+                  ↓ {behind}
+                </span>
+                <span className="sr-only">
+                  {behindReading}
+                </span>
+              </>
+            )}
           </>
         )}
       </button>
@@ -588,22 +687,24 @@ export function BranchChip({
           aria-busy={refreshing || pulling || pushing}
           className={cn(
             "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
-            layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1",
-            layout === "inline" && (mode === "worktree" ? "w-72" : "w-60"),
+            placement === "flow" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1",
+            placement === "float" && (mode === "worktree" ? "w-72" : "w-64"),
           )}
         >
           {confirm !== null ? (
             <>
               <div className="px-1.5 py-1 text-xs leading-snug text-copper">
                 {confirm.kind === "pull"
-                  ? `session “${busyTitle!}” is mid-turn — pulling changes the project working tree`
+                  ? `session “${busyTitle!}” ${busyPhrase} — pulling changes the project working tree`
                   : confirm.kind === "push"
-                    ? `session “${busyTitle!}” is mid-turn — the branch is shared as it stands`
+                    ? `session “${busyTitle!}” ${busyPhrase} — the branch is shared as it stands`
                     : confirm.kind === "resolve"
-                      ? `session “${busyTitle!}” is mid-turn — the agent will change the same checkout`
-                      : `session “${busyTitle!}” is mid-turn — the tree will change under it`}
+                      ? `session “${busyTitle!}” ${busyPhrase} — the agent will change the same checkout`
+                      : confirm.create
+                        ? `session “${busyTitle!}” ${busyPhrase} — moving HEAD causes its next commit to land on ${confirm.branch}`
+                        : `session “${busyTitle!}” ${busyPhrase} — the tree will change under it`}
               </div>
-              <div className="flex gap-1.5 px-1.5 pb-0.5">
+              <div className={cn("flex gap-1.5 px-1.5 pb-0.5", confirm.kind === "checkout" && !confirm.create && finishTabId === undefined && "flex-col")}>
                 {confirm.kind === "pull" ? (
                   <Button
                     size="xs"
@@ -630,17 +731,97 @@ export function BranchChip({
                   >
                     resolve anyway
                   </Button>
+                ) : !confirm.create && finishTabId === undefined ? (
+                  <>
+                    <Button
+                      size="xs"
+                      disabled={openingWorktreeBranch || (worktreeOffered && worktreeLocked)}
+                      onClick={() => void openBranchInWorktree(confirm.branch)}
+                    >
+                      {openingWorktreeBranch ? "Opening worktree…" : `Open ${confirm.branch} in worktree`}
+                    </Button>
+                    <div className="flex gap-1.5">
+                      <Button
+                        size="xs"
+                        tone="copper"
+                        disabled={openingWorktreeBranch}
+                        onClick={() => void attempt(confirm.branch, false)}
+                      >
+                        Switch shared checkout anyway
+                      </Button>
+                      <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
+                        cancel
+                      </Button>
+                    </div>
+                  </>
                 ) : (
                   <Button
                     size="xs"
                     tone="copper"
-                    onClick={() => void attempt(confirm.branch, false)}
+                    onClick={() => void attempt(confirm.branch, confirm.create)}
                   >
-                    switch anyway
+                    {confirm.create ? "create & switch anyway" : "switch anyway"}
                   </Button>
                 )}
-                <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
-                  cancel
+                {!(confirm.kind === "checkout" && !confirm.create && finishTabId === undefined) && (
+                  <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
+                    cancel
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : mode === "held" && heldBranch !== null ? (
+            <>
+              <div className="px-1.5 py-1 text-xs leading-snug text-ink-mid">
+                <span className="font-mono text-ink">{heldBranch}</span> is checked out in{" "}
+                {activeHeldSession !== null ? (
+                  <span>“{activeHeldSession.title}”</span>
+                ) : (
+                  <span className="font-mono" title={activeHeldPath ?? undefined}>
+                    {activeHeldPath ?? "another worktree"}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-1 px-1 pb-0.5">
+                {activeHeldSession !== null && (
+                  <Button
+                    size="xs"
+                    onClick={() => {
+                      const targetTabId = activeHeldSession.tabId;
+                      closeMenu();
+                      void openSession(targetTabId);
+                    }}
+                  >
+                    Jump to session
+                  </Button>
+                )}
+                <Button
+                  size="xs"
+                  variant={activeHeldSession !== null ? "ghost" : "solid"}
+                  disabled={worktreeOffered && worktreeLocked}
+                  onClick={() => {
+                    const b = heldBranch;
+                    setHeldBranch(null);
+                    setError(null);
+                    if (worktreeOffered) {
+                      enterWorktree(b);
+                    } else {
+                      setCreateStartPoint(b);
+                      setMode("create");
+                    }
+                  }}
+                >
+                  New branch from here
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => {
+                    setMode("list");
+                    setHeldBranch(null);
+                  }}
+                >
+                  back
                 </Button>
               </div>
             </>
@@ -661,7 +842,9 @@ export function BranchChip({
                 className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <span className="px-1.5 pb-1 text-xs text-ink-faint">
-                creates and switches to the branch
+                {createStartPoint !== null
+                  ? `creates from ${createStartPoint} and switches to it`
+                  : "creates and switches to the branch"}
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 <Button
@@ -676,6 +859,7 @@ export function BranchChip({
                   variant="ghost"
                   onClick={() => {
                     setMode("list");
+                    setCreateStartPoint(null);
                     setName("");
                   }}
                 >
@@ -823,6 +1007,7 @@ export function BranchChip({
               <button
                 type="button"
                 onClick={() => {
+                  setCreateStartPoint(null);
                   setMode("create");
                   setError(null);
                 }}
@@ -852,7 +1037,7 @@ export function BranchChip({
                       ? "the session must be ready before it can run in a worktree"
                       : undefined
                   }
-                  onClick={enterWorktree}
+                  onClick={() => enterWorktree()}
                   className={cn(
                     "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                     // No pointer-events-none: the disabled state carries its
@@ -873,27 +1058,61 @@ export function BranchChip({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && filtered.length > 0) {
                     e.preventDefault();
-                    void attempt(filtered[0]!, false);
+                    const first = filtered[0]!;
+                    if (holderPathFor(first) !== null) {
+                      setHeldBranch(first);
+                      setMode("held");
+                      setError(null);
+                    } else {
+                      void attempt(first, false);
+                    }
                   }
                 }}
                 className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <div className="flex max-h-64 flex-col overflow-y-auto">
-                {filtered.map((branch) => (
-                  <button
-                    key={branch}
-                    type="button"
-                    disabled={branch === current}
-                    onClick={() => void attempt(branch, false)}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
-                      "disabled:pointer-events-none",
-                      branch === current ? "text-iris" : "text-ink-mid",
-                    )}
-                  >
-                    {branch}
-                  </button>
-                ))}
+                {filtered.map((branch) => {
+                  const holderPath = holderPathFor(branch);
+                  const holderSession =
+                    holderPath === null
+                      ? null
+                      : findWorktreeHolderSession(state, instanceId, holderPath);
+                  const holderBase =
+                    holderPath === null
+                      ? null
+                      : holderPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? holderPath;
+                  return (
+                    <button
+                      key={branch}
+                      type="button"
+                      disabled={branch === current}
+                      title={holderPath ?? undefined}
+                      onClick={() => {
+                        if (holderPath !== null) {
+                          setHeldBranch(branch);
+                          setMode("held");
+                          setError(null);
+                          return;
+                        }
+                        void attempt(branch, false);
+                      }}
+                      className={cn(
+                        "flex min-w-0 items-center justify-between gap-2 rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
+                        "disabled:pointer-events-none",
+                        branch === current ? "text-iris" : "text-ink-mid",
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{branch}</span>
+                      {holderPath !== null && (
+                        <span className="max-w-28 shrink-0 truncate text-xs text-ink-faint">
+                          {holderSession !== null
+                            ? `in ${holderSession.title}`
+                            : `in …/${holderBase}`}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
                 {filtered.length === 0 && (
                   <span className="px-1.5 py-0.5 font-mono text-xs text-ink-faint">
                     no matches

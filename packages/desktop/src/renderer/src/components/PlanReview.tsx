@@ -20,7 +20,7 @@ import { projectKey } from "../lib/project-key";
 import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findInstance, findOwner, findRecord, useStore } from "../store";
+import { checkoutOccupant, effectiveWorkspacePolicy, findInstance, findOwner, findRecord, useStore } from "../store";
 import type { PlanRevisionNotes } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
@@ -44,7 +44,7 @@ import {
 } from "./SelectionComment";
 import { AttachmentButton, Button, Chip, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
-import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { isMintedWorktreeBranch, mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import { WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
@@ -228,6 +228,7 @@ export function PlanReview({
   const [compactStep, setCompactStep] = useState<CompactReviewStep>("review");
 
   const [context, setContext] = useState<PlanExecutionContext>("existing");
+  const [contextTouched, setContextTouched] = useState(false);
   /**
    * The worktree context's dedicated checkout (issue #313): branch + base,
    * minted once on first pick of the worktree row. Persists across context
@@ -408,10 +409,10 @@ export function PlanReview({
   if (review !== seededFor) {
     setSeededFor(review);
     setContext("existing");
+    setContextTouched(false);
     setCompactStep("review");
     setWorktreeSel(null);
   }
-
   // omp's config supplies the inherited advisor default, read on the owning
   // instance's host.
   useEffect(() => {
@@ -436,18 +437,96 @@ export function PlanReview({
   // apply run once, so a later clear-to-empty never refills — and the
   // selection in the deps only carries the name to a row picked after the
   // model had already answered.
+  const branchInfo = useStore((s) =>
+    projectCwd === undefined ? undefined : s.branches[projectKey(instanceId, projectCwd)],
+  );
+  const workspacePolicy = useStore((s) =>
+    effectiveWorkspacePolicy(s.state, projectCwd, instanceId),
+  );
+  const checkoutBusy = useStore((s) =>
+    checkoutOccupant(s, projectCwd, tabId, instanceId) !== null,
+  );
+
+  const buildInitialWorktreeSel = useCallback((): {
+    branch: string;
+    baseRef: string | null;
+    baseBranch: string | null;
+    baseTouched: boolean;
+    suggested: string | null;
+  } => {
+    if (sourceWorktree !== null) {
+      return {
+        branch: sourceWorktree.branch,
+        baseRef: null,
+        baseBranch: null,
+        baseTouched: false,
+        suggested: null,
+      };
+    }
+    const preferred =
+      suggestion ??
+      (baseFallback !== "" ? baseFallback : mintBranchName(worktreeBranchPrefix(projectCwd ?? "")));
+    const defaultUsable =
+      branchInfo !== undefined &&
+      branchInfo.defaultBranch !== null &&
+      branchInfo.branches.includes(branchInfo.defaultBranch);
+    const baseRef =
+      branchInfo === undefined
+        ? null
+        : defaultUsable
+          ? branchInfo.defaultBranch
+          : branchInfo.current;
+    return {
+      branch: preferred,
+      baseRef,
+      baseBranch: null,
+      baseTouched: false,
+      suggested: suggestion,
+    };
+  }, [sourceWorktree, suggestion, baseFallback, projectCwd, branchInfo]);
+
+  // Default PlanReview context based on workspacePolicy when the planning
+  // session is on the shared project checkout in a git repo.
+  useEffect(() => {
+    if (review == null || contextTouched || sourceWorktree !== null || !branch.isRepo) return;
+    const onDefault =
+      branchInfo !== undefined &&
+      branchInfo.current !== null &&
+      branchInfo.defaultBranch !== null &&
+      branchInfo.current === branchInfo.defaultBranch;
+    const shouldUseWorktree =
+      workspacePolicy === "worktree" ||
+      (workspacePolicy === "auto" && (checkoutBusy || onDefault));
+    if (shouldUseWorktree) {
+      setContext("worktree");
+      setWorktreeSel((prev) => prev ?? buildInitialWorktreeSel());
+    } else {
+      setContext("existing");
+    }
+  }, [review, contextTouched, sourceWorktree, branch.isRepo, workspacePolicy, checkoutBusy, branchInfo, buildInitialWorktreeSel]);
+
   useEffect(() => {
     if (suggestion === null) return;
     setWorktreeSel((prev) => {
       if (prev === null || prev.suggested !== null) return prev;
-      if (prev.baseBranch === null) return { ...prev, suggested: suggestion };
-      const baseBranch =
-        prev.baseBranch === "" || prev.baseBranch === baseFallback ? suggestion : prev.baseBranch;
-      // WorktreeBranchFields follows the base and recomposes the mint.
-      return { ...prev, baseBranch, suggested: suggestion };
+      if (prev.baseBranch !== null) {
+        const baseBranch =
+          prev.baseBranch === "" || prev.baseBranch === baseFallback ? suggestion : prev.baseBranch;
+        return { ...prev, baseBranch, suggested: suggestion };
+      }
+      // When sourceWorktree === null, apply the async suggestion into the
+      // worktree branch field if the user hasn't typed a custom name yet.
+      const prefix = worktreeBranchPrefix(projectCwd ?? "");
+      const untouchedBranch =
+        sourceWorktree === null &&
+        (prev.branch === baseFallback || isMintedWorktreeBranch(prev.branch, prefix));
+      return {
+        ...prev,
+        branch: untouchedBranch ? suggestion : prev.branch,
+        suggested: suggestion,
+      };
     });
-  }, [suggestion, baseFallback, worktreeSel]);
-
+  }, [suggestion, baseFallback, worktreeSel, sourceWorktree, projectCwd]);
   if (!review || deferred) return null;
   const { request } = review;
   // The council review needs a launchable council in THIS process and an
@@ -850,22 +929,9 @@ export function PlanReview({
                           : undefined
                       }
                       onClick={() => {
-                        // Prefill the planning branch when this session plans
-                        // in a worktree (issue #316); otherwise mint. Re-picking
-                        // the active selection keeps the current value and any
-                        // edits (issue #225 semantics, as in the composer's
-                        // branch chip).
+                        setContextTouched(true);
                         if (option.id === "worktree" && worktreeSel === null) {
-                          const mint =
-                            sourceWorktree?.branch ??
-                            mintBranchName(worktreeBranchPrefix(projectCwd ?? ""));
-                          setWorktreeSel({
-                            branch: mint,
-                            baseRef: null,
-                            baseBranch: null,
-                            baseTouched: false,
-                            suggested: null,
-                          });
+                          setWorktreeSel(buildInitialWorktreeSel());
                         }
                         setContext(option.id);
                       }}

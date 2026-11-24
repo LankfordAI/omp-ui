@@ -29,6 +29,11 @@ const AGENT_MODE_OPTIONS = [
   { value: "plan", label: "Plan" },
   { value: "build", label: "Build" },
 ] as const;
+const WORKSPACE_POLICY_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "worktree", label: "Worktree" },
+  { value: "checkout", label: "Checkout" },
+] as const;
 const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
@@ -303,6 +308,7 @@ export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
+  const setWorkspacePolicy = useStore((s) => s.setWorkspacePolicy);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const compactionMethods = useStore((s) => s.compactionMethods);
   const ensureCompactionMethods = useStore((s) => s.ensureCompactionMethods);
@@ -340,6 +346,7 @@ export function GeneralPage() {
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
   const agentMode = state?.defaultAgentMode ?? "plan";
+  const workspacePolicy = state?.workspacePolicy ?? "auto";
   const planFormat = state?.planFormat ?? "html";
   const defaultCompactionMethod = state?.defaultCompactionMethod ?? null;
   useEffect(() => {
@@ -402,6 +409,18 @@ export function GeneralPage() {
           value={agentMode}
           options={AGENT_MODE_OPTIONS}
           onChange={(value) => void setDefaultAgentMode(value)}
+          optionClassName="tab-label px-2"
+        />
+      </Row>
+      <Row
+        title="Default workspace"
+        hint="Shared checkout for a lone session or Plan mode; automatic worktree when another Build session is active."
+      >
+        <ChoiceCapsule
+          label="default workspace"
+          value={workspacePolicy}
+          options={WORKSPACE_POLICY_OPTIONS}
+          onChange={(value) => void setWorkspacePolicy(value)}
           optionClassName="tab-label px-2"
         />
       </Row>

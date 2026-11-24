@@ -10,6 +10,7 @@ import {
   createBranchService,
   listBranches,
   parseBranchStatus,
+  parseWorktreeBranches,
   pullBranch,
   pushBranch,
   readDefaultBranch,
@@ -257,6 +258,7 @@ describe("listBranches", () => {
       upstreamFetchedAt: null,
       upstreamRefreshError: null,
       defaultRemote: null,
+      worktrees: {},
     });
   });
 
@@ -828,5 +830,60 @@ describe("pushBranch", () => {
     expect([listed.ahead, listed.behind]).toEqual([0, 0]);
     expect(listed.upstreamFetchedAt).toBe(1_000);
     expect(rec.calls.filter((call) => call.args[0] === "fetch")).toEqual([]);
+  });
+});
+
+describe("parseWorktreeBranches", () => {
+  it("maps linked worktree branches while excluding repoRoot, detached, and bare entries", () => {
+    const porcelain = [
+      "worktree /repos/app",
+      "HEAD 1111111",
+      "branch refs/heads/main",
+      "",
+      "worktree /worktrees/app--1234/feat-a",
+      "HEAD 2222222",
+      "branch refs/heads/feat/a",
+      "",
+      "worktree /tmp/external-wt",
+      "HEAD 3333333",
+      "branch refs/heads/external-fix",
+      "",
+      "worktree /tmp/detached-wt",
+      "HEAD 4444444",
+      "detached",
+      "",
+      "worktree /repos/bare.git",
+      "bare",
+      "",
+    ].join("\n");
+    expect(parseWorktreeBranches(porcelain, "/repos/app")).toEqual({
+      "feat/a": "/worktrees/app--1234/feat-a",
+      "external-fix": "/tmp/external-wt",
+    });
+  });
+
+  it("normalizes Windows drive-letter casing and backslashes when excluding repoRoot", () => {
+    const porcelain = [
+      "worktree C:/Users/dev/Repo",
+      "HEAD 1111111",
+      "branch refs/heads/main",
+      "",
+      "worktree C:/Users/dev/wt-1",
+      "HEAD 2222222",
+      "branch refs/heads/feat/win",
+      "",
+    ].join("\r\n");
+    expect(parseWorktreeBranches(porcelain, "c:\\Users\\dev\\repo\\")).toEqual({
+      "feat/win": "C:/Users/dev/wt-1",
+    });
+  });
+
+  it("populates BranchList.worktrees for a real linked git worktree", async () => {
+    const dir = await tmpRepo();
+    const wt = path.join(tmpDir(), "linked-wt");
+    await gitIn(dir, ["worktree", "add", "-q", "-b", "feat/linked", wt, "main"]);
+    const list = await listBranches(dir);
+    expect(list.worktrees?.["feat/linked"]).toBe(fs.realpathSync.native(wt));
+    expect(list.worktrees?.main).toBeUndefined();
   });
 });

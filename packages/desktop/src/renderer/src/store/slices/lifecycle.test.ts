@@ -3137,3 +3137,32 @@ describe("snooze-park teardown and seamless one-click resume (issue #1323)", () 
     expect(st.hibernated[h.TAB]).toBeUndefined();
   });
 });
+
+describe("silent reclaim of empty/clean worktrees on delete (Slice 3.2)", () => {
+  it("silently deletes an unprompted empty/clean worktree without staging confirmation, and allows skipConfirmationCovers for empty/clean worktrees", async () => {
+    const base = h.stateWithRecord(null);
+    const wtRec = {
+      ...base.projects[0]!.sessions[0]!,
+      sessionId: null,
+      worktree: { path: "/wt/empty", branch: "p/main/deadbeef", base: "main" },
+    };
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [],
+      worktreeEmptyClean: true,
+    });
+    h.mockBackend.deleteSession.mockResolvedValueOnce({ deleted: [h.TAB], failed: [] });
+    h.useStore.setState({
+      state: {
+        ...base,
+        skipDeleteConfirmation: false,
+        projects: [{ ...base.projects[0]!, sessions: [wtRec] }],
+      },
+      deleteConfirmation: null,
+    });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+  });
+});

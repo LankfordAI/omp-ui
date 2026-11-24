@@ -308,7 +308,7 @@ describe("BranchChip", () => {
     expect(document.body.querySelector("button")).toBeNull();
   });
 
-  it("confirms a plain checkout while a session is mid-turn", async () => {
+  it("offers worktree-first switching and shared-checkout override when a checkout is occupied", async () => {
     seedBusy();
     render();
 
@@ -317,18 +317,31 @@ describe("BranchChip", () => {
 
     expect(document.body.textContent).toContain("is mid-turn");
     expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    expect(buttonByText("Open feature/x in worktree")).toBeDefined();
 
-    await act(async () => buttonByText("switch anyway").click());
+    await act(async () => buttonByText("Switch shared checkout anyway").click());
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feature/x", undefined);
   });
 
-  it("creates a branch without the busy confirm", async () => {
+  it("opens an existing branch in a worktree from the worktree-first prompt", async () => {
+    const newWorktreeSession = vi.fn(async () => "tab-new-wt");
+    seedBusy();
+    useStore.setState({ newWorktreeSession });
+    render();
+
+    await act(async () => chip().click());
+    await act(async () => buttonByText("feature/x").click());
+    await act(async () => buttonByText("Open feature/x in worktree").click());
+
+    expect(newWorktreeSession).toHaveBeenCalledWith("/p", { checkout: { branch: "feature/x" } }, null);
+    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+  });
+  it("confirms `checkout -b` while a session is mid-turn", async () => {
     seedBusy();
     render();
 
     await act(async () => chip().click());
     await act(async () => buttonByText("new branch…").click());
-    expect(document.body.textContent).not.toContain("is mid-turn");
 
     const input = document.body.querySelector<HTMLInputElement>(
       'input[aria-label="new branch name"]',
@@ -341,9 +354,11 @@ describe("BranchChip", () => {
       );
     });
 
+    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("is mid-turn");
+    await act(async () => buttonByText("create & switch anyway").click());
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "topic", { create: true });
   });
-
   it("closes on an outside pointerdown, and not on one inside the popover (issue #114)", async () => {
     render();
     await act(async () => chip().click());
@@ -1339,5 +1354,123 @@ describe("BranchChip resolve row (issue #675)", () => {
       { kind: "diverged", branch: "main", upstream: "origin/main", cwd: "/p" },
       null,
     );
+  });
+});
+
+describe("BranchChip placement, density, and worktree holders (Slice 1)", () => {
+  it("supports flow placement without inflating desktop density to touch targets", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(<BranchChip projectCwd="/p" placement="flow" density="desktop" />));
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain("w-full");
+    expect(wrapper.className).not.toContain("[&_button]:min-h-11");
+
+    await act(async () => chip().click());
+    const popover = wrapper.querySelector<HTMLElement>("[aria-busy]")!;
+    expect(popover.className).toContain("basis-full");
+    expect(popover.className).not.toContain("absolute");
+  });
+
+  it("badges worktree-held branches and offers Jump to session and New branch from here instead of raw git checkout", async () => {
+    const openSession = vi.fn(async () => {});
+    const heldBranches: BranchList = {
+      ...fixture,
+      branches: ["main", "feature/x", "feature/ext"],
+      worktrees: {
+        "feature/x": "/wt/feat-x",
+        "feature/ext": "/tmp/external-wt",
+      },
+    };
+    backendMock.listBranches.mockResolvedValueOnce(heldBranches);
+    useStore.setState({
+      openSession,
+      branches: { "/p": heldBranches },
+      state: makeBackendState({
+        projects: [
+          {
+            project: {
+              path: "/p",
+              name: "p",
+              addedAt: "t",
+              lastModel: null,
+              lastThinkingLevel: null,
+              lastAdvisor: null,
+              lastAdvisorModel: null,
+              defaultModel: null,
+              defaultAdvisorModel: null,
+              browserClock: false,
+              councilRoster: null,
+              knowledgeHome: null,
+              repositoryKey: null,
+              icon: null,
+            },
+            sessions: [
+              {
+                tabId: "tab-wt",
+                sessionId: "sess-wt",
+                lineageDir: "omp-ui--p--wt",
+                projectCwd: "/p",
+                launchedAt: "2026-01-01T00:00:00Z",
+                mode: "rpc-ui",
+                worktree: { path: "/wt/feat-x", branch: "feature/x", base: "main" },
+                planImplementationSource: null,
+                experiment: null,
+                fleet: null,
+                agentMode: "build",
+                compactionMethod: null,
+                approvalMode: null,
+                serviceTier: null,
+                model: null,
+                thinkingLevel: null,
+                advisor: false,
+                advisorModel: null,
+                subagentModels: null,
+                proposedPlans: [],
+                autoTitled: false,
+                snoozed: false,
+                snoozedUntilMs: null,
+                reminderAtMs: null,
+                pinnedAtMs: null,
+                settledAtMs: null,
+                heldPrompt: null,
+                scheduledPrompt: null,
+                routine: null,
+                pullRequests: [],
+                autoSettleOnMerge: null,
+                private: false,
+                chat: false,
+                askSource: null,
+                cachedTitle: null,
+                cachedModified: null,
+                title: "Auth work",
+                status: null,
+                live: "live",
+                pendingPlan: null,
+                planSettle: null,
+                streamStalled: false,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    render();
+    await act(async () => chip().click());
+
+    expect(document.body.textContent).toContain("in Auth work");
+    expect(document.body.textContent).toContain("in …/external-wt");
+
+    const heldRow = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("feature/x"),
+    )!;
+    await act(async () => heldRow.click());
+    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    expect(buttonByText("Jump to session")).toBeDefined();
+    expect(buttonByText("New branch from here")).toBeDefined();
+
+    await act(async () => buttonByText("Jump to session").click());
+    expect(openSession).toHaveBeenCalledWith("tab-wt");
   });
 });

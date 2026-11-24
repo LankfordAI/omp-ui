@@ -114,6 +114,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "plan:dismiss",
   "session:restart",
   "session:convert-to-worktree",
+  "session:reserve-checkout",
   "worktree:sync",
   "worktree:discarded",
   "worktree:applyDiscarded",
@@ -181,6 +182,9 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "project:setDefaultModel",
   "project:setDefaultAdvisorModel",
   "project:setBrowserClock",
+  "project:setWorkspacePolicy",
+  "project:setLastFinishOutcome",
+  "project:setWorktreeSetup",
   "project:setKnowledgeHome",
   "project:setIcon",
   "project:getSubagentModels",
@@ -330,4 +334,5 @@ export const REMOTE_TAB_EVENTS: ReadonlySet<string> = new Set<string>([
   "device-pane:frame",
   "device-pane:state",
   "collab:changed",
+  "worktree:setupState",
 ]);
