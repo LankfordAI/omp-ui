@@ -1,0 +1,67 @@
+# Advisory AI PR review configuration for LankfordAI/omp-ui.
+# Read from the default branch (main) by the self-hosted PR-Agent GitHub App.
+# Not a merge gate: adds no workflow, no repository secret, and no required check.
+
+[config]
+response_language = "en-US"
+repo_context_files = ["AGENTS.md"]
+repo_context_from_default_branch = true
+repo_context_max_lines = 160
+skip_unchanged_diff = true
+output_run_details = true
+
+[ignore]
+glob = [
+  "package-lock.json",
+  "node_modules/**",
+  "**/dist/**",
+  "**/out/**",
+]
+
+[pr_reviewer]
+persistent_comment = true
+persistent_finding_state = true
+show_previous_findings_summary = true
+inline_key_issues = true
+require_tests_review = true
+require_security_review = true
+require_estimate_effort_to_review = true
+require_score_review = false
+num_max_findings = 6
+extra_instructions = """
+Review stance: advisory and high-signal (equivalent to a chill profile). Focus on
+correctness bugs, race conditions, security flaws, and architectural boundary violations;
+skip cosmetic formatting nits and do not ask for mechanical docstring or unit-test boilerplate.
+
+Architectural invariants (docs/architecture.md, ADR-0002):
+- packages/core MUST stay transport-agnostic plain Node/TS with zero Electron imports.
+- Electron main/preload/renderer code belongs in packages/desktop.
+- Never silently swallow errors or weaken trust/isolation boundaries (sandbox, preload, IPC).
+
+Vocabulary (CONTEXT.md):
+- Prefer canonical terms in new code, comments, UI copy, and docs:
+  Session (not conversation/thread/chat unless the project-free Chat subtype),
+  Live session (not open/active/running session),
+  Hibernated session (not suspended/parked/sleeping session),
+  Tab (not window/pane),
+  Project (not repo/folder/workspace),
+  Owned session (not tracked/managed session).
+"""
+
+[pr_description]
+publish_description_as_comment = true
+publish_description_as_comment_persistent = true
+publish_labels = false
+generate_ai_title = false
+enable_pr_diagram = true
+collapsible_file_list = "adaptive"
+
+[pr_code_suggestions]
+committable_code_suggestions = false
+
+[github_app]
+handle_pr_actions = ["opened", "reopened", "ready_for_review"]
+feedback_on_draft_pr = false
+handle_push_trigger = false
+pr_commands = ["/describe", "/review"]
+webhook_delivery_deduplication = true
