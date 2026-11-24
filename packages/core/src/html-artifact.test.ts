@@ -97,11 +97,135 @@ describe("composeHtmlArtifactDocument", () => {
     }
   });
 
-  it("stamps neither the height stub nor the margin reset into a static document", () => {
+  it("stamps neither the height stub, clipboard shim, nor the margin reset into a static document", () => {
     const doc = composeHtmlArtifactDocument("<p>x</p>", ":root{}", false);
     expect(doc).not.toContain("body{margin:0}");
     expect(doc).not.toContain(HEIGHT_HASH_PREFIX);
     expect(doc).not.toContain("ResizeObserver");
+    expect(doc).not.toContain("execCommand");
+  });
+
+  it("injects a write-only clipboard shim ahead of authored markup when scripts run", () => {
+    const authored = "<script>run()</script>";
+    const doc = composeHtmlArtifactDocument(authored, ":root{}", true);
+    const shimAt = doc.indexOf("execCommand");
+    expect(shimAt).toBeGreaterThan(0);
+    expect(shimAt).toBeLessThan(doc.indexOf(authored));
+    const head = doc.slice(0, doc.indexOf("</head>"));
+    expect(head).not.toContain("readText");
+  });
+});
+
+describe("CLIPBOARD_WRITE_STUB behavior", () => {
+  function runShim(opts: {
+    existingClipboard?: unknown;
+    userActive?: boolean;
+    execCommand?: (cmd: string) => boolean;
+  } = {}) {
+    const doc = composeHtmlArtifactDocument("<p>x</p>", ":root{}", true);
+    const scripts = [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    const shimSource = scripts.find((s) => s.includes("execCommand"));
+    expect(shimSource).toBeDefined();
+
+    const listeners: Array<{ type: string; fn: (e: unknown) => void; capture: boolean }> = [];
+    const setDataCalls: Array<[string, string]> = [];
+    let prevented = false;
+    let stopped = false;
+    let execCount = 0;
+
+    const navigatorStub: Record<string, unknown> = {
+      userActivation: { isActive: opts.userActive ?? true },
+    };
+    if ("existingClipboard" in opts) {
+      navigatorStub.clipboard = opts.existingClipboard;
+    }
+    const windowStub = {
+      addEventListener(type: string, fn: (e: unknown) => void, capture = false) {
+        listeners.push({ type, fn, capture });
+      },
+      removeEventListener(type: string, fn: (e: unknown) => void, capture = false) {
+        const idx = listeners.findIndex((l) => l.type === type && l.fn === fn && l.capture === capture);
+        if (idx >= 0) listeners.splice(idx, 1);
+      },
+    };
+    const documentStub = {
+      execCommand(cmd: string) {
+        execCount++;
+        if (opts.execCommand) return opts.execCommand(cmd);
+        const event = {
+          clipboardData: {
+            setData(format: string, value: string) {
+              setDataCalls.push([format, value]);
+            },
+          },
+          preventDefault() { prevented = true; },
+          stopImmediatePropagation() { stopped = true; },
+        };
+        for (const l of [...listeners]) {
+          if (l.type === "copy" && l.capture) l.fn(event);
+        }
+        return true;
+      },
+    };
+
+    new Function("navigator", "window", "document", shimSource!)(navigatorStub, windowStub, documentStub);
+    return {
+      clipboard: navigatorStub.clipboard as { writeText: (...args: unknown[]) => Promise<void>; read?: unknown; readText?: unknown },
+      listeners,
+      setDataCalls,
+      get prevented() { return prevented; },
+      get stopped() { return stopped; },
+      get execCount() { return execCount; },
+    };
+  }
+
+  it("writes text/plain via capture copy listener, stops propagation, cleans up, and exposes no read APIs", async () => {
+    const env = runShim();
+    expect(env.clipboard.read).toBeUndefined();
+    expect(env.clipboard.readText).toBeUndefined();
+    await expect(env.clipboard.writeText("INSIGHTS-1537")).resolves.toBeUndefined();
+    expect(env.execCount).toBe(1);
+    expect(env.setDataCalls).toEqual([["text/plain", "INSIGHTS-1537"]]);
+    expect(env.prevented).toBe(true);
+    expect(env.stopped).toBe(true);
+    expect(env.listeners).toHaveLength(0);
+  });
+
+  it("rejects with TypeError when called with no arguments", async () => {
+    const env = runShim();
+    await expect(env.clipboard.writeText()).rejects.toThrow(TypeError);
+    expect(env.execCount).toBe(0);
+  });
+
+  it("rejects with NotAllowedError without user activation and never invokes execCommand", async () => {
+    const env = runShim({ userActive: false });
+    await expect(env.clipboard.writeText("denied")).rejects.toMatchObject({ name: "NotAllowedError" });
+    expect(env.execCount).toBe(0);
+  });
+
+  it("rejects with NotAllowedError when execCommand returns false and cleans up listener", async () => {
+    const env = runShim({ execCommand: () => false });
+    await expect(env.clipboard.writeText("nope")).rejects.toMatchObject({ name: "NotAllowedError" });
+    expect(env.listeners).toHaveLength(0);
+  });
+
+  it("cleans up the capture listener when execCommand throws", async () => {
+    const env = runShim({ execCommand: () => { throw new Error("boom"); } });
+    await expect(env.clipboard.writeText("x")).rejects.toThrow("boom");
+    expect(env.listeners).toHaveLength(0);
+  });
+
+  it("rejects asynchronously instead of throwing synchronously on Symbol input", async () => {
+    const env = runShim();
+    const promise = env.clipboard.writeText(Symbol("s"));
+    await expect(promise).rejects.toThrow(TypeError);
+    expect(env.execCount).toBe(0);
+  });
+
+  it("does not overwrite a pre-existing navigator.clipboard", () => {
+    const native = { writeText: async () => {} };
+    const env = runShim({ existingClipboard: native });
+    expect(env.clipboard).toBe(native);
   });
 });
 

@@ -501,6 +501,7 @@ function renderHtmlTool(artifacts: boolean): RpcHostToolDefinition {
       (artifacts
         ? "Inline every script, style and image (data: URIs) in the html. Put managed datasets in artifact.datasets and load them through window.ompArtifact; document-only figures inline their data. The document runs sandboxed with NO network (no CDNs, fetch, or external URLs), browser storage, popups, forms or navigation, so external resources fail to load. "
         : "Inline every script, style, image (data: URIs), and dataset in the html: the document runs sandboxed with NO network (no CDNs, fetch, or external URLs), no storage, popups, forms, or navigation, so external resources fail to load. ") +
+      "navigator.clipboard.writeText works inside a click handler; clipboard reading is unavailable. " +
       "It may read the user's theme from CSS variables such as var(--color-surface), var(--color-ink), var(--color-ink-dim), var(--color-line), var(--color-signal), var(--color-copper), var(--color-rose), var(--color-iris); color-scheme is set to match. " +
       `At most ${HTML_ARTIFACT_MAX_BYTES / 1024} KiB of html.` + (artifacts ? MANAGED_ARTIFACT_INSTRUCTIONS : ""),
     parameters: {
