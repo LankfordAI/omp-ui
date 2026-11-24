@@ -599,7 +599,11 @@ export class MainBackend {
     this.clockStamper = new ClockStamper();
     this.snoozeClock = new SnoozeClock({
       sessions: () => this.registry.sessions,
-      updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
+      updateSession: (tabId, patch) => {
+        const updated = this.registry.updateSession(tabId, patch);
+        if (patch.snoozed === false) void this.sessions?.cancelSnoozePark?.(tabId);
+        return updated;
+      },
       broadcast: () => void this.broadcast(),
       onWake: (tabIds) => this.notifier.notifySnoozeReturn(tabIds),
     });
@@ -1584,7 +1588,7 @@ export class MainBackend {
         // every first-title dispatch route must win before dispatching; the
         // session manager also releases it on process exit and delete.
         [CH.claimFirstTitle]: (tabId: string) => this.sessions.claimFirstTitle(tabId),
-        [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
+        [CH.setSessionSnoozed]: async (tabId: string, snoozed: boolean, untilMs?: number | null) => {
           this.registry.updateSession(tabId, {
             snoozed,
             snoozedUntilMs: snoozed ? (untilMs ?? null) : null,
@@ -1594,12 +1598,15 @@ export class MainBackend {
           this.notifier.clearSnooze(tabId);
           // Re-arms for the new deadline; a deadline already past wakes now.
           this.snoozeClock.sync();
-          if (snoozed && this.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true) {
+          const stillSnoozed = this.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true;
+          if (snoozed && stillSnoozed) {
             this.sessions.requestSnoozePark(tabId);
+          } else {
+            await this.sessions.cancelSnoozePark(tabId);
           }
           void this.broadcast();
         },
-        [CH.setSessionPinned]: (tabId: string, pinned: boolean) => {
+        [CH.setSessionPinned]: async (tabId: string, pinned: boolean) => {
           // Pin time orders the Pinned group (issue #981): this host's clock
           // stamps it, and re-pinning keeps the first stamp so the row holds its place.
           // Pinning a snoozed row clears snooze so the latest gesture wins (#1323).
@@ -1610,7 +1617,10 @@ export class MainBackend {
             pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null,
             ...(clearSnooze ? { snoozed: false, snoozedUntilMs: null } : {}),
           });
-          if (clearSnooze) this.snoozeClock.sync();
+          if (clearSnooze) {
+            this.snoozeClock.sync();
+            await this.sessions.cancelSnoozePark(tabId);
+          }
           void this.broadcast();
         },
         [CH.setSessionAutoSettleOnMerge]: (tabId: string, on: boolean | null) => {

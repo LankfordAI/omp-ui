@@ -97,6 +97,26 @@ export class HibernationTracker implements FrameObserver {
     this.stopSnoozeTimer(tabId);
     void this.deps.runSerialized(tabId, () => this.attemptSnoozePark(tabId, true));
   }
+
+  /**
+   * Cancels any pending snooze-park retry or in-flight pre-kill probe when a
+   * session leaves Snoozed (unsnooze, pin, expiry, prompt, resume). An
+   * in-flight reap is already serialized on the tab's op chain and cannot be
+   * undone once SIGTERM has left, so clearing the probe prevents a late
+   * response from crossing into `hibernate(..., "park")`.
+   */
+  cancelSnoozePark(tabId: string): void {
+    this.stopSnoozeTimer(tabId);
+    const rec = this.records.get(tabId);
+    if (rec !== undefined && rec.probeId !== null) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
+      const resolve = rec.probeResolve;
+      rec.probeId = null;
+      rec.probeResolve = null;
+      resolve?.(null);
+    }
+  }
   /**
    * Post-verdict hibernation suspension (issue #246): between the verdict
    * and the implementation prompt the process is momentarily quiet.
@@ -193,6 +213,21 @@ export class HibernationTracker implements FrameObserver {
     // Any real frame re-arms the clock.
     rec.armed = true;
     this.armHibernateTimer(tabId);
+  }
+
+  onSend(tabId: string, cmd: RpcFrame): void {
+    // Any outgoing client command invalidates an in-flight pre-kill probe so
+    // a stale idle answer cannot reap a session the user just acted on.
+    if (cmd.type === "get_state") return;
+    const rec = this.records.get(tabId);
+    if (rec !== undefined && rec.probeId !== null) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
+      const resolve = rec.probeResolve;
+      rec.probeId = null;
+      rec.probeResolve = null;
+      resolve?.(null);
+    }
   }
 
 

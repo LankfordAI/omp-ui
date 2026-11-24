@@ -372,4 +372,63 @@ describe("HibernationTracker snooze-park (issue #1323)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("cancels an in-flight snooze-park probe on cancelSnoozePark or outgoing turn command so a late idle response never reaps (#1323)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const sessions: SessionStub[] = [
+        {
+          tabId: TAB,
+          projectCwd: "/proj",
+          launchedAt: "2026-11-24T10:00:00.000Z",
+          cachedModified: null,
+          snoozed: true,
+        },
+      ];
+      const { tracker, rpcSend, hibernate } = harness({
+        hibernateIdleMinutes: 0,
+        hibernateImpl: async () => true,
+        sessions,
+      });
+      tracker.onFrame(TAB, { type: "agent_end" } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+      rpcSend.mockClear();
+      hibernate.mockClear();
+
+      // Case 1: cancelSnoozePark while get_state probe is in flight.
+      tracker.requestSnoozePark(TAB);
+      expect(rpcSend).toHaveBeenCalledTimes(1);
+      const probeId1 = lastProbeId(rpcSend);
+      sessions[0]!.snoozed = false;
+      tracker.cancelSnoozePark(TAB);
+      tracker.onFrame(TAB, {
+        type: "response",
+        id: probeId1,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(hibernate).not.toHaveBeenCalled();
+
+      // Case 2: outgoing prompt invalidates an in-flight probe even before the flag clears.
+      sessions[0]!.snoozed = true;
+      rpcSend.mockClear();
+      tracker.requestSnoozePark(TAB);
+      expect(rpcSend).toHaveBeenCalledTimes(1);
+      const probeId2 = lastProbeId(rpcSend);
+      tracker.onSend(TAB, { type: "prompt", id: "u1", message: "hello" } as RpcFrame);
+      tracker.onFrame(TAB, {
+        type: "response",
+        id: probeId2,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(hibernate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -148,9 +148,14 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     return waiter.settle.promise;
   };
 
+  let managerRef: SessionManager | null = null;
   const snoozeClock = new SnoozeClock({
     sessions: () => input.registry.sessions,
-    updateSession: (tabId, patch) => input.registry.updateSession(tabId, patch),
+    updateSession: (tabId, patch) => {
+      const updated = input.registry.updateSession(tabId, patch);
+      if (patch.snoozed === false) void managerRef?.cancelSnoozePark(tabId);
+      return updated;
+    },
     broadcast: () => void broadcast(),
   });
 
@@ -167,6 +172,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       clearPartition: async () => {},
     },
   });
+  managerRef = manager;
   snoozeClock.sync();
   const gate = input.spawnGate;
 
@@ -358,7 +364,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     // First-title ownership (issue #1090): the same atomic claim desktop
     // main answers — joined renderers of a host-lite-owned session race here.
     [CH.claimFirstTitle]: (tabId: string) => manager.claimFirstTitle(tabId),
-    [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
+    [CH.setSessionSnoozed]: async (tabId: string, snoozed: boolean, untilMs?: number | null) => {
       input.registry.updateSession(tabId, {
         snoozed,
         snoozedUntilMs: snoozed ? (untilMs ?? null) : null,
@@ -366,12 +372,15 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
         ...(snoozed ? { settledAtMs: null } : {}),
       });
       snoozeClock.sync();
-      if (snoozed && input.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true) {
+      const stillSnoozed = input.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true;
+      if (snoozed && stillSnoozed) {
         manager.requestSnoozePark(tabId);
+      } else {
+        await manager.cancelSnoozePark(tabId);
       }
       void broadcast();
     },
-    [CH.setSessionPinned]: (tabId: string, pinned: boolean) => {
+    [CH.setSessionPinned]: async (tabId: string, pinned: boolean) => {
       const record = input.registry.sessions.find((s) => s.tabId === tabId);
       if (record === undefined) return;
       const clearSnooze = pinned && record.snoozed;
@@ -379,7 +388,10 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
         pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null,
         ...(clearSnooze ? { snoozed: false, snoozedUntilMs: null } : {}),
       });
-      if (clearSnooze) snoozeClock.sync();
+      if (clearSnooze) {
+        snoozeClock.sync();
+        await manager.cancelSnoozePark(tabId);
+      }
       void broadcast();
     },
     [CH.setSessionAutoSettleOnMerge]: (tabId: string, on: boolean | null) => {
