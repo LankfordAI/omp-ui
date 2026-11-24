@@ -275,9 +275,10 @@ export interface FleetSpawnSpec {
   requestedBy: FleetRequester;
   /** #956: the main model the dispatcher asked for; absent = the owner decides. */
   model?: string;
+  /** #1329: the dispatching session's active model; preferred when `model` is absent, falling back if unrunnable. */
+  preferredModel?: string;
   /** #956: the main thinking level the dispatcher asked for; absent = the owner decides. */
   thinkingLevel?: string;
-  /** ADR-0100: pinned Routine metadata and compiled tool policy; valid only when requestedBy.kind === "routine". */
   routine?: SessionRoutine;
 }
 
@@ -516,8 +517,10 @@ export interface FleetDispatchRequest {
   planMode: boolean;
   /** Retry of an unknown outcome: exactly one explicit pick; both ids are reused. */
   retryOf?: { dispatchId: string; batchId: string | null };
-  /** #956: absent = the owner decides (agent: first runnable favorite; user: project chain). */
+  /** #956: absent = the owner decides (agent: preferredModel, else first runnable favorite, else project chain; user: project chain). */
   model?: string;
+  /** #1329: dispatching agent's active model; preferred when `model` is absent, falling back cleanly if unrunnable. */
+  preferredModel?: string;
   thinkingLevel?: string;
 }
 
@@ -733,7 +736,7 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
 export function parseFleetSpawnSpec(value: unknown): FleetSpawnSpec {
   const label = "spawn request.fleet";
   const spec = objectValue(value, label);
-  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy", "model", "thinkingLevel", "routine"], label);
+  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy", "model", "preferredModel", "thinkingLevel", "routine"], label);
   const requestedBy = parseFleetRequester(spec.requestedBy, `${label}.requestedBy`);
   let routine: SessionRoutine | undefined;
   if (spec.routine !== undefined) {
@@ -759,6 +762,9 @@ export function parseFleetSpawnSpec(value: unknown): FleetSpawnSpec {
     prompt: validateFleetPrompt(spec.prompt, `${label}.prompt`),
     requestedBy,
     ...(spec.model === undefined ? {} : { model: validateFleetModel(spec.model, `${label}.model`) }),
+    ...(spec.preferredModel === undefined
+      ? {}
+      : { preferredModel: validateFleetModel(spec.preferredModel, `${label}.preferredModel`) }),
     ...(spec.thinkingLevel === undefined
       ? {}
       : { thinkingLevel: validateFleetThinkingLevel(spec.thinkingLevel, `${label}.thinkingLevel`) }),
@@ -809,7 +815,7 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
   const req = objectValue(value, "dispatch request");
   rejectUnknownKeys(
     req,
-    ["targets", "prompt", "title", "workspace", "planMode", "retryOf", "model", "thinkingLevel"],
+    ["targets", "prompt", "title", "workspace", "planMode", "retryOf", "model", "preferredModel", "thinkingLevel"],
     "dispatch request",
   );
   const t = objectValue(req.targets, "dispatch request.targets");
@@ -867,6 +873,8 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
     };
   }
   const model = req.model === undefined ? undefined : validateFleetModel(req.model, "dispatch request.model");
+  const preferredModel =
+    req.preferredModel === undefined ? undefined : validateFleetModel(req.preferredModel, "dispatch request.preferredModel");
   const thinkingLevel =
     req.thinkingLevel === undefined ? undefined : validateFleetThinkingLevel(req.thinkingLevel, "dispatch request.thinkingLevel");
   return {
@@ -877,6 +885,7 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
     planMode: req.planMode,
     ...(retryOf === undefined ? {} : { retryOf }),
     ...(model === undefined ? {} : { model }),
+    ...(preferredModel === undefined ? {} : { preferredModel }),
     ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
   };
 }
@@ -1741,6 +1750,8 @@ export function parseFleetProjectRoots(value: unknown): string[] {
 
 export interface FleetModelChoiceInput {
   requestedModel: string | null;
+  /** #1329: soft preference (dispatching session's active model); used when requestedModel is null and runnable, else falls back. */
+  preferredModel?: string | null;
   requestedLevel: string | null;
   /** True for an agent dispatch: only that path defaults to favorites. */
   favoritesFirst: boolean;
@@ -1755,9 +1766,10 @@ export interface FleetModelChoiceInput {
 }
 
 /**
- * The owner's model and level for a fleet spawn (#956). A requested model must
- * be in the catalog with a reachable endpoint; an agent dispatch without one
- * takes the first catalogued, reachable favorite, else the project chain. A
+ * The owner's model and level for a fleet spawn (#956, #1329). A requested
+ * model must be in the catalog with a reachable endpoint; without one, a
+ * catalogued and reachable `preferredModel` wins, then for an agent dispatch
+ * the first catalogued, reachable favorite, else the project chain. A
  * requested level must be `auto` or one of the model's efforts.
  */
 export async function resolveFleetModelChoice(
@@ -1767,7 +1779,7 @@ export async function resolveFleetModelChoice(
   const rowOf = (m: string) => (catalog.discovered ? catalog.models.find((r) => `${r.provider}/${r.id}` === m) : undefined);
   let model: string | null = null;
   let row: CatalogModelOption | undefined;
-  let source: "requested" | "favorite" | "project" = "project";
+  let source: "requested" | "preferred" | "favorite" | "project" = "project";
   if (input.requestedModel !== null) {
     const m = input.requestedModel;
     if (!catalog.discovered) {
@@ -1785,7 +1797,16 @@ export async function resolveFleetModelChoice(
     model = m;
     source = "requested";
   } else {
-    if (input.favoritesFirst && catalog.discovered) {
+    const preferred = input.preferredModel ?? null;
+    if (preferred !== null && catalog.discovered) {
+      const pRow = rowOf(preferred);
+      if (pRow !== undefined && (await input.reachable(preferred))) {
+        model = preferred;
+        row = pRow;
+        source = "preferred";
+      }
+    }
+    if (source === "project" && input.favoritesFirst && catalog.discovered) {
       for (const f of input.favorites) {
         const fRow = rowOf(f);
         if (fRow !== undefined && (await input.reachable(f))) {

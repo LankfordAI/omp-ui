@@ -54,7 +54,7 @@ last command before the first turn. Once the owner accepts the spawn, it owns
 delivery.**
 
 - `fleet = { dispatchId, batchId, title, prompt, requestedBy, model?,
-  thinkingLevel? }` is accepted on new rpc-ui requests only;
+  preferredModel?, thinkingLevel? }` is accepted on new rpc-ui requests only;
   `parseSpawnRequest` refuses it on terminal, chat, and resume requests and
   alongside plan implementation or an experiment, so a dispatched session is
   always a native project session.
@@ -127,7 +127,16 @@ delivery.**
   takes the first favorite that qualifies, else the project chain; a level
   must be `auto` or one of the model's efforts. A refusal fails that copy
   with the owner's reason, and the spawn answer's `choice` names what the
-  record started on.* *Amended (#957–#959): see ADR-0069.*
+  record started on.* *Amended (#1329): when an agent calls
+  `omp-ui_fleet_dispatch` with `model` omitted, `SessionManager` attaches the
+  dispatching session's active model as `preferredModel` (soft preference) on
+  `FleetDispatchRequest` / `FleetSpawnSpec`. The owner tries `preferredModel`
+  first when it is in the catalog and reachable; if not, it falls back cleanly
+  to the target machine's first runnable favorite, then the project chain.
+  Explicit `model` still overrides and still refuses if unrunnable. Older
+  remote owners that reject `unknown field preferredModel` are retried once
+  without `preferredModel` so they fall back to favorites/project default.*
+  *Amended (#957–#959): see ADR-0069.*
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.

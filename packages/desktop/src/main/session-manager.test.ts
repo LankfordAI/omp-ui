@@ -276,7 +276,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"]; themes?: SessionManagerDependencies["themes"]; artifacts?: SessionManagerDependencies["artifacts"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleet?: SessionManagerDependencies["fleet"]; fleetWake?: SessionManagerDependencies["fleetWake"]; themes?: SessionManagerDependencies["themes"]; artifacts?: SessionManagerDependencies["artifacts"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -351,6 +351,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     resolveModelHold: opts.resolveModelHold,
     readModelSelectorError: opts.readModelSelectorError,
     readModelCatalog: opts.readModelCatalog,
+    fleet: opts.fleet,
     fleetWake: opts.fleetWake,
     getOmpPath: () => "/test/omp",
     // The collab poll never shells out in tests: every probe reads as a CLI
@@ -9350,6 +9351,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       kind?: Core.FleetRequester["kind"];
       planMode?: boolean;
       model?: string;
+      preferredModel?: string;
       thinkingLevel?: string;
       routine?: Core.SessionRoutine;
     } = {},
@@ -9375,6 +9377,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
           sourceTabId: opts.kind === "agent" ? "src-tab" : opts.kind === "mcp" ? "mcp-client" : null,
         },
         ...(opts.model === undefined ? {} : { model: opts.model }),
+        ...(opts.preferredModel === undefined ? {} : { preferredModel: opts.preferredModel }),
         ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
         ...(opts.routine === undefined ? {} : { routine: opts.routine }),
       },
@@ -9648,6 +9651,123 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       expect(recordOf(registry, answer.tabId).model).toBe("pin/model");
       expect(answer.choice?.model).toBe("pin/model");
       expect(readModelCatalog).not.toHaveBeenCalled();
+    });
+
+    it("prefers preferredModel over favorites when catalogued and falls back when absent (#1329)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui", readModelCatalog: async () => catalog("a/fav", "b/active") });
+      registry.toggleFavorite("a/fav");
+
+      const picked = await fleetSpawn(manager, { dispatchId: "d-pref-1", kind: "agent", preferredModel: "b/active" });
+      expect(recordOf(registry, picked.tabId).model).toBe("b/active");
+      expect(picked.choice?.model).toBe("b/active");
+
+      const fallback = await fleetSpawn(manager, { dispatchId: "d-pref-2", kind: "agent", preferredModel: "x/not-here" });
+      expect(recordOf(registry, fallback.tabId).model).toBe("a/fav");
+      expect(fallback.choice?.model).toBe("a/fav");
+    });
+
+    it("attaches the dispatching session's live active model as preferredModel on omp-ui_fleet_dispatch (#1329)", async () => {
+      const dispatched: Array<{ req: Core.FleetDispatchRequest; who: unknown }> = [];
+      const fakeFleet = {
+        machines: async (): Promise<Core.FleetMachine[]> => [
+          {
+            key: Core.LOCAL_MACHINE_KEY,
+            nickname: null,
+            status: "ready",
+            error: null,
+            preference: "normal",
+            receivedAt: Date.now(),
+            grantRung: null,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+            report: {
+              instanceId: "inst-local",
+              label: "local",
+              version: "1.0.0",
+              platform: "linux",
+              arch: "x64",
+              cpuCount: 8,
+              cpuUtilization: 0.1,
+              totalMemoryBytes: 16e9,
+              availableMemoryBytes: 8e9,
+              liveSessions: 1,
+              runningTurns: 0,
+              sampledAt: Date.now(),
+              projects: [
+                { path: PROJECT, name: "proj", repositoryKey: null, headCommit: null, providerReady: true, advisor: false, advisorModel: null },
+              ],
+              user: "u",
+              projectRoots: [],
+              os: null,
+              packageManagers: null,
+              ompVersion: null,
+              ompPath: null,
+              ompPinned: false,
+              ompBelowMinimum: false,
+              packageFormat: null,
+              appLatestVersion: null,
+              appUpdateStaged: false,
+              modelFavorites: [],
+            },
+          },
+        ],
+        dispatch: async (req: Core.FleetDispatchRequest, who: unknown): Promise<Core.FleetDispatchResult> => {
+          dispatched.push({ req, who });
+          return {
+            batchId: null,
+            outcomes: [{ dispatchId: "d-1", machineKey: Core.LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "child-tab", choice: null }],
+          };
+        },
+      };
+      const { manager, registry } = setup({
+        mode: "rpc-ui",
+        fleet: () => fakeFleet as never,
+      });
+      registry.setSetting("fleetAgentDispatch", true);
+      registry.setSessionModel(TAB, "anthropic/claude-boot", "high");
+      await resume(manager);
+      const rpc = rpcInstances.at(-1)!;
+
+      // 1. Before any RPC model frame, falls back to record.model.
+      rpc.frame({
+        type: "host_tool_call",
+        id: "call-1",
+        toolCallId: "tc-call-1",
+        toolName: "omp-ui_fleet_dispatch",
+        arguments: { prompt: "do work", project: PROJECT },
+      });
+      await settle();
+      expect(dispatched[0]?.req.preferredModel).toBe("anthropic/claude-boot");
+      expect(dispatched[0]?.req.model).toBeUndefined();
+
+      // 2. After a mid-session model switch observed via config_update, uses the new live model.
+      rpc.frame({
+        type: "config_update",
+        model: { provider: "openrouter", id: "google/gemini-4-neon" },
+      });
+      rpc.frame({
+        type: "host_tool_call",
+        id: "call-2",
+        toolCallId: "tc-call-2",
+        toolName: "omp-ui_fleet_dispatch",
+        arguments: { prompt: "do more work", project: PROJECT },
+      });
+      await settle();
+      expect(dispatched[1]?.req.preferredModel).toBe("openrouter/google/gemini-4-neon");
+      expect(dispatched[1]?.req.model).toBeUndefined();
+
+      // 3. Explicit model overrides and omits preferredModel.
+      rpc.frame({
+        type: "host_tool_call",
+        id: "call-3",
+        toolCallId: "tc-call-3",
+        toolName: "omp-ui_fleet_dispatch",
+        arguments: { prompt: "use explicit", project: PROJECT, model: "zai/glm-flash" },
+      });
+      await settle();
+      expect(dispatched[2]?.req.model).toBe("zai/glm-flash");
+      expect(dispatched[2]?.req.preferredModel).toBeUndefined();
     });
   });
 

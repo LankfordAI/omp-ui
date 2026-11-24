@@ -200,6 +200,13 @@ describe("parseFleetSpawnSpec", () => {
     expect(Object.keys(parseFleetSpawnSpec(spec))).not.toContain("model");
   });
 
+  it("keeps a preferredModel when present and omits the key when absent (#1329)", () => {
+    const raw = { ...spec, preferredModel: "openrouter/openai/gpt-5.6-luna" };
+    expect(parseFleetSpawnSpec(raw)).toEqual(raw);
+    expect(Object.keys(parseFleetSpawnSpec(spec))).not.toContain("preferredModel");
+    expect(() => parseFleetSpawnSpec({ ...spec, preferredModel: "bad-model" })).toThrow(/spawn request\.fleet\.preferredModel/);
+  });
+
   const validRoutine = {
     id: "abcdefghijklmnopqrstuv",
     name: "Morning brief",
@@ -286,6 +293,15 @@ describe("parseFleetDispatchRequest", () => {
     );
     expect(() => parseFleetDispatchRequest({ ...request, thinkingLevel: "High" })).toThrow(
       "dispatch request.thinkingLevel must be a thinking level word such as low or high, or auto",
+    );
+  });
+
+  it("accepts preferredModel and rejects an invalid preferredModel (#1329)", () => {
+    const raw = { ...request, preferredModel: "openrouter/openai/gpt-5.6-luna" };
+    expect(parseFleetDispatchRequest(raw)).toEqual(raw);
+    expect(Object.keys(parseFleetDispatchRequest(request))).not.toContain("preferredModel");
+    expect(() => parseFleetDispatchRequest({ ...request, preferredModel: "nope" })).toThrow(
+      "dispatch request.preferredModel must be a provider/id selector such as openrouter/openai/gpt-5.6-luna",
     );
   });
 
@@ -1294,6 +1310,89 @@ describe("dispatch model choice (#956)", () => {
     expect(await resolveFleetModelChoice(input({ favorites: [PLAIN], seedLevel: "auto" }))).toEqual({
       ok: true,
       choice: { model: PLAIN, thinkingLevel: "auto" },
+    });
+  });
+
+  it("prefers preferredModel over favorites when catalogued and reachable (#1329)", async () => {
+    expect(
+      await resolveFleetModelChoice(input({ preferredModel: FLASH, favorites: [LUNA], seedLevel: "high" })),
+    ).toEqual({
+      ok: true,
+      choice: { model: FLASH, thinkingLevel: "high" },
+    });
+  });
+
+  it("falls back from uncatalogued or unreachable preferredModel to first runnable favorite, then project default (#1329)", async () => {
+    expect(
+      await resolveFleetModelChoice(input({ preferredModel: "x/missing", favorites: [LUNA], seedLevel: "medium" })),
+    ).toEqual({
+      ok: true,
+      choice: { model: LUNA, thinkingLevel: "medium" },
+    });
+    expect(
+      await resolveFleetModelChoice(
+        input({
+          preferredModel: LUNA,
+          favorites: [FLASH],
+          seedLevel: "high",
+          reachable: async (m) => m !== LUNA,
+        }),
+      ),
+    ).toEqual({
+      ok: true,
+      choice: { model: FLASH, thinkingLevel: "high" },
+    });
+    expect(
+      await resolveFleetModelChoice(
+        input({
+          preferredModel: "x/missing",
+          favorites: ["y/missing"],
+          projectModel: "proj/pinned",
+          seedLevel: "medium",
+        }),
+      ),
+    ).toEqual({
+      ok: true,
+      choice: { model: "proj/pinned", thinkingLevel: "medium" },
+    });
+  });
+
+  it("explicit requestedModel overrides preferredModel and still refuses if unrunnable (#1329)", async () => {
+    expect(
+      await resolveFleetModelChoice(input({ requestedModel: FLASH, preferredModel: LUNA, seedLevel: "high" })),
+    ).toEqual({
+      ok: true,
+      choice: { model: FLASH, thinkingLevel: "high" },
+    });
+    expect(
+      await resolveFleetModelChoice(input({ requestedModel: "x/missing", preferredModel: LUNA })),
+    ).toEqual({
+      ok: false,
+      reason: "model x/missing is not in this machine's model catalog",
+    });
+  });
+
+  it("drops an incompatible seedLevel and enforces requestedLevel against preferredModel (#1329)", async () => {
+    // FLASH offers low/high/max (not medium), so seedLevel medium is dropped.
+    expect(
+      await resolveFleetModelChoice(input({ preferredModel: FLASH, seedLevel: "medium" })),
+    ).toEqual({
+      ok: true,
+      choice: { model: FLASH, thinkingLevel: null },
+    });
+    // auto seed is kept on preferredModel even with no efforts.
+    expect(
+      await resolveFleetModelChoice(input({ preferredModel: PLAIN, seedLevel: "auto" })),
+    ).toEqual({
+      ok: true,
+      choice: { model: PLAIN, thinkingLevel: "auto" },
+    });
+    // Explicit requestedLevel not offered by preferredModel is refused.
+    expect(
+      await resolveFleetModelChoice(input({ preferredModel: FLASH, requestedLevel: "medium" })),
+    ).toEqual({
+      ok: false,
+      reason: `model ${FLASH} has no thinking level medium (it offers: low, high, max)`,
     });
   });
 

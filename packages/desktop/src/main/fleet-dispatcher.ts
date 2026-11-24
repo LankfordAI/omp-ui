@@ -478,13 +478,15 @@ export class FleetDispatcher {
             prompt: req.prompt,
             requestedBy,
             ...(req.model === undefined ? {} : { model: req.model }),
+            ...(req.preferredModel === undefined ? {} : { preferredModel: req.preferredModel }),
             ...(req.thinkingLevel === undefined ? {} : { thinkingLevel: req.thinkingLevel }),
             ...(who.kind === "routine" ? { routine: who.routine } : {}),
           },
         };
-        const work = local
-          ? this.#deps.spawnLocal(spawn)
-          : (this.#deps.request(target.machineKey, CH.spawnSession, [spawn]) as Promise<SpawnAnswer>);
+        const sendSpawn = (s: NewRpcSpawnRequest): Promise<SpawnAnswer> =>
+          local
+            ? this.#deps.spawnLocal(s)
+            : (this.#deps.request(target.machineKey, CH.spawnSession, [s]) as Promise<SpawnAnswer>);
         // Every dispatch is bounded (issue #907): the caller's deadline wins,
         // the user path defaults to USER_FLEET_DEADLINE_MS. A wedged answer
         // settles as "unknown" below instead of hanging the New session
@@ -493,7 +495,21 @@ export class FleetDispatcher {
         const deadlineMs = opts.deadlineMs ?? USER_FLEET_DEADLINE_MS;
         let unknown: string;
         try {
-          const answer = await within(work, deadlineMs);
+          let answer: SpawnAnswer | typeof TIMED_OUT;
+          try {
+            answer = await within(sendSpawn(spawn), deadlineMs);
+          } catch (err) {
+            // #1329: an older remote owner predating `preferredModel` rejects
+            // the unknown key before minting anything. Retry once without the
+            // soft preference so the remote falls back to its own favorites/project chain.
+            const msg = messageOf(err);
+            if (!local && spawn.fleet?.preferredModel !== undefined && msg.includes("unknown field preferredModel")) {
+              const { preferredModel: _dropped, ...compatFleet } = spawn.fleet;
+              answer = await within(sendSpawn({ ...spawn, fleet: compatFleet }), deadlineMs);
+            } else {
+              throw err;
+            }
+          }
           if (answer !== TIMED_OUT) {
             this.#pending.delete(dispatchId);
             return { ...base, status: "started", tabId: answer.tabId, choice: parseFleetModelChoice(answer.choice) };
@@ -504,7 +520,6 @@ export class FleetDispatcher {
           if (local || !message.includes("remote connection lost")) return { ...base, status: "failed", message };
           unknown = `${message}; the session may have started`;
         }
-        // Never retried here: the owner dedupes by dispatchId, so only a manual retry re-sends.
         this.#pending.set(dispatchId, {
           dispatchId,
           batchId,
