@@ -10123,7 +10123,11 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
     });
   });
 
-  describe("fleetFinish (#978)", () => {
+  // Real git worktrees (spawn, commit, cherry-pick, worktree removal): on the
+  // cold Windows runners each test lands at 2–5 s against the 5 s default and
+  // one of them loses per run (#1314 — two different victims on two attempts
+  // of the same SHA). Give the block a budget that fits.
+  describe("fleetFinish (#978)", { timeout: 30_000 }, () => {
     const finishReq = (over: Partial<Core.FleetFinishRequest> = {}): Core.FleetFinishRequest => ({
       requester: requester(),
       dispatchId: DISPATCH,
