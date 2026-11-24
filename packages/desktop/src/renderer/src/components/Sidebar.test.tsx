@@ -278,6 +278,14 @@ afterEach(() => {
     state: null,
     tabs: [],
     activeTabId: null,
+    artifacts: null,
+    routinesOpen: false,
+    routineFocusId: null,
+    lab: null,
+    stats: null,
+    fleet: null,
+    fleetTerminal: null,
+    compactSurface: null,
     restoringTabs: false,
     exited: {},
     rpc: {},
@@ -1875,6 +1883,7 @@ describe("Sidebar footer (Variant A — Equal Flex Tiles, #1316)", () => {
 
     const buttons = [...footer!.querySelectorAll<HTMLButtonElement>("button")];
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Home",
       "Settings",
       "Artifacts",
       "Routines",
@@ -1885,6 +1894,46 @@ describe("Sidebar footer (Variant A — Equal Flex Tiles, #1316)", () => {
       expect(btn.textContent).toBe("");
       expect(btn.querySelector("svg")).not.toBeNull();
       expect(btn.className.split(/\s+/)).toContain("flex-1");
+    }
+  });
+
+  it("Home tile calls goHome and closeCompactSurface and reflects Welcome state via aria-pressed (#1327)", () => {
+    const originalGoHome = useStore.getState().goHome;
+    const originalCloseCompact = useStore.getState().closeCompactSurface;
+    const goHome = vi.fn(() => originalGoHome());
+    const closeCompactSurface = vi.fn(() => originalCloseCompact());
+    const tabId = state.projects[0]!.sessions[0]!.tabId;
+    useStore.setState({
+      state: backendState({
+        artifactLibraryEnabled: true,
+        projects: state.projects,
+      }),
+      tabs: [{ tabId, mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
+      activeTabId: tabId,
+      compactSurface: "sessions",
+      goHome,
+      closeCompactSurface,
+    });
+    try {
+      renderSidebar();
+      const homeBtn = document.body.querySelector<HTMLButtonElement>('button[aria-label="Home"]')!;
+      expect(homeBtn).not.toBeNull();
+      expect(homeBtn.getAttribute("aria-pressed")).toBe("false");
+
+      act(() => homeBtn.click());
+      expect(goHome).toHaveBeenCalledOnce();
+      expect(closeCompactSurface).toHaveBeenCalledOnce();
+      expect(useStore.getState().activeTabId).toBeNull();
+      expect(homeBtn.getAttribute("aria-pressed")).toBe("true");
+
+      act(() => useStore.setState({ artifacts: { artifactId: null } }));
+      expect(homeBtn.getAttribute("aria-pressed")).toBe("false");
+
+      act(() => homeBtn.click());
+      expect(useStore.getState().artifacts).toBeNull();
+      expect(homeBtn.getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      useStore.setState({ goHome: originalGoHome, closeCompactSurface: originalCloseCompact });
     }
   });
 });

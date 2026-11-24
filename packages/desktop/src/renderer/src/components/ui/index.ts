@@ -8,6 +8,7 @@ export {
   IconClose,
   IconFast,
   IconFleet,
+  IconHome,
   IconInspect,
   IconLock,
   IconMic,

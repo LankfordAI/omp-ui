@@ -267,6 +267,17 @@ export function IconFleet({ className }: { className?: string }) {
   );
 }
 
+/** House outline — returns to the Welcome home screen from the sidebar footer. */
+export function IconHome({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M2.5 7.5 8 2.5l5.5 5" />
+      <path d="M4 6.5V13a.8.8 0 0 0 .8.8h6.4a.8.8 0 0 0 .8-.8V6.5" />
+      <path d="M6.5 13.8V9.8h3v4" />
+    </svg>
+  );
+}
+
 /** Box with an arrow leaving it — "open in <app>" (the corner tools card, #1021). */
 export function IconOpenIn({ className }: { className?: string }) {
   return (

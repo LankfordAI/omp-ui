@@ -54,7 +54,7 @@ import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "./lib/window-controls";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell, useDockedSidebar } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
-import { findInstance, findOwner, findRecord, hasAnyRoutinesHost, isChatTab, useStore } from "./store";
+import { findInstance, findOwner, findRecord, hasAnyRoutinesHost, isChatTab, isHomeView, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers in their effective chords. */
 const HINTS: [action: KeybindingActionId, what: string][] = [
@@ -307,6 +307,7 @@ export default function App() {
   // Routines enabled (ADR-0100, amended §8, #1306); the effect below drops
   // the flag if every host disables it so re-enabling never resurrects stale UI.
   const routinesOpen = useStore((s) => s.routinesOpen) && routinesEnabled;
+  const homeOpen = useStore(isHomeView);
   const routinesHostLabel = useStore((s) => {
     if (s.routinesInstanceId === null) return s.routinesState?.machineLabel ?? null;
     return (
@@ -544,10 +545,6 @@ export default function App() {
     if (docked && useStore.getState().compactSurface === "sessions") closeCompactSurface();
   }, [docked, closeCompactSurface]);
 
-  // A visible tab is actually on screen: exactly the condition under which
-  // the per-tab `shown` flag below paints one, so Welcome renders precisely
-  // when no tab is painted (issue #1296).
-  const shownTab = tabs.find((t) => t.tabId === activeTabId && !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
   // underneath, hidden, exactly as a background tab is.
@@ -654,7 +651,7 @@ export default function App() {
                 <FleetTerminalView terminal={ft} />
               </div>
             ))}
-            {shownTab === undefined && artifacts === null && !routinesOpen && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {homeOpen && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>

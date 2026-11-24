@@ -19,11 +19,11 @@ import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-sec
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useShallow } from "zustand/react/shallow";
-import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, supportsBulkAction, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, isHomeView, supportsBulkAction, useStore } from "../store";
 import { AttentionStack } from "./AttentionStack";
 import { SessionRow } from "./SessionRow";
 import { useSplitSlot } from "./split-slot";
-import { Button, Chevron, ConfirmDialog, Empty, IconArtifacts, IconButton, IconClose, IconFleet, IconPlus, IconRefresh, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, ConfirmDialog, Empty, IconArtifacts, IconButton, IconClose, IconFleet, IconHome, IconPlus, IconRefresh, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
 import { FIELD } from "./settings/rows";
 
 /* ------------------------------------------------------------------- icons */
@@ -468,6 +468,8 @@ export function Sidebar() {
   const sheet = compact && !docked;
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
+  const goHome = useStore((st) => st.goHome);
+  const homeOpen = useStore(isHomeView);
   const openFleet = useStore((st) => st.openFleet);
   const closeFleet = useStore((st) => st.closeFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
@@ -1094,6 +1096,17 @@ export function Sidebar() {
             </a>
           )}
           <div className="flex w-full items-center gap-1">
+            <IconButton
+              label="Home"
+              pressed={homeOpen}
+              onClick={() => {
+                goHome();
+                closeCompactSurface();
+              }}
+              className={footerButtonClass}
+            >
+              <IconHome />
+            </IconButton>
             <IconButton
               label="Settings"
               onClick={() => {

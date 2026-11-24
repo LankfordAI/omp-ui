@@ -107,6 +107,7 @@ export {
   findRecord,
   forkSourceOf,
   isChatTab,
+  isHomeView,
   liveForksOf,
   runningSessionTitleOnCheckout,
   sessionProjectFace,
