@@ -1,5 +1,6 @@
 import { Notification, type BrowserWindow } from "electron";
-import { CH } from "@omp-ui/core";
+import { CH, type NotificationCue } from "@omp-ui/core";
+import type { GnomeSoundGate } from "./gnome-sound-gate";
 
 /**
  * Posts OS notifications for owned native sessions that reach an attention
@@ -20,6 +21,8 @@ export interface RoutineNotificationPayload {
   tabId: string | null;
   title: string;
   body: string;
+  /** Cue for this lifecycle event; omitted means "alert". Approval cards use "plan". */
+  cue?: NotificationCue;
 }
 
 /** The frame-derived attention transitions SessionManager reports. */
@@ -57,6 +60,12 @@ export interface DesktopNotifierDeps {
   icon: () => string | null;
   /** Fans the notification-click event out to every renderer sink. */
   send: (channel: string, ...args: unknown[]) => void;
+  /** Delivers an event to this app's Electron window only — never a remote web client. */
+  sendDesktop: (channel: string, ...args: unknown[]) => void;
+  /** The Settings → General sound switch (re-read at every fire). */
+  isSoundsEnabled: () => boolean;
+  /** GNOME DND / per-app sound mute check; absent or resolving true allows the cue. */
+  soundGate?: GnomeSoundGate;
   /** True when the tab belongs to a Routine run (#1294). */
   isRoutineTab?: (tabId: string) => boolean;
 }
@@ -83,6 +92,7 @@ const COPY = {
   planPendingNoTitle: "Plan review — answer needed",
   stallPaused: "Stall auto-continue paused — send a prompt to re-arm",
   projectRequest: "Project request — answer needed",
+  snoozeReturned: "Snoozed session returned",
 } as const;
 
 export class DesktopNotifier implements Attention {
@@ -173,6 +183,7 @@ export class DesktopNotifier implements Attention {
         title: payload.title,
         body: payload.body,
         ...(icon !== null ? { icon } : {}),
+        silent: this.deps.isSoundsEnabled(),
       });
     } catch (err) {
       if (!this.warnedShowFailure) {
@@ -194,6 +205,7 @@ export class DesktopNotifier implements Attention {
       }
       return;
     }
+    this.playCue(payload.cue ?? "alert");
     this.routineNotifications.set(key, notification);
   }
 
@@ -203,6 +215,58 @@ export class DesktopNotifier implements Attention {
     if (prev === undefined) return;
     prev.close();
     this.routineNotifications.delete(tabId);
+  }
+
+  // --- snooze return (#979) ----------------------------------------------
+
+  /**
+   * Timed snoozes whose deadline passed under a live timer (never startup
+   * catch-up): one banner for the wake. A single session names itself;
+   * simultaneous wakes coalesce into one count banner focused on the first
+   * tab. The clock clears the rows before calling, so this posts directly —
+   * the attention pipeline's delays and re-gates do not apply.
+   */
+  notifySnoozeReturn(tabIds: readonly string[]): void {
+    if (tabIds.length === 0 || !this.enabled()) return;
+    const win = this.deps.win;
+    if (
+      tabIds.length === 1 &&
+      !win.isDestroyed() &&
+      win.isFocused() &&
+      this.deps.isViewedByDesktop(tabIds[0]!)
+    ) {
+      return;
+    }
+    const first = tabIds[0]!;
+    const single = tabIds.length === 1;
+    let notification: Notification;
+    try {
+      const icon = this.deps.icon();
+      notification = new Notification({
+        title: single ? this.deps.titleOf(first) : "omp-ui",
+        body: single ? COPY.snoozeReturned : `${tabIds.length} snoozed sessions returned`,
+        ...(icon !== null ? { icon } : {}),
+        silent: this.deps.isSoundsEnabled(),
+      });
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not create notification:", err);
+      }
+      return;
+    }
+    notification.on("click", () => this.focusSession(first));
+    for (const tabId of tabIds) this.clearRoutine(tabId);
+    try {
+      notification.show();
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not show notification:", err);
+      }
+      return;
+    }
+    this.playCue("snooze");
   }
 
   // --- direct post (host tool, issue #688) -------------------------------
@@ -223,6 +287,7 @@ export class DesktopNotifier implements Attention {
         title: title !== null ? title : this.deps.titleOf(tabId),
         body: message,
         ...(icon !== null ? { icon } : {}),
+        silent: this.deps.isSoundsEnabled(),
       });
     } catch (err) {
       if (!this.warnedShowFailure) {
@@ -242,10 +307,48 @@ export class DesktopNotifier implements Attention {
       }
       return "the desktop refused to show the notification";
     }
+    this.playCue("alert");
     if (this.deps.isRoutineTab?.(tabId) === true) {
       this.routineNotifications.set(tabId, notification);
     }
     return "posted";
+  }
+
+  // --- sound cues --------------------------------------------------------
+
+  /** The attention state's cue: a finished turn chimes softly, anything
+      needing an answer steps up, everything else is the attention ping. */
+  private static cueFor(kind: AttentionKind): NotificationCue {
+    switch (kind) {
+      case "turn-complete":
+        return "turn";
+      case "plan-pending":
+      case "project-request":
+        return "plan";
+      case "stall-paused":
+        return "alert";
+    }
+  }
+
+  /**
+   * Asks the Electron desktop renderer to synthesize the cue. Desktop window
+   * only — a remote web client is a different screen and stays silent. On
+   * GNOME the cue yields to Do-Not-Disturb and the per-app sound mute; the
+   * gate check is async so the banner is never delayed behind it, and a
+   * missing or failing gate allows playback.
+   */
+  private playCue(cue: NotificationCue): void {
+    if (!this.deps.isSoundsEnabled()) return;
+    const post = (): void => {
+      if (this.deps.isSoundsEnabled()) this.deps.sendDesktop(CH.onNotificationCue, cue);
+    };
+    if (this.deps.soundGate === undefined) {
+      post();
+      return;
+    }
+    void this.deps.soundGate().then((allowed) => {
+      if (allowed) post();
+    }, post);
   }
 
   // --- internals ---------------------------------------------------------
@@ -324,6 +427,7 @@ export class DesktopNotifier implements Attention {
         title,
         body,
         ...(icon !== null ? { icon } : {}),
+        silent: this.deps.isSoundsEnabled(),
       });
     } catch (err) {
       if (!this.warnedShowFailure) {
@@ -344,6 +448,7 @@ export class DesktopNotifier implements Attention {
       this.tabs.delete(tabId);
       return;
     }
+    this.playCue(DesktopNotifier.cueFor(entry.kind));
     entry.notification = notification;
   }
 

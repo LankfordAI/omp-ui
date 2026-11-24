@@ -5,7 +5,7 @@ import { DesktopNotifier, NOTIFICATION_POST_DELAY_MS } from "./desktop-notifier"
 const TAB = "tab-notify";
 
 interface FakeNotification {
-  options: { title: string; body: string; icon?: string };
+  options: { title: string; body: string; icon?: string; silent?: boolean };
   shown: number;
   closed: number;
   clickHandlers: Array<() => void>;
@@ -73,15 +73,17 @@ function makeWin() {
   return win;
 }
 
-function setup(isRoutineTab?: (tabId: string) => boolean) {
+function setup(isRoutineTab?: (tabId: string) => boolean, soundGate?: () => Promise<boolean>) {
   const win = makeWin();
   const flags = {
     enabled: true,
     viewedTab: null as string | null,
     title: "My session",
     icon: "/icons/app.png" as string | null,
+    sounds: true,
   };
   const sent: Array<{ channel: string; args: unknown[] }> = [];
+  const cues: string[] = [];
   const notifier = new DesktopNotifier({
     win: win as never,
     isEnabled: () => flags.enabled,
@@ -89,9 +91,12 @@ function setup(isRoutineTab?: (tabId: string) => boolean) {
     titleOf: () => flags.title,
     icon: () => flags.icon,
     send: (channel, ...args) => sent.push({ channel, args }),
+    sendDesktop: (channel, ...args) => cues.push(`${channel}:${String(args[0])}`),
+    isSoundsEnabled: () => flags.sounds,
+    ...(soundGate !== undefined ? { soundGate } : {}),
     ...(isRoutineTab ? { isRoutineTab } : {}),
   });
-  return { notifier, win, flags, sent };
+  return { notifier, win, flags, sent, cues };
 }
 
 beforeEach(() => {
@@ -124,6 +129,7 @@ describe("DesktopNotifier", () => {
       title: "My session",
       body: "Turn finished",
       icon: "/icons/app.png",
+      silent: true,
     });
   });
 
@@ -337,6 +343,7 @@ describe("DesktopNotifier", () => {
       title: "Ship it",
       body: "deploy done",
       icon: "/icons/app.png",
+      silent: true,
     });
     state.instances[0]!.clickHandlers[0]!();
     expect(win.focuses).toBe(1);
@@ -399,6 +406,160 @@ describe("DesktopNotifier", () => {
     expect(state.instances[0]!.closed).toBe(1);
   });
 
+  describe("notification sound cues", () => {
+    it("maps each attention state to its cue and posts it to the desktop window only", async () => {
+      const { notifier, sent, cues } = setup();
+      notifier.turnEnded(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(cues).toEqual([`${CH.onNotificationCue}:turn`]);
+
+      notifier.planProposed("tab-b", "A plan");
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      notifier.projectRequested("tab-c");
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(cues).toEqual([`${CH.onNotificationCue}:turn`, `${CH.onNotificationCue}:plan`, `${CH.onNotificationCue}:plan`]);
+
+      notifier.stallCap("tab-d", true);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(cues[3]).toBe(`${CH.onNotificationCue}:alert`);
+
+      // The cue goes through sendDesktop only — the fan-out sinks (remote web
+      // clients) never see it.
+      expect(sent.filter((s) => s.channel === CH.onNotificationCue)).toHaveLength(0);
+    });
+
+    it("notifyNow plays the alert cue after the banner shows", () => {
+      const { notifier, cues } = setup();
+      expect(notifier.notifyNow(TAB, null, "ping")).toBe("posted");
+      expect(cues).toEqual([`${CH.onNotificationCue}:alert`]);
+    });
+
+    it("routine payloads cue plan for approvals and alert otherwise", () => {
+      const { notifier, cues } = setup();
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Approval needed: bash", cue: "plan" });
+      notifier.notifyRoutine({ routineId: "r1", tabId: null, title: "Morning", body: "Failed — error" });
+      expect(cues).toEqual([`${CH.onNotificationCue}:plan`, `${CH.onNotificationCue}:alert`]);
+    });
+
+    it("a suppressed post never cues, and sounds-off stops both the cue and keeps silent false", async () => {
+      const { notifier, flags, cues } = setup();
+      notifier.turnEnded(TAB);
+      notifier.viewedChanged(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(state.instances).toHaveLength(0);
+      expect(cues).toEqual([]);
+
+      flags.sounds = false;
+      notifier.turnEnded(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(state.instances).toHaveLength(1);
+      expect(state.instances[0]!.options.silent).toBe(false);
+      expect(cues).toEqual([]);
+    });
+
+    it("the GNOME gate holds the cue until it answers and blocks playback when muted", async () => {
+      let resolveGate: ((allowed: boolean) => void) | null = null;
+      const { notifier, cues } = setup(undefined, () => new Promise<boolean>((resolve) => { resolveGate = resolve; }));
+      notifier.turnEnded(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      // The banner posted; the cue waits on the gate.
+      expect(state.instances).toHaveLength(1);
+      expect(cues).toEqual([]);
+      resolveGate!(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cues).toEqual([]);
+
+      notifier.turnEnded("tab-b");
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      // A fresh notifier with an allowing gate plays.
+      const gate2 = setup(undefined, async () => true);
+      gate2.notifier.turnEnded("tab-x");
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(gate2.cues).toEqual([`${CH.onNotificationCue}:turn`]);
+    });
+
+    it("a rejecting gate allows playback", async () => {
+      const { notifier, cues } = setup(undefined, () => Promise.reject(new Error("gsettings missing")));
+      notifier.turnEnded(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cues).toEqual([`${CH.onNotificationCue}:turn`]);
+    });
+  });
+
+  describe("snooze return", () => {
+    it("posts a single-session banner with the session title, cues snooze, and click focuses it", () => {
+      const { notifier, win, sent, cues } = setup();
+      notifier.notifySnoozeReturn([TAB]);
+      expect(state.instances).toHaveLength(1);
+      expect(state.instances[0]!.options).toEqual({
+        title: "My session",
+        body: "Snoozed session returned",
+        icon: "/icons/app.png",
+        silent: true,
+      });
+      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
+      state.instances[0]!.clickHandlers[0]!();
+      expect(win.focuses).toBe(1);
+      expect(sent).toEqual([{ channel: CH.onFocusSession, args: [TAB] }]);
+    });
+
+    it("coalesces a multi-wake into one count banner that focuses the first tab and cues once", () => {
+      const { notifier, sent, cues } = setup();
+      notifier.notifySnoozeReturn(["tab-a", "tab-b", "tab-c"]);
+      expect(state.instances).toHaveLength(1);
+      expect(state.instances[0]!.options).toEqual({
+        title: "omp-ui",
+        body: "3 snoozed sessions returned",
+        icon: "/icons/app.png",
+        silent: true,
+      });
+      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
+      state.instances[0]!.clickHandlers[0]!();
+      expect(sent).toEqual([{ channel: CH.onFocusSession, args: ["tab-a"] }]);
+    });
+
+    it("suppresses a single wake the focused window is already viewing, but never a coalesced one", () => {
+      const { notifier, win, flags, cues } = setup();
+      win.focused = true;
+      flags.viewedTab = TAB;
+      notifier.notifySnoozeReturn([TAB]);
+      expect(state.instances).toHaveLength(0);
+      expect(cues).toEqual([]);
+
+      // A multi-wake still posts even with the first tab in view.
+      notifier.notifySnoozeReturn([TAB, "tab-b"]);
+      expect(state.instances).toHaveLength(1);
+      expect(cues).toEqual([`${CH.onNotificationCue}:snooze`]);
+    });
+
+    it("honors the master switch, the empty wake list, and sounds-off silent semantics", () => {
+      const { notifier, flags, cues } = setup();
+      notifier.notifySnoozeReturn([]);
+      expect(state.instances).toHaveLength(0);
+
+      flags.enabled = false;
+      notifier.notifySnoozeReturn([TAB]);
+      expect(state.instances).toHaveLength(0);
+      expect(cues).toEqual([]);
+
+      flags.enabled = true;
+      flags.sounds = false;
+      notifier.notifySnoozeReturn([TAB]);
+      expect(state.instances[0]!.options.silent).toBe(false);
+      expect(cues).toEqual([]);
+    });
+
+    it("yields to a muting GNOME gate", async () => {
+      const { notifier, cues } = setup(undefined, async () => false);
+      notifier.notifySnoozeReturn([TAB]);
+      expect(state.instances).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cues).toEqual([]);
+    });
+  });
+
   describe("routine notifications (#1294)", () => {
     it("suppresses generic turnEnded on routine tabs", async () => {
       const { notifier } = setup((tabId) => tabId === TAB);
@@ -411,7 +572,7 @@ describe("DesktopNotifier", () => {
       const { notifier, win, sent } = setup((tabId) => tabId === TAB);
       notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Routine started" });
       expect(state.instances).toHaveLength(1);
-      expect(state.instances[0]!.options).toEqual({ title: "Morning", body: "Routine started", icon: "/icons/app.png" });
+      expect(state.instances[0]!.options).toEqual({ title: "Morning", body: "Routine started", icon: "/icons/app.png", silent: true });
 
       // Second banner for same run replaces the first.
       notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Completed" });

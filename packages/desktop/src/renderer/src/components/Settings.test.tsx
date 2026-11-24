@@ -153,6 +153,7 @@ const backendMock = {
   setAdvisorAutoReply: vi.fn(async () => {}),
   setStallAutoContinue: vi.fn(async () => {}),
   setDesktopNotifications: vi.fn(async () => {}),
+  setDesktopNotificationSounds: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setDefaultAutoThinking: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
@@ -946,6 +947,42 @@ describe("Settings General page desktop notifications (issue #271)", () => {
     seedNotifications(false);
     await renderSettings();
     expect(notificationsSwitch().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Settings General page desktop notification sounds", () => {
+  const seedSounds = (desktopNotificationSounds: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ desktopNotificationSounds }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const soundsSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Desktop notification sounds"]',
+    ) as HTMLElement;
+
+  it("shows the setting on, persists switching it off, and offers the four cue previews", async () => {
+    seedSounds(true);
+    await renderSettings();
+    expect(soundsSwitch().getAttribute("aria-checked")).toBe("true");
+    const labels = new Set([...document.querySelectorAll("button")].map((b) => b.textContent));
+    for (const label of ["Turn done", "Plan / Approval", "Attention", "Snooze return"]) {
+      expect(labels.has(label)).toBe(true);
+    }
+    click(soundsSwitch());
+    expect(backendMock.setDesktopNotificationSounds).toHaveBeenCalledWith(false);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedSounds(false);
+    await renderSettings();
+    expect(soundsSwitch().getAttribute("aria-checked")).toBe("false");
   });
 });
 

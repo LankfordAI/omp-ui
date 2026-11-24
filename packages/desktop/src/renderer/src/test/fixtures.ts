@@ -15,6 +15,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     advisorAutoReply: true,
     stallAutoContinue: true,
     desktopNotifications: true,
+    desktopNotificationSounds: true,
     htmlArtifactScripts: true,
     artifactLibraryEnabled: false,
     deviceAgentAccess: false,

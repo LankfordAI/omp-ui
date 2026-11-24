@@ -111,6 +111,7 @@ import type {
   DevicePaneInputEvent,
   DevicePaneState,
 } from "./device-pane";
+import type { NotificationCue } from "./notification-cue";
 import type { RpcFrame } from "./rpc/codec";
 import type {
   FleetAuditEntry,
@@ -582,6 +583,11 @@ export const BACKEND_CHANNELS = {
   /** OS notifications for background-session attention states (issue #271); default on. */
   setDesktopNotifications: {
     channel: "settings:setDesktopNotifications",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Synthesized cue alongside each desktop notification; default on. */
+  setDesktopNotificationSounds: {
+    channel: "settings:setDesktopNotificationSounds",
     ...request<[on: boolean], void>([bool()]),
   },
   /** Interactive HTML artifacts run their scripts (issue #994); default on. */
@@ -2236,6 +2242,8 @@ export const BACKEND_CHANNELS = {
     ...event<[tabId: string]>(),
   },
   onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: RpcFrame]>() },
+  /** Synthesized cue to play for a desktop notification just posted. Desktop window only — never relayed to remote web clients. */
+  onNotificationCue: { channel: "notification:cue", ...event<[cue: NotificationCue]>() },
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },
   /**
    * The project's checkout or branch list moved outside this client (#498): a

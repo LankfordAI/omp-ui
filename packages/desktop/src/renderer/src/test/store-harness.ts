@@ -307,6 +307,7 @@ const mockBackend = {
   setAdvisorAutoReply: vi.fn(async () => {}),
   setStallAutoContinue: vi.fn(async () => {}),
   setDesktopNotifications: vi.fn(async () => {}),
+  setDesktopNotificationSounds: vi.fn(async () => {}),
   setHtmlArtifactScripts: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setDefaultAutoThinking: vi.fn(async () => {}),
@@ -377,6 +378,8 @@ const mockBackend = {
   onAppUpdateState: vi.fn(),
   // The GPU-process notice subscription (performance plan Phase 4).
   onGpuProcessCrashed: vi.fn(() => () => {}),
+  // The desktop-notification cue subscription.
+  onNotificationCue: vi.fn(() => () => {}),
   setThemeId: vi.fn(async () => {}),
   setThemeMode: vi.fn(async () => {}),
   setLightThemeId: vi.fn(async () => {}),

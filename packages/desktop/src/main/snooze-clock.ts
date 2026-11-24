@@ -15,6 +15,11 @@ export interface SnoozeClockDeps {
   updateSession: (tabId: string, patch: Pick<OwnedSessionRecord, "snoozed" | "snoozedUntilMs">) => unknown;
   /** Fans the returned rows out to every renderer and joined client. */
   broadcast: () => void;
+  /**
+   * Wakes whose deadline passed under a live timer (never the startup or
+   * write-time catch-up, so opening the app after days cannot alarm-storm).
+   */
+  onWake?: (tabIds: readonly string[]) => void;
 }
 
 /**
@@ -31,8 +36,13 @@ export class SnoozeClock {
 
   constructor(private readonly deps: SnoozeClockDeps) {}
 
-  /** Wakes every elapsed snooze, then re-arms for the next deadline. Call after any snooze write. */
-  sync(): void {
+  /**
+   * Wakes every elapsed snooze, then re-arms for the next deadline. Call
+   * after any snooze write. `notify: true` comes only from the live timer's
+   * own expiry — startup and write-time catch-ups clear silently, so
+   * opening the app after days never fires an alarm storm.
+   */
+  sync(opts: { notify?: boolean } = {}): void {
     if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -46,9 +56,12 @@ export class SnoozeClock {
     }
     for (const tabId of due) this.deps.updateSession(tabId, { snoozed: false, snoozedUntilMs: null });
     if (next !== null) {
-      this.timer = setTimeout(() => this.sync(), Math.min(next - now, MAX_WAIT_MS));
+      this.timer = setTimeout(() => this.sync({ notify: true }), Math.min(next - now, MAX_WAIT_MS));
     }
-    if (due.length > 0) this.deps.broadcast();
+    if (due.length > 0) {
+      this.deps.broadcast();
+      if (opts.notify === true) this.deps.onWake?.(due);
+    }
   }
 
   dispose(): void {

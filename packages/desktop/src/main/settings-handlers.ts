@@ -48,6 +48,7 @@ type SettingsHandlerChannels =
   | typeof CH.setAdvisorAutoReply
   | typeof CH.setStallAutoContinue
   | typeof CH.setDesktopNotifications
+  | typeof CH.setDesktopNotificationSounds
   | typeof CH.setHtmlArtifactScripts
   | typeof CH.setArtifactLibraryEnabled
   | typeof CH.setDeviceAgentAccess
@@ -153,6 +154,7 @@ export function registerSettingsHandlers(
     [CH.setAdvisorAutoReply]: (value: boolean) => commit("advisorAutoReply", value),
     [CH.setStallAutoContinue]: (value: boolean) => commit("stallAutoContinue", value),
     [CH.setDesktopNotifications]: (value: boolean) => commit("desktopNotifications", value),
+    [CH.setDesktopNotificationSounds]: (value: boolean) => commit("desktopNotificationSounds", value),
     [CH.setHtmlArtifactScripts]: (value: boolean) => commit("htmlArtifactScripts", value),
     [CH.setArtifactLibraryEnabled]: async (value: boolean) => {
       deps.registry.setSetting("artifactLibraryEnabled", value);

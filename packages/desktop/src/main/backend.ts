@@ -253,6 +253,7 @@ import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
 import { DesktopNotifier } from "./desktop-notifier";
+import { createGnomeSoundGate, type GnomeSoundGate } from "./gnome-sound-gate";
 import { appendMainLog } from "./main-log";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
@@ -350,6 +351,8 @@ export class MainBackend {
   private readonly pullRequests: PullRequestPoller;
   /** OS notifications for background sessions (issue #271). */
   private readonly notifier: DesktopNotifier;
+  /** GNOME DND / per-app sound mute check gating notification cues. */
+  private readonly gnomeSoundGate: GnomeSoundGate = createGnomeSoundGate();
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
@@ -585,6 +588,9 @@ export class MainBackend {
       },
       icon: () => (fs.existsSync(iconPath) ? iconPath : null),
       send: (channel, ...args) => this.send(channel, ...args),
+      sendDesktop: (channel, ...args) => this.sendToRenderers(channel, args),
+      isSoundsEnabled: () => this.registry.getSetting("desktopNotificationSounds"),
+      soundGate: this.gnomeSoundGate,
       isRoutineTab: (tabId) => this.registry.sessions.some((s) => s.tabId === tabId && s.routine !== null),
     });
     this.planVerifier = new PlanVerifier({
@@ -595,6 +601,7 @@ export class MainBackend {
       sessions: () => this.registry.sessions,
       updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
       broadcast: () => void this.broadcast(),
+      onWake: (tabIds) => this.notifier.notifySnoozeReturn(tabIds),
     });
     this.artifacts = new ArtifactService({
       registryFile,
@@ -3541,6 +3548,7 @@ export class MainBackend {
       advisorAutoReply: this.registry.getSetting("advisorAutoReply"),
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
+      desktopNotificationSounds: this.registry.getSetting("desktopNotificationSounds"),
       telemetryModelsEnabled: this.registry.getSetting("telemetryModelsEnabled"),
       telemetryThemesEnabled: this.registry.getSetting("telemetryThemesConsentId") !== null,
       htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),

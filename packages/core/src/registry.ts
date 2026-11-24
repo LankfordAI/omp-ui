@@ -78,6 +78,8 @@ export interface RegistrySettings {
   stallAutoContinue: boolean;
   /** OS notifications for background-session attention states (issue #271); default on. */
   desktopNotifications: boolean;
+  /** Play a synthesized cue alongside each desktop notification; default on. */
+  desktopNotificationSounds: boolean;
   /** Interactive HTML artifacts run their scripts (issue #994); off shows them static. Default on. */
   htmlArtifactScripts: boolean;
   /** Independent session-authored artifact library (issue #1121, graduated #1307); default on. */
@@ -305,6 +307,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   desktopNotifications: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  desktopNotificationSounds: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
