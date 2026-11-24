@@ -62,6 +62,10 @@ import {
   getOmpAgentDir,
   linkProjectOmpDir,
   isHtmlPlanPath,
+  applyWorktreeFiles,
+  isEmptyCleanWorktree,
+  withoutAppImageRuntime,
+  withoutProviderKeys,
   isWithin,
   knowledgeVaultArmMessage,
   knowledgeVaultGuidance,
@@ -118,6 +122,7 @@ import {
   parseModelNotFoundWarning,
   type ModelCatalogSnapshot,
   type FleetModelChoice,
+  type CheckoutReservationResult,
   type FleetSpawnSpec,
   type ProjectRecord,
   type SpawnAnswer,
@@ -184,6 +189,8 @@ import {
   type ThemeSetArgs,
   type ThemeSetOutcome,
   type ThemeSource,
+  type ProjectWorktreeSetup,
+  type WorktreeSetupState,
   type ThemeToolArgs,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
@@ -234,6 +241,7 @@ import { StallWatchdog } from "./stall-watchdog";
 import { TurnTracker } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
+import { launchFleetShell, type FleetShellHandle } from "./fleet-shell";
 import { ShellHost } from "./shell-host";
 import { gateSelector, NO_GATE, type SpawnGate } from "./spawn-gate";
 import { WorktreeOps } from "./worktree-ops";
@@ -499,6 +507,10 @@ export class SessionManager {
   });
   /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
   private readonly planAnswerReservations = new Set<string>();
+  /** Synchronous in-memory checkout reservations keyed by canonical projectCwd -> tabId. */
+  readonly #checkoutClaims = new Map<string, string>();
+  /** In-flight worktree postCreateCommand handles keyed by tabId (cancelled on delete/release/killAll). */
+  readonly #setupHandles = new Map<string, { handle: FleetShellHandle; timer: ReturnType<typeof setTimeout> }>();
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
@@ -605,6 +617,9 @@ export class SessionManager {
       broadcast: () => this.deps.broadcast(),
       attention: deps.attention,
       suspendForVerdict: (tabId) => this.hibernation.suspendForVerdict(tabId),
+      onAgentModeChanged: (tabId, next) => {
+        if (next === "plan") this.releaseCheckoutClaim(tabId);
+      },
     });
     this.projectRequests = new ProjectRequestGate({
       broadcast: () => this.deps.broadcast(),
@@ -958,6 +973,8 @@ export class SessionManager {
     }
     this.live.clear();
     this.warmPool.dispose();
+    this.#checkoutClaims.clear();
+    for (const tabId of [...this.#setupHandles.keys()]) this.cancelWorktreeSetup(tabId);
     this.collab.dispose();
     this.shellHost.killAll();
     this.browserPanes.disposeAll();
@@ -1006,6 +1023,7 @@ export class SessionManager {
       this.collab.noteLiveChange();
       this.deps.attention?.sessionExit(tabId);
       this.hostBridge.forget(tabId);
+      this.releaseCheckoutClaim(tabId);
     }
     if (!entry.suppressExit) {
       this.deps.send(CH.onPtyExit, tabId, exitCode);
@@ -1323,6 +1341,11 @@ export class SessionManager {
         );
         const worktree = preparedWorktree.worktree;
         mintedWorktree = preparedWorktree.minted;
+        // Apply allowlisted gitignored files synchronously before spawning the child
+        // so config files like `.env*` exist at boot (Slice 3.3).
+        if (mintedWorktree !== null && project?.worktreeSetup != null) {
+          await this.applyWorktreeSetupFiles(freshTabId, req.projectCwd, mintedWorktree.path, project.worktreeSetup);
+        }
         // The warm-child reservation (perf issue #908): decide BEFORE the
         // record is minted, because an adopted session uses the pool's dir
         // as its own lineage dir — omp stages session files against
@@ -1479,6 +1502,14 @@ export class SessionManager {
         mode === "rpc-ui"
           ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverContext, warmHandoff)
           : await this.spawnPty(record, req, ompPath);
+      // Launch optional post-create command asynchronously without blocking tab open.
+      if (mintedWorktree !== null) {
+        const cwd = record.projectCwd;
+        const setup = this.deps.registry.projects.find((p) => p.path === cwd)?.worktreeSetup ?? null;
+        if (setup?.postCreateCommand) {
+          this.startWorktreeSetupCommand(record.tabId, mintedWorktree.path, setup.postCreateCommand);
+        }
+      }
       // spawnRpc consumed the reservation either way (adopted, or killed it
       // on a hash miss); only an exception path can leave it live for the
       // rollback tail to release.
@@ -2502,6 +2533,149 @@ export class SessionManager {
     return true;
   }
 
+  private canonicalCheckoutKey(cwd: string): string {
+    const resolved = path.resolve(cwd).replace(/[\\/]+/g, "/").replace(/\/+$/, "") || "/";
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  }
+
+  private releaseCheckoutClaim(tabId: string): void {
+    for (const [key, holder] of this.#checkoutClaims) {
+      if (holder === tabId) this.#checkoutClaims.delete(key);
+    }
+  }
+
+  /**
+   * Host-serialized checkout reservation for an unprompted Build session.
+   * Synchronous check-and-set before any await so two blank Build tabs opened
+   * side-by-side cannot both land their first prompt on the shared checkout.
+   */
+  reserveCheckout(tabId: string): CheckoutReservationResult {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return { status: "claimed" };
+    if (record.worktree !== null || record.chat || record.agentMode === "plan") {
+      return { status: "claimed" };
+    }
+    const key = this.canonicalCheckoutKey(record.projectCwd);
+    const claimedBy = this.#checkoutClaims.get(key);
+    if (claimedBy !== undefined && claimedBy !== tabId) {
+      const holderRec = this.deps.registry.sessions.find((s) => s.tabId === claimedBy);
+      if (holderRec !== undefined && this.live.has(claimedBy) && holderRec.worktree === null && holderRec.settledAtMs === null && !holderRec.snoozed && holderRec.agentMode !== "plan") {
+        return {
+          status: "occupied",
+          occupantTabId: claimedBy,
+          occupantTitle: holderRec.cachedTitle?.trim() || "New session",
+        };
+      }
+      this.#checkoutClaims.delete(key);
+    }
+    for (const other of this.deps.registry.sessions) {
+      if (other.tabId === tabId) continue;
+      if (other.worktree !== null || other.chat) continue;
+      if (this.canonicalCheckoutKey(other.projectCwd) !== key) continue;
+      if (!this.live.has(other.tabId)) continue;
+      if (other.settledAtMs !== null || other.snoozed) continue;
+      const occupied =
+        this.turns.isRunning(other.tabId) ||
+        other.mode === "pty" ||
+        (other.mode === "rpc-ui" && other.agentMode === "build" && other.sessionId !== null);
+      if (occupied) {
+        return {
+          status: "occupied",
+          occupantTabId: other.tabId,
+          occupantTitle: other.cachedTitle?.trim() || "New session",
+        };
+      }
+    }
+    this.#checkoutClaims.set(key, tabId);
+    return { status: "claimed" };
+  }
+
+  private emitWorktreeSetupState(tabId: string, state: WorktreeSetupState | null): void {
+    this.deps.send(CH.onWorktreeSetupState, tabId, state);
+  }
+
+  private cancelWorktreeSetup(tabId: string): void {
+    const active = this.#setupHandles.get(tabId);
+    if (active === undefined) return;
+    this.#setupHandles.delete(tabId);
+    clearTimeout(active.timer);
+    active.handle.kill();
+  }
+
+  private async applyWorktreeSetupFiles(
+    tabId: string,
+    projectCwd: string,
+    worktreePath: string,
+    setup: ProjectWorktreeSetup,
+  ): Promise<void> {
+    if (setup.copyPaths.length === 0) return;
+    this.emitWorktreeSetupState(tabId, { phase: "files", detail: null });
+    try {
+      await applyWorktreeFiles(projectCwd, worktreePath, setup);
+    } catch (err) {
+      this.emitWorktreeSetupState(tabId, {
+        phase: "failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private startWorktreeSetupCommand(tabId: string, worktreePath: string, command: string): void {
+    this.cancelWorktreeSetup(tabId);
+    this.emitWorktreeSetupState(tabId, { phase: "command", detail: command });
+    let tail = "";
+    const env = withoutProviderKeys(withoutAppImageRuntime(process.env));
+    let handle: FleetShellHandle;
+    try {
+      handle = launchFleetShell(command, worktreePath, { env }, (_stream, chunk) => {
+        tail = (tail + chunk.toString("utf8")).slice(-2048);
+      });
+    } catch (err) {
+      this.emitWorktreeSetupState(tabId, {
+        phase: "failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      handle.kill();
+    }, 120_000);
+    timer.unref?.();
+    const entry = { handle, timer };
+    this.#setupHandles.set(tabId, entry);
+    void handle.done
+      .then(({ exitCode, spawnError }) => {
+        if (this.#setupHandles.get(tabId) !== entry) return;
+        this.#setupHandles.delete(tabId);
+        clearTimeout(timer);
+        if (timedOut) {
+          this.emitWorktreeSetupState(tabId, {
+            phase: "failed",
+            detail: "Worktree setup command timed out after 120s",
+          });
+        } else if (spawnError !== null || exitCode !== 0) {
+          const lastLine = tail.trim().split(/\r?\n/).pop()?.trim() ?? "";
+          this.emitWorktreeSetupState(tabId, {
+            phase: "failed",
+            detail: spawnError ?? (lastLine || `Worktree setup exited with code ${exitCode ?? "unknown"}`),
+          });
+        } else {
+          this.emitWorktreeSetupState(tabId, { phase: "done", detail: null });
+        }
+      })
+      .catch((err) => {
+        if (this.#setupHandles.get(tabId) !== entry) return;
+        this.#setupHandles.delete(tabId);
+        clearTimeout(timer);
+        this.emitWorktreeSetupState(tabId, {
+          phase: "failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
+
   /** Hands every staged fleet wake to the parent: arms on a live native process, else resumes it (§2.1). */
   flushFleetWakes(tabId: string): void {
     const access = this.deps.fleetWake?.();
@@ -2605,7 +2779,7 @@ export class SessionManager {
     const raced = busy();
     if (raced !== null) return refused(raced);
 
-    if (!(await this.settleSession(tabId))) {
+    if (!(await this.settleSession(tabId, { reclaimEmptyWorktree: false }))) {
       return refused("the session's process did not stop, so nothing was removed");
     }
     const current = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.worktree;
@@ -2969,6 +3143,7 @@ export class SessionManager {
     branch: string,
     baseRef: string | null,
     baseBranch: string | null,
+    mode: "mint" | "checkout" = "mint",
   ): Promise<void> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -2977,16 +3152,25 @@ export class SessionManager {
       // Issue #482: same host recomposition as the spawn mint arm — a
       // payload composed before the listing lands gets its base segment
       // and an explicit start point from git's truth here.
-      await this.worktreeOps.convert(
+      const worktree = await this.worktreeOps.convert(
         tabId,
         record.projectCwd,
-        branch,
-        baseRef,
-        baseBranch,
+        mode === "checkout"
+          ? { checkout: { branch } }
+          : { mint: { branch, baseRef, baseBranch } },
       );
+      const setup =
+        this.deps.registry.projects.find((p) => p.path === record.projectCwd)?.worktreeSetup ?? null;
+      if (setup !== null) {
+        await this.applyWorktreeSetupFiles(tabId, record.projectCwd, worktree.path, setup);
+      }
+      this.releaseCheckoutClaim(tabId);
       const entry = this.live.get(tabId);
       if (!entry) {
         await this.deps.broadcast();
+        if (setup?.postCreateCommand) {
+          this.startWorktreeSetupCommand(tabId, worktree.path, setup.postCreateCommand);
+        }
         return;
       }
       await this.relaunch(entry, {
@@ -2995,6 +3179,9 @@ export class SessionManager {
         cols: 80,
         rows: 24,
       });
+      if (setup?.postCreateCommand) {
+        this.startWorktreeSetupCommand(tabId, worktree.path, setup.postCreateCommand);
+      }
     });
   }
 
@@ -3024,6 +3211,7 @@ export class SessionManager {
       const switchTarget = opts.checkoutOnReturn ?? null;
       let checkoutSwitch: WorktreeReleaseResult["checkoutSwitch"] = { kind: "none" };
       const demote = async (): Promise<void> => {
+        this.cancelWorktreeSetup(tabId);
         this.killShell(tabId);
         this.deps.registry.updateSession(tabId, { worktree: null });
         cleanup = await this.worktreeOps.reclaimOne(record.projectCwd, wt, {
@@ -3551,7 +3739,10 @@ export class SessionManager {
     }
   }
 
-  async settleSession(tabId: string): Promise<boolean> {
+  async settleSession(
+    tabId: string,
+    opts: { reclaimEmptyWorktree?: boolean } = {},
+  ): Promise<boolean> {
     this.killShell(tabId);
     // Captured before the chain runs: if a resume replaces the process while
     // this queues, the reap must never touch the successor. Absent means
@@ -3569,17 +3760,38 @@ export class SessionManager {
         return this.live.get(tabId) !== current;
       }));
     if (settled) {
+      this.releaseCheckoutClaim(tabId);
+      this.cancelWorktreeSetup(tabId);
       const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-      if (rec && (rec.settledAtMs === null || rec.snoozed === true || rec.reminderAtMs !== null)) {
-        const clearedSnooze = rec.snoozed || rec.snoozedUntilMs !== null || rec.reminderAtMs !== null;
-        this.deps.registry.updateSession(tabId, {
-          settledAtMs: rec.settledAtMs ?? Date.now(),
-          snoozed: false,
-          snoozedUntilMs: null,
-          reminderAtMs: null,
-        });
-        if (clearedSnooze) this.deps.onSnoozeCleared?.(tabId);
-        void this.deps.broadcast();
+      if (rec) {
+        let changed = false;
+        if (rec.settledAtMs === null || rec.snoozed === true || rec.reminderAtMs !== null) {
+          const clearedSnooze = rec.snoozed || rec.snoozedUntilMs !== null || rec.reminderAtMs !== null;
+          this.deps.registry.updateSession(tabId, {
+            settledAtMs: rec.settledAtMs ?? Date.now(),
+            snoozed: false,
+            snoozedUntilMs: null,
+            reminderAtMs: null,
+          });
+          if (clearedSnooze) this.deps.onSnoozeCleared?.(tabId);
+          changed = true;
+        }
+        // Silently reclaim an unshared worktree that is clean and 0 commits
+        // ahead of its base so empty worktrees don't linger on disk (Slice 3.2).
+        // Skipped when fleetFinish settles before running its own landedFinish
+        // reflog inspection and branch cleanup.
+        if (opts.reclaimEmptyWorktree !== false && rec.worktree !== null) {
+          const shared = this.deps.registry.sessions.some(
+            (s) => s.tabId !== tabId && s.worktree?.path === rec.worktree!.path,
+          );
+          if (!shared && (await isEmptyCleanWorktree(rec.projectCwd, rec.worktree))) {
+            const wt = rec.worktree;
+            this.deps.registry.updateSession(tabId, { worktree: null });
+            await this.worktreeOps.reclaimOne(rec.projectCwd, wt);
+            changed = true;
+          }
+        }
+        if (changed) void this.deps.broadcast();
       }
     }
     return settled;
@@ -3869,18 +4081,37 @@ export class SessionManager {
     return result;
   }
 
-  deleteSessionPreview(tabId: string): DeleteSessionPreview {
-    const descendants = planHandoffDescendants(this.deps.registry.sessions, tabId);
+  async deleteSessionPreview(tabId: string): Promise<DeleteSessionPreview> {
+    const sessions = this.deps.registry.sessions;
+    const checkEmptyClean = async (rec: OwnedSessionRecord | undefined): Promise<boolean | undefined> => {
+      if (rec?.worktree == null) return undefined;
+      const shared = sessions.some(
+        (s) => s.tabId !== rec.tabId && s.worktree?.path === rec.worktree!.path,
+      );
+      if (shared) return false;
+      return isEmptyCleanWorktree(rec.projectCwd, rec.worktree);
+    };
+    const target = sessions.find((s) => s.tabId === tabId);
+    const descendants = planHandoffDescendants(sessions, tabId);
+    const [worktreeEmptyClean, descendantRows] = await Promise.all([
+      checkEmptyClean(target),
+      Promise.all(
+        descendants.map(async (id) => {
+          const record = sessions.find((s) => s.tabId === id)!;
+          const emptyClean = await checkEmptyClean(record);
+          return {
+            tabId: id,
+            title: record.cachedTitle?.trim() || "New session",
+            running: this.live.has(id),
+            worktree: record.worktree !== null,
+            ...(emptyClean !== undefined ? { worktreeEmptyClean: emptyClean } : {}),
+          };
+        }),
+      ),
+    ]);
     return {
-      descendants: descendants.map((id) => {
-        const record = this.deps.registry.sessions.find((s) => s.tabId === id)!;
-        return {
-          tabId: id,
-          title: record.cachedTitle?.trim() || "New session",
-          running: this.live.has(id),
-          worktree: record.worktree !== null,
-        };
-      }),
+      descendants: descendantRows,
+      ...(worktreeEmptyClean !== undefined ? { worktreeEmptyClean } : {}),
     };
   }
 
@@ -3893,6 +4124,8 @@ export class SessionManager {
     // Fail before irreversible lineage deletion; accepted artifacts are independent.
     this.deps.artifacts?.dropDraftsForLineage(path.resolve(this.deps.getSessionsRoot(), record.lineageDir));
     // The tab is gone; its first-title ownership (issue #1090) dies with it.
+    this.cancelWorktreeSetup(tabId);
+    this.releaseCheckoutClaim(tabId);
     this.firstTitleShots.delete(tabId);
     this.#pendingResumeCommands.delete(tabId);
     this.stallWatchdog.dispose(tabId);

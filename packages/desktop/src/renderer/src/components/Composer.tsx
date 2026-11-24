@@ -32,7 +32,17 @@ import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
-import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../store";
+import {
+  checkoutOccupant,
+  effectiveWorkspacePolicy,
+  findInstance,
+  findOwner,
+  isChatTab,
+  sessionCwd,
+  useStore,
+} from "../store";
+import { projectKey } from "../lib/project-key";
+import { mintBranchName } from "@omp-ui/core/worktree-branch";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { stashDraft, takeStashedDraft, useDraftStash } from "../lib/draft-stash";
@@ -299,6 +309,8 @@ export function Composer({
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const holdPrompt = useStore((s) => s.holdPrompt);
+  const worktreeSetupState = useStore((s) => s.worktreeSetupState[tabId] ?? null);
+  const dismissWorktreeSetupState = useStore((s) => s.dismissWorktreeSetupState);
   const abortAgent = useStore((s) => s.abortAgent);
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
@@ -379,13 +391,52 @@ export function Composer({
    * session is unprompted.
    */
   const [workspace, setWorkspace] = useState<WorkspaceSelection>({ mode: "checkout" });
+  /** True once the user explicitly picked a workspace mode in this unprompted session. */
+  const [workspaceTouched, setWorkspaceTouched] = useState(false);
   /** The last worktree-conversion failure, rendered in the composer's inline strip. */
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   /** True while the first send is converting the session to a worktree. */
   const [converting, setConverting] = useState(false);
   /** The machine chip's target name while the session moves there (#936). */
   const [moving, setMoving] = useState<string | null>(null);
-  /** A sidebar session row is dragged over this composer (issue #984). */
+  const branchInfo = useStore((s) =>
+    cwd === undefined ? undefined : s.branches[projectKey(instanceId, cwd)],
+  );
+  const isGitRepo = branchInfo !== undefined && branchInfo.repoRoot !== null;
+  const workspacePolicy = useStore((s) =>
+    effectiveWorkspacePolicy(s.state, record?.projectCwd, instanceId),
+  );
+  const checkoutBusy = useStore((s) =>
+    checkoutOccupant(s, cwd, tabId, instanceId) !== null,
+  );
+
+  // Reactive workspace pre-arming for unprompted native sessions in git repos:
+  // Plan mode stays on shared checkout; Build mode arms a worktree when policy
+  // is "worktree" or when policy is "auto" and another session occupies the checkout.
+  useEffect(() => {
+    if (!offerWorkspace || !isGitRepo || workspaceTouched) return;
+    const shouldArmWorktree =
+      !planOn && (workspacePolicy === "worktree" || (workspacePolicy === "auto" && checkoutBusy));
+    if (shouldArmWorktree) {
+      setWorkspace((prev) => {
+        if (prev.mode === "worktree") return prev;
+        const defaultUsable =
+          branchInfo.defaultBranch !== null &&
+          branchInfo.branches.includes(branchInfo.defaultBranch);
+        const baseRef = defaultUsable ? branchInfo.defaultBranch : branchInfo.current;
+        const prefix = worktreeBranchPrefix(record?.projectCwd ?? cwd ?? "");
+        return {
+          mode: "worktree",
+          branch: mintBranchName(prefix, baseRef ?? undefined),
+          baseRef,
+          baseBranch: null,
+          baseTouched: false,
+        };
+      });
+    } else {
+      setWorkspace((prev) => (prev.mode === "checkout" ? prev : { mode: "checkout" }));
+    }
+  }, [offerWorkspace, isGitRepo, workspaceTouched, planOn, workspacePolicy, checkoutBusy, branchInfo, record?.projectCwd, cwd]);
   const [dropping, setDropping] = useState(false);
   // The machine chip (#936): an unprompted, project-checkout session with
   // nothing materialized can be re-homed onto another checkout's machine.
@@ -405,6 +456,7 @@ export function Composer({
   const handleWorkspaceChange = (
     next: WorkspaceSelection | ((prev: WorkspaceSelection) => WorkspaceSelection),
   ): void => {
+    setWorkspaceTouched(true);
     setWorkspace(next);
     // A stale git error must never outlive the selection it names — the next
     // attempt renders its own failure.
@@ -892,8 +944,49 @@ export function Composer({
       // on failure the draft, the hero, and the chip all stay put, and git's
       // message renders in the composer's inline strip. Slash commands are
       // not prompts — they bypass the conversion entirely.
-      if (!message.startsWith("/") && workspace.mode === "worktree" && unprompted) {
-        if (!(await runWorktreeConversion(workspace))) return;
+      // Plan mode first prompts stay on the shared checkout unless the user
+      // manually selected a worktree (workspaceTouched).
+      if (!message.startsWith("/") && unprompted && !hasWorktree && !chat) {
+        if (workspace.mode === "worktree") {
+          if (!(await runWorktreeConversion(workspace))) return;
+        } else if (!planOn && workspacePolicy === "auto" && isGitRepo && !workspaceTouched) {
+          // Host-serialized checkout reservation prevents two blank Build tabs
+          // opened side-by-side from racing onto the shared checkout.
+          let occupied = false;
+          try {
+            if (typeof backend.reserveCheckout === "function") {
+              const res = await backend.reserveCheckout(tabId);
+              occupied = res.status === "occupied";
+            } else {
+              occupied = checkoutOccupant(useStore.getState(), cwd, tabId, instanceId) !== null;
+            }
+          } catch {
+            // Older remote hosts may lack `session:reserve-checkout`; degrade
+            // to renderer-side occupancy check rather than blocking the prompt.
+            occupied = checkoutOccupant(useStore.getState(), cwd, tabId, instanceId) !== null;
+          }
+          if (occupied) {
+            const defaultUsable =
+              branchInfo !== undefined &&
+              branchInfo.defaultBranch !== null &&
+              branchInfo.branches.includes(branchInfo.defaultBranch);
+            const baseRef =
+              branchInfo === undefined
+                ? null
+                : defaultUsable
+                  ? branchInfo.defaultBranch
+                  : branchInfo.current;
+            const prefix = worktreeBranchPrefix(record?.projectCwd ?? cwd ?? "");
+            const autoSel: Extract<WorkspaceSelection, { mode: "worktree" }> = {
+              mode: "worktree",
+              branch: mintBranchName(prefix, baseRef ?? undefined),
+              baseRef,
+              baseBranch: null,
+              baseTouched: false,
+            };
+            if (!(await runWorktreeConversion(autoSel))) return;
+          }
+        }
       }
       if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
@@ -1000,7 +1093,15 @@ export function Composer({
       sendPrompt,
       onPrompt,
       unprompted,
+      hasWorktree,
+      chat,
+      planOn,
       workspace,
+      workspacePolicy,
+      workspaceTouched,
+      isGitRepo,
+      branchInfo,
+      record?.projectCwd,
       converting,
       moving,
       runWorktreeConversion,
@@ -2041,7 +2142,7 @@ export function Composer({
         {/* The worktree-conversion status lives here, not in the branch chip's
             popover (issue #227): the conversion runs on send, when the popover
             is closed, and its failure must stay visible with the draft intact. */}
-        {(converting || moving !== null || workspaceError !== null) && (
+        {(converting || moving !== null || workspaceError !== null || worktreeSetupState !== null) && (
           <div className="animate-rise mt-2 flex items-start gap-2 text-xs">
             {workspaceError !== null ? (
               <>
@@ -2056,8 +2157,26 @@ export function Composer({
                   <IconClose className="size-3" />
                 </IconButton>
               </>
+            ) : worktreeSetupState?.phase === "failed" ? (
+              <>
+                <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0 text-copper">
+                  <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
+                  <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
+                </svg>
+                <span className="min-w-0 flex-1 break-words text-copper" data-selectable>
+                  {`worktree setup failed: ${worktreeSetupState.detail ?? "command exited non-zero"}`}
+                </span>
+                <IconButton
+                  label="dismiss worktree setup warning"
+                  onClick={() => dismissWorktreeSetupState(tabId)}
+                >
+                  <IconClose className="size-3" />
+                </IconButton>
+              </>
             ) : moving !== null ? (
               <span className="text-ink-faint">{`Moving to ${moving}…`}</span>
+            ) : worktreeSetupState?.phase === "command" || worktreeSetupState?.phase === "files" ? (
+              <span className="text-ink-faint">running worktree setup…</span>
             ) : (
               <span className="text-ink-faint">cutting the worktree…</span>
             )}

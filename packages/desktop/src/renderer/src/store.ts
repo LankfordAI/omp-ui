@@ -105,11 +105,15 @@ export {
   findInstance,
   findOwner,
   findRecord,
+  findWorktreeHolderSession,
   forkSourceOf,
   isChatTab,
   isHomeView,
   liveForksOf,
-  runningSessionTitleOnCheckout,
+  checkoutOccupant,
+  occupantActivityPhrase,
+  type CheckoutOccupant,
+  effectiveWorkspacePolicy,
   sessionProjectFace,
   sessionCwd,
   viewedClientId,
@@ -484,6 +488,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...fleet,
     ...createArtifactsSlice(set, get),
     ...createRoutinesSlice(set, get),
+    worktreeSetupState: {},
+    dismissWorktreeSetupState: (tabId) =>
+      set((s) => {
+        if (!(tabId in s.worktreeSetupState)) return s;
+        const next = { ...s.worktreeSetupState };
+        delete next[tabId];
+        return { worktreeSetupState: next };
+      }),
     ...createArtifactReferencesSlice(set, get),
     ...collab,
     ...sideQuestions,
@@ -576,6 +588,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
               staged && staged.phase !== "exited"
                 ? { ...s.tuiHandoff, [tabId]: { ...staged, phase: "exited" } }
                 : s.tuiHandoff,
+          };
+        });
+      });
+      backend.onWorktreeSetupState?.((tabId, state) => {
+        set((s) => {
+          if (state === null || state.phase === "done") {
+            if (!(tabId in s.worktreeSetupState)) return s;
+            const next = { ...s.worktreeSetupState };
+            delete next[tabId];
+            return { worktreeSetupState: next };
+          }
+          return {
+            worktreeSetupState: { ...s.worktreeSetupState, [tabId]: state },
           };
         });
       });

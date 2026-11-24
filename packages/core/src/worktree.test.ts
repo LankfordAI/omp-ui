@@ -8,6 +8,7 @@ import {
   addWorktreeForBranch,
   addWorktreeFromNewBase,
   finalizeMintBranch,
+  isEmptyCleanWorktree,
   isWithin,
   landedInDestination,
   linkProjectOmpDir,
@@ -245,6 +246,13 @@ describe("finalizeMintBranch (issue #482)", () => {
     expect(baseRef).toBeNull();
   });
 
+  it("prefers defaultBranch over a checked-out feature branch when baseRef is null", async () => {
+    const dir = await namedRepo("proj");
+    await git(dir, ["checkout", "-q", "-b", "feat/other"]);
+    const [branch, baseRef] = await finalizeMintBranch(dir, "proj/abcd1234", null, null);
+    expect(branch).toBe("proj/main/abcd1234");
+    expect(baseRef).toBe("main");
+  });
   it("never renames a hand-typed branch and still pins the start point", async () => {
     const dir = await namedRepo("proj");
     const [branch, baseRef] = await finalizeMintBranch(dir, "feature/mine", null, null);
@@ -1965,5 +1973,33 @@ describe("linkProjectOmpDir", () => {
     await linkProjectOmpDir(project, checkout);
 
     expect(fs.existsSync(path.join(checkout, ".omp"))).toBe(false);
+  });
+});
+
+describe("isEmptyCleanWorktree (Slice 3.2)", () => {
+  it("returns true for a clean 0-ahead worktree (including generated .omp symlink), false for dirty, ahead, or unreadable", async () => {
+    const dir = await tmpRepo();
+    fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-clean-"));
+    cleanups.push(wtParent);
+    const wtPath = path.join(wtParent, "wt-clean");
+    await addWorktree(dir, wtPath, "feat/empty", "main");
+    await linkProjectOmpDir(dir, wtPath);
+    const wt = { path: wtPath, branch: "feat/empty", base: "main" };
+
+    expect(await isEmptyCleanWorktree(dir, wt)).toBe(true);
+
+    // Dirty file -> false
+    fs.writeFileSync(path.join(wtPath, "dirty.txt"), "x\n");
+    expect(await isEmptyCleanWorktree(dir, wt)).toBe(false);
+    fs.rmSync(path.join(wtPath, "dirty.txt"));
+    expect(await isEmptyCleanWorktree(dir, wt)).toBe(true);
+
+    // 1 commit ahead -> false
+    await commitFile(wtPath, "ahead.txt", "ahead\n", "ahead");
+    expect(await isEmptyCleanWorktree(dir, wt)).toBe(false);
+
+    // Unreadable path -> false (fail-safe)
+    expect(await isEmptyCleanWorktree(dir, { path: path.join(dir, "missing"), branch: "feat/empty", base: "main" })).toBe(false);
   });
 });

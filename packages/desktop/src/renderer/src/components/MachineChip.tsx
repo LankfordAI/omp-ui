@@ -16,13 +16,17 @@ export function MachineChip({
   tabId,
   disabled,
   onPick,
-  layout = "inline",
+  placement = "float",
+  density = "desktop",
 }: {
   tabId: string;
   disabled: boolean;
   /** Called with the picked member; the composer owns the move. */
   onPick: (member: CheckoutEntry) => void;
-  layout?: "inline" | "sheet";
+  /** `flow` expands the menu in-flow instead of floating above the chip. */
+  placement?: "float" | "flow";
+  /** `touch` applies 44px mobile touch targets. */
+  density?: "desktop" | "touch";
 }) {
   const state = useStore((s) => s.state);
   const owner = useMemo(() => findOwner(state, tabId), [state, tabId]);
@@ -50,7 +54,14 @@ export function MachineChip({
   const local = "This computer";
 
   return (
-    <span ref={rootRef} className={cn("relative flex min-w-0", layout === "sheet" && "w-full flex-wrap [&_button]:min-h-11")}>
+    <span
+      ref={rootRef}
+      className={cn(
+        "relative flex min-w-0",
+        placement === "flow" && "w-full flex-wrap",
+        density === "touch" && "[&_button]:min-h-11",
+      )}
+    >
       <button
         ref={triggerRef}
         type="button"
@@ -76,7 +87,7 @@ export function MachineChip({
           aria-label="Machine"
           className={cn(
             "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
-            layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-60",
+            placement === "flow" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-60",
           )}
         >
           {members.map((m) => {

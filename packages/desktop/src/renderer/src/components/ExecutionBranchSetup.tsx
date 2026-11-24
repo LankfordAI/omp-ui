@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { planSeedText } from "../lib/plan-seed";
 import { projectKey } from "../lib/project-key";
-import { findOwner, runningSessionTitleOnCheckout, useStore } from "../store";
+import { checkoutOccupant, findOwner, occupantActivityPhrase, useStore, type CheckoutOccupant } from "../store";
 import { Button } from "./ui";
 
 /**
@@ -36,8 +37,9 @@ export interface ExecutionBranch {
   branchError: string | null;
   confirmBusy: boolean;
   dismissConfirm: () => void;
-  /** The other session's title that earns the confirm. */
+  /** The other session occupying this checkout that earns the confirm. */
   busyTitle: string | null;
+  occupant: CheckoutOccupant | null;
   checkingOut: boolean;
   /** New-name empty, or existing unchosen, in a repo. */
   branchInvalid: boolean;
@@ -81,9 +83,10 @@ export function useExecutionBranch({
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
   const suggestBranchName = useStore((s) => s.suggestBranchName);
-  // A session mid-turn on this checkout (other than this gate-blocked tab): a
-  // plain checkout would move the working tree out from under it.
-  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
+  // Another live session occupying this checkout (other than this gate-blocked tab):
+  // a checkout or `checkout -b` moves HEAD / the working tree under it.
+  const occupant = useStore(useShallow((s) => checkoutOccupant(s, projectCwd, tabId, instanceId)));
+  const busyTitle = occupant?.title ?? null;
 
   const [seededFor, setSeededFor] = useState(proposalKey);
   const [branchChoice, setBranchChoice] = useState<BranchChoice>("current");
@@ -178,9 +181,9 @@ export function useExecutionBranch({
     const name = branchChoice === "new" ? newName.trim() : existingName;
     if (name === null || name === "") return false; // unreachable — the button is disabled
     if (branchChoice === "existing" && name === branchInfo?.current) return true;
-    // Switching branches moves the working tree — a session mid-turn on this
-    // project earns a confirm first (creating one does not move the tree).
-    if (branchChoice === "existing" && busyTitle !== null && !confirmBusy) {
+    // Moving HEAD (plain checkout or `checkout -b`) affects another session on
+    // this checkout — both earn a confirm before proceeding.
+    if ((branchChoice === "existing" || branchChoice === "new") && busyTitle !== null && !confirmBusy) {
       setConfirmBusy(true);
       return false;
     }
@@ -217,6 +220,7 @@ export function useExecutionBranch({
     confirmBusy,
     dismissConfirm,
     busyTitle,
+    occupant,
     checkingOut,
     branchInvalid,
     currentBranch: branchInfo?.current ?? null,
@@ -329,11 +333,13 @@ export function ExecutionBranchSetup({
       {branch.confirmBusy && (
         <div className="mt-2 rounded-lg border border-copper-dim/50 bg-copper-wash px-3 py-2.5">
           <p className="text-xs leading-snug text-copper">
-            {`“${branch.busyTitle ?? ""}” is mid-turn. Switching changes its working tree.`}
+            {branch.branchChoice === "new"
+              ? `“${branch.busyTitle ?? ""}” ${occupantActivityPhrase(branch.occupant?.reason ?? "running")}. Creating and switching branches moves HEAD under it.`
+              : `“${branch.busyTitle ?? ""}” ${occupantActivityPhrase(branch.occupant?.reason ?? "running")}. Switching changes its working tree.`}
           </p>
           <div className="mt-2 flex gap-1.5">
             <Button size="xs" tone="copper" onClick={onExecute}>
-              switch anyway
+              {branch.branchChoice === "new" ? "create & switch anyway" : "switch anyway"}
             </Button>
             <Button size="xs" variant="ghost" onClick={branch.dismissConfirm}>
               cancel

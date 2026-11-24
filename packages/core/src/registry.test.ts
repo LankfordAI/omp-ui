@@ -2798,3 +2798,32 @@ describe("Registry write path, ephemeral batching, and cached reads (#1286)", ()
     reg.flush();
   });
 });
+
+describe("workspacePolicy setting and per-project override (Slice 2)", () => {
+  it("defaults workspacePolicy to auto, round-trips global and project overrides, and normalizes malformed values", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.getSetting("workspacePolicy")).toBe("auto");
+    reg.setSetting("workspacePolicy", "worktree");
+    reg.addProject("/abs/proj");
+    expect(reg.projects[0]?.workspacePolicy).toBeNull();
+    reg.setProjectWorkspacePolicy("/abs/proj", "checkout");
+    expect(reg.projects[0]?.workspacePolicy).toBe("checkout");
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("workspacePolicy")).toBe("worktree");
+    expect(reloaded.projects[0]?.workspacePolicy).toBe("checkout");
+
+    // Malformed values normalize to defaults without dropping project records.
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+      projects: Array<Record<string, unknown>>;
+    };
+    raw.settings.workspacePolicy = "bogus";
+    raw.projects[0]!.workspacePolicy = 123;
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const sanitized = Registry.load(file);
+    expect(sanitized.getSetting("workspacePolicy")).toBe("auto");
+    expect(sanitized.projects[0]?.workspacePolicy).toBeNull();
+  });
+});

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type {
   DiscardedChange,
   MergeBackResult,
@@ -15,7 +16,9 @@ import { worktreeMergeResolutionState } from "../lib/worktree-merge-resolution";
 import {
   findOwner,
   findRecord,
-  runningSessionTitleOnCheckout,
+  checkoutOccupant,
+  occupantActivityPhrase,
+  type CheckoutOccupant,
   useStore,
   worktreeSharers,
 } from "../store";
@@ -56,12 +59,13 @@ export type FinishPhase =
    */
   | {
       s: "done";
+      kind: "merged" | "kept";
+      branch: string;
       destination: string;
       commits: number;
       destinationAhead: number | null;
       destinationUpstream: string | null;
     };
-
 /** The done row's push affordance (issue #414): one button, five states. */
 export type FinishPushState =
   | { s: "idle" }
@@ -129,6 +133,7 @@ export interface FinishController {
   prOpened: boolean;
   /** A session mid-turn in the project checkout (this tab excluded); null when none. */
   busyTitle: string | null;
+  occupant: CheckoutOccupant | null;
   /** The branch a return would move the project checkout onto (#431); null when
    *  the destination is where the checkout already stands. */
   checkoutTarget: string | null;
@@ -184,9 +189,12 @@ export function useFinishWorktree(tabId: string): FinishController {
   // against. Both come from the listing the dialog already refreshed.
   const defaultRemote = branchInfo?.defaultRemote ?? null;
   const defaultBranch = branchInfo?.defaultBranch ?? null;
-  const busyTitle = useStore((s) =>
-    projectCwd === undefined ? null : runningSessionTitleOnCheckout(s, projectCwd, tabId),
+  const occupant = useStore(
+    useShallow((s) =>
+      projectCwd === undefined ? null : checkoutOccupant(s, projectCwd, tabId, instanceId),
+    ),
   );
+  const busyTitle = occupant?.title ?? null;
   const ownRunning = useStore((s) => s.rpc[tabId]?.status === "running");
   const sharers = useStore((s) =>
     record?.worktree == null ? 0 : worktreeSharers(s.state, tabId, record.worktree.path).length,
@@ -208,6 +216,15 @@ export function useFinishWorktree(tabId: string): FinishController {
   const closeFinishWorktree = useStore((s) => s.closeFinishWorktree);
   const pushGitBranch = useStore((s) => s.pushGitBranch);
   const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
+  const setProjectLastFinishOutcome = useStore((s) => s.setProjectLastFinishOutcome);
+  const projectLastFinishOutcome = useStore((s) => {
+    if (projectCwd === undefined || s.state === null) return null;
+    const projects =
+      instanceId === null
+        ? s.state.projects
+        : (s.state.remoteInstances.find((i) => i.id === instanceId)?.projects ?? []);
+    return projects.find((p) => p.project.path === projectCwd)?.project.lastFinishOutcome ?? null;
+  });
   const resolveWorktreeMerge = useStore((s) => s.resolveWorktreeMerge);
   // Primitive selectors keep the shared helper's fresh objects out of Zustand's snapshot.
   const resolutionRoute = useStore((s) => worktreeMergeResolutionState(s, tabId)?.route ?? null);
@@ -223,7 +240,8 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [newBranch, setNewBranch] = useState<{ name: string; from: string } | null>(null);
   /** True once the user edited the destination name; prefill never sets it. */
   const [newBranchNameTyped, setNewBranchNameTyped] = useState(false);
-  const [outcome, setOutcome] = useState<FinishOutcome>("merge");
+  const [outcome, setOutcomeState] = useState<FinishOutcome>(() => projectLastFinishOutcome ?? "merge");
+  const [outcomeTouched, setOutcomeTouched] = useState(false);
   const [rename, setRename] = useState(record?.worktree?.branch ?? "");
   const [renameTyped, setRenameTyped] = useState(false);
   /** The model's branch-name suggestion for this session; null until it answers. */
@@ -488,12 +506,11 @@ export function useFinishWorktree(tabId: string): FinishController {
     // The run owns the session while it moves refs, releases the worktree, or
     // pushes: dismissing now would orphan it mid-flight (R5).
     if (phase.s === "working" || pushState.s === "busy") return;
-    const completesFinish = phase.s === "done";
+    // Keep-branch dismissal leaves the session live (CONTEXT.md #924); only a
+    // merged finish settles on dismissal (#1061).
+    const completesMergedFinish = phase.s === "done" && phase.kind === "merged";
     closeFinishWorktree();
-    // The done row's dismissal is where a merged finish ends: the work landed,
-    // sharing was decided. Settle through the shared path so a mid-turn
-    // successor earns the standard confirm and the reap carries undo (#980).
-    if (completesFinish && !finishSettled.current) {
+    if (completesMergedFinish && !finishSettled.current) {
       finishSettled.current = true;
       void settleSessions([tabId]);
     }
@@ -586,6 +603,8 @@ export function useFinishWorktree(tabId: string): FinishController {
           setPrOpened(false);
           setPhase({
             s: "done",
+            kind: "merged",
+            branch: mergeBranch,
             destination: result.destination,
             commits: result.commits,
             destinationAhead: (landed ?? status).destinationAhead,
@@ -755,27 +774,45 @@ export function useFinishWorktree(tabId: string): FinishController {
       if (checkoutTarget !== null && switchTo === null) {
         appendNotice(
           tabId,
-          `the project checkout was left on its own branch — session “${busyTitle ?? ""}” is mid-turn there; the work is in ${checkoutTarget}`,
+          `the project checkout was left on its own branch — session “${busyTitle ?? ""}” ${occupantActivityPhrase(occupant?.reason ?? "running")}; the work is in ${checkoutTarget}`,
           "warn",
         );
       }
     }
-    // 5. Landed, but not shared (issue #414): a merge that moved commits
-    // stops on the done row, where publishing or pushing `destination` is one
-    // deliberate click rather than a side effect of finishing. The session
-    // stays live under the done row; dismissing it settles (issue #1061).
-    // Every other outcome — keep, rename-only, already-merged — closes as it
-    // always did.
+    // Record the project's last successful outcome so future finishes open on
+    // the workflow this repo actually uses (merge vs Push & PR).
+    void setProjectLastFinishOutcome(cwd, outcome, instanceId).catch(() => {});
+
+    // 5. Landed, but not shared (issue #414 / Slice 3.1): a merge that moved
+    // commits OR a keep-branch finish stops on the done row so pushing /
+    // publishing / opening a PR is one deliberate click.
     if (mergeResult !== null && mergeResult.kind === "merged") {
       setPushState({ s: "idle" });
       setPrUnavailable(false);
       setPrOpened(false);
       setPhase({
         s: "done",
+        kind: "merged",
+        branch,
         destination: target,
         commits: mergeResult.commits,
         destinationAhead: (landed ?? status).destinationAhead,
         destinationUpstream: (landed ?? status).destinationUpstream,
+      });
+      return;
+    }
+    if (outcome === "keep") {
+      setPushState({ s: "idle" });
+      setPrUnavailable(false);
+      setPrOpened(false);
+      setPhase({
+        s: "done",
+        kind: "kept",
+        branch,
+        destination: branch,
+        commits: status.ahead,
+        destinationAhead: null,
+        destinationUpstream: null,
       });
       return;
     }
@@ -784,7 +821,6 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (outcome === "merge") void settleSessions([tabId]);
     closeOwnDialog();
   };
-
   const sync = async (): Promise<void> => {
     if (resolutionPending.current) return;
     if (record === undefined || record.worktree == null || effectiveDestination === null) return;
@@ -930,6 +966,13 @@ export function useFinishWorktree(tabId: string): FinishController {
       (status.destinationCheckout === "project" &&
         (status.mergeInProgress || destinationDirty)));
 
+  // If merge is blocked on open and the user hasn't picked an outcome yet,
+  // fall back to Push & PR (keep branch) automatically.
+  useEffect(() => {
+    if (!outcomeTouched && mergeBlocked && outcome === "merge") {
+      setOutcomeState("keep");
+    }
+  }, [outcomeTouched, mergeBlocked, outcome]);
   const renaming = rename.trim() !== "" && rename.trim() !== (worktreeBranch ?? "");
 
   let primaryLabel: string | null;
@@ -969,6 +1012,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     prUnavailable,
     prOpened,
     busyTitle,
+    occupant,
     checkoutTarget,
     checkoutBlockedByBusy,
     ownRunning,
@@ -985,7 +1029,10 @@ export function useFinishWorktree(tabId: string): FinishController {
       setNewBranch((prev) => (prev === null ? prev : { ...prev, ...patch }));
     },
     setOutcome: (value) => {
-      if (!resolutionPending.current) setOutcome(value);
+      if (!resolutionPending.current) {
+        setOutcomeTouched(true);
+        setOutcomeState(value);
+      }
     },
     setRename: (name) => {
       if (resolutionPending.current) return;

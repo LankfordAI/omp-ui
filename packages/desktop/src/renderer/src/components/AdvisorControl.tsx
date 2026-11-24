@@ -35,7 +35,17 @@ import { ModelPalette } from "./ModelSelector";
 const EMPTY: ModelInfo[] = [];
 
 
-export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
+export function AdvisorControl({
+  tabId,
+  disabled,
+  placement = "float",
+  density = "desktop",
+}: {
+  tabId: string;
+  disabled?: boolean;
+  placement?: "float" | "flow";
+  density?: "desktop" | "touch";
+}) {
   // The session's owning instance (issue #416): its project pins and advisor
   // defaults live on that host, keyed by projectKey in the store.
   const record = useStore((s) => findRecord(s.state, tabId));
@@ -157,7 +167,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   return (
     <>
-      <span className={cn("flex min-w-0 shrink items-center gap-1.5", layout === "sheet" && "flex-1 justify-end")}>
+      <span className={cn("flex min-w-0 shrink items-center gap-1.5", density === "touch" && "flex-1 justify-end")}>
         {/* The model only matters while the advisor runs, so the capsule only
             appears then — an always-visible dropdown for a disabled feature
             invites setting a model that does nothing. It stays neutral: the
@@ -167,8 +177,9 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
         {on && (
           <Capsule
             className={cn(
-              layout === "sheet" && "h-auto min-h-11 min-w-0 flex-1 flex-wrap",
-              layout === "inline" && "min-w-0 shrink",
+              density === "touch" && "h-auto min-h-11 min-w-0 flex-1 flex-wrap",
+              density === "desktop" && "min-w-0 shrink",
+              placement === "flow" && "flex-wrap",
             )}
           >
             <button
@@ -189,7 +200,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               }}
               className={cn(
                 CAPSULE_SEGMENT,
-                layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-xs" : "max-w-40 text-xs",
+                density === "touch" ? "min-w-0 flex-1 justify-center px-3 text-xs" : "max-w-40 text-xs",
                 gated ? "text-ink-mid" : inherited ? "text-ink-faint" : "text-ink-mid",
               )}
             >
@@ -216,7 +227,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                   className={cn(
                     CAPSULE_SEGMENT,
                     "shrink-0 rounded-r-md text-xs tabular-nums text-ink-mid",
-                    layout === "sheet" && "px-3",
+                    density === "touch" && "px-3",
                   )}
                 >
                   {effectiveLevel}
@@ -224,7 +235,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               </span>
             )}
             {!gated && effectiveModelSelector !== null && efforts.length > 0 && (
-              <span ref={levelAnchor} className={cn("relative flex", layout === "sheet" && levelMenu && "contents")}>
+              <span ref={levelAnchor} className={cn("relative flex", placement === "flow" && levelMenu && "contents")}>
                 <button
                   type="button"
                   disabled={disabled}
@@ -234,7 +245,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                   className={cn(
                     CAPSULE_SEGMENT,
                     "shrink-0 rounded-r-md text-xs tabular-nums text-iris",
-                    layout === "sheet" && "px-3",
+                    density === "touch" && "px-3",
                   )}
                 >
                   {effectiveLevel ?? "think —"}
@@ -244,7 +255,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                     "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
                     // The capsule sits at the row's right edge, so the menu
                     // opens leftward and stays inside the popover.
-                    layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full right-0 mb-1 w-32",
+                    placement === "flow" ? "mt-1 w-full basis-full" : "absolute bottom-full right-0 mb-1 w-32",
                   )}>
                     <span className="px-1.5 pb-1 pt-0.5">
                       <Label>advisor thinking</Label>

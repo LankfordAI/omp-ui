@@ -325,6 +325,20 @@ describe("useExecutionBranch resolve", () => {
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feature/y", undefined);
   });
 
+  it("earns a confirm for `new` (checkout -b) under a mid-turn session, then proceeds once confirmed", async () => {
+    seed({ busyTitle: "Busy work" });
+    mount({ projectCwd: "/p" });
+    click("select-new");
+    await typeNewName("feat/new");
+    await resolve();
+    expect(byId("result").textContent).toBe("false");
+    expect(byId("confirmBusy").textContent).toBe("true");
+    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    await resolve();
+    expect(byId("result").textContent).toBe("true");
+    expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feat/new", { create: true });
+  });
+
   it("does not confirm for a running worktree session of the project (issue #292)", async () => {
     seed({ busyTitle: "Busy work", busyWorktree: { path: "/wt/busy", branch: "feat/busy", base: null } });
     mount({ projectCwd: "/p" });
@@ -336,20 +350,26 @@ describe("useExecutionBranch resolve", () => {
     expect(byId("result").textContent).toBe("true");
   });
 
-  it("never confirms its own tab (issue #292 self-exclusion)", async () => {
+  it("never confirms its own tab (issue #292 self-exclusion), while confirming an idle prompted Build sibling (Slice 2)", async () => {
     useStore.setState({
-      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" }), tabInfo({ tabId: "tab-2", projectCwd: "/p" })],
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
       branches: { "/p": branches },
-      rpc: {
-        [TAB]: rpcTabState({ status: "running" }),
-        "tab-2": rpcTabState({ status: "ready" }),
-      },
-      state: stateWithSessions({ [TAB]: "Planning session", "tab-2": "Idle work" }),
+      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+      state: stateWithSessions({ [TAB]: "Planning session" }),
     });
     mount({ projectCwd: "/p" });
     expect(byId("busyTitle").textContent).toBe("");
-  });
 
+    // An idle prompted Build sibling on the same checkout occupies it under Slice 2.
+    act(() => {
+      useStore.setState({
+        tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" }), tabInfo({ tabId: "tab-2", projectCwd: "/p" })],
+        rpc: { [TAB]: rpcTabState({ status: "running" }), "tab-2": rpcTabState({ status: "ready" }) },
+        state: stateWithSessions({ [TAB]: "Planning session", "tab-2": "Idle work" }),
+      });
+    });
+    expect(byId("busyTitle").textContent).toBe("Idle work");
+  });
   it("returns false for an empty new-branch name", async () => {
     seed();
     mount({ projectCwd: "/p" });

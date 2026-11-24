@@ -20,6 +20,9 @@ import type {
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WorktreeSyncResult,
+  WorkspacePolicy,
+  FinishOutcome,
+  ProjectWorktreeSetup,
 } from "@omp-ui/core/types";
 import { LOCAL_MACHINE_KEY } from "@omp-ui/core/fleet";
 import { backend, backendFor } from "../../backend";
@@ -106,6 +109,9 @@ export type LifecycleSlice = Pick<
   | "setProjectDefaultModel"
   | "setProjectDefaultAdvisorModel"
   | "setProjectBrowserClock"
+  | "setProjectWorkspacePolicy"
+  | "setProjectLastFinishOutcome"
+  | "setProjectWorktreeSetup"
   | "setProjectKnowledgeHome"
   | "setProjectIcon"
   | "vaultNames"
@@ -198,11 +204,15 @@ export type LifecycleDeps = Watchers;
  * flag, and an unknown descendant is never erased unasked.
  */
 export function skipConfirmationCovers(
-  confirmation: Pick<DeleteConfirmation, "worktreePath" | "cascade">,
+  confirmation: Pick<DeleteConfirmation, "worktreePath" | "worktreeEmptyClean" | "cascade">,
 ): boolean {
+  const ownCovered =
+    confirmation.worktreePath === null || confirmation.worktreeEmptyClean === true;
   return (
-    confirmation.worktreePath === null &&
-    confirmation.cascade.every((descendant) => descendant.worktree === false)
+    ownCovered &&
+    confirmation.cascade.every(
+      (descendant) => descendant.worktree === false || descendant.worktreeEmptyClean === true,
+    )
   );
 }
 
@@ -963,6 +973,30 @@ export function createLifecycleSlice(
     await backendFor(instanceId).setProjectBrowserClock(projectPath, on);
   };
 
+  const setProjectWorkspacePolicy = async (
+    projectPath: string,
+    policy: WorkspacePolicy | null,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).setProjectWorkspacePolicy(projectPath, policy);
+  };
+
+  const setProjectLastFinishOutcome = async (
+    projectPath: string,
+    outcome: FinishOutcome | null,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).setProjectLastFinishOutcome(projectPath, outcome);
+  };
+
+  const setProjectWorktreeSetup = async (
+    projectPath: string,
+    setup: ProjectWorktreeSetup | null,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).setProjectWorktreeSetup(projectPath, setup);
+  };
+
   const setProjectKnowledgeHome = async (
     projectPath: string,
     home: KnowledgeHome | null,
@@ -1413,9 +1447,15 @@ export function createLifecycleSlice(
    */
   const convertSessionToWorktree = async (
     tabId: string,
-    opts: { branch: string; baseRef: string | null; baseBranch: string | null },
+    opts:
+      | { branch: string; baseRef: string | null; baseBranch: string | null }
+      | { checkout: { branch: string } },
   ): Promise<void> => {
     const owner = findOwner(get().state, tabId);
+    if ("checkout" in opts) {
+      await backend.convertToWorktree(tabId, opts.checkout.branch, null, null, "checkout");
+      return;
+    }
     await backend.convertToWorktree(tabId, opts.branch, opts.baseRef, opts.baseBranch);
     // Issue #405: a new base branch created by the convert shows up in the
     // lists locally, same as the spawn path above.
@@ -2039,11 +2079,16 @@ export function createLifecycleSlice(
       worktreeBranch: rec.worktree?.branch ?? null,
       worktreeBase: rec.worktree?.base ?? null,
       worktreePath: rec.worktree?.path ?? null,
+      worktreeEmptyClean: preview.worktreeEmptyClean,
       cascade: preview.descendants,
     };
+    const emptyCleanUnprompted =
+      rec.sessionId === null &&
+      preview.worktreeEmptyClean === true &&
+      confirmation.cascade.length === 0;
     if (
-      get().state?.skipDeleteConfirmation === true &&
-      skipConfirmationCovers(confirmation)
+      emptyCleanUnprompted ||
+      (get().state?.skipDeleteConfirmation === true && skipConfirmationCovers(confirmation))
     ) {
       await eraseSession(tabId, confirmation.cascade.map((d) => d.tabId));
       return;
@@ -2359,6 +2404,9 @@ export function createLifecycleSlice(
     setProjectDefaultModel,
     setProjectDefaultAdvisorModel,
     setProjectBrowserClock,
+    setProjectWorkspacePolicy,
+    setProjectLastFinishOutcome,
+    setProjectWorktreeSetup,
     setProjectKnowledgeHome,
     setProjectIcon,
     vaultNames,

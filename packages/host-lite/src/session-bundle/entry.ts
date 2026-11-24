@@ -428,8 +428,14 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     ) => manager.answerPlanReview(tabId, frameId, verdict, sourceHash),
     [CH.dismissProposedPlan]: (tabId: string, planFilePath: string) =>
       manager.dismissProposedPlan(tabId, planFilePath),
-    [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null, baseBranch: string | null) =>
-      manager.convertToWorktree(tabId, branch, baseRef, baseBranch),
+    [CH.convertToWorktree]: (
+      tabId: string,
+      branch: string,
+      baseRef: string | null,
+      baseBranch: string | null,
+      mode?: "mint" | "checkout",
+    ) => manager.convertToWorktree(tabId, branch, baseRef, baseBranch, mode),
+    [CH.reserveCheckout]: (tabId: string) => manager.reserveCheckout(tabId),
     [CH.releaseWorktree]: (tabId: string, opts: WorktreeReleaseOptions) => manager.releaseWorktree(tabId, opts),
     [CH.syncWorktree]: (tabId: string, source: string) => manager.syncWorktree(tabId, source),
     [CH.listDiscardedChanges]: (tabId: string) => manager.listDiscardedChanges(tabId),

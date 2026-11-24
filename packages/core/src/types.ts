@@ -54,6 +54,29 @@ export type SessionStatus =
 
 export type SessionMode = "pty" | "rpc-ui";
 export type AgentMode = "plan" | "build";
+export type WorkspacePolicy = "auto" | "worktree" | "checkout";
+
+/** Result of host-serialized checkout reservation (`session:reserve-checkout`). */
+export type CheckoutReservationResult =
+  | { status: "claimed" }
+  | { status: "occupied"; occupantTabId: string; occupantTitle: string };
+export type FinishOutcome = "merge" | "keep";
+
+/** Opt-in per-project setup applied when a fresh worktree is created. */
+export interface ProjectWorktreeSetup {
+  /** Repo-relative paths or globs of gitignored files to carry (e.g. [".env", ".env.local"]). */
+  copyPaths: string[];
+  /** "copy" (default) copies bytes; "symlink" creates links to projectCwd. */
+  copyMode: "copy" | "symlink";
+  /** Optional shell command run asynchronously in the new worktree. */
+  postCreateCommand: string | null;
+}
+
+/** Live setup progress emitted over `worktree:setupState` for one tab. */
+export interface WorktreeSetupState {
+  phase: "files" | "command" | "done" | "failed";
+  detail: string | null;
+}
 /** omp's `tools.approvalMode` tiers (issue #681, #950, ADR-0038): `always-ask`
  *  gates every non-read tool, `always-ask-cached` (Ask and remember, omp ≥ 18.12.3)
  *  also asks before file reads and can remember a file or folder, `write` gates
@@ -229,6 +252,22 @@ export interface ProjectRecord {
    * or malformed values load as null; the record always survives.
    */
   icon: ProjectIcon | null;
+  /**
+   * Per-project workspace policy override: null inherits the host's
+   * `RegistrySettings.workspacePolicy` (default "auto"). Legacy or malformed
+   * values normalize to null.
+   */
+  workspacePolicy?: WorkspacePolicy | null;
+  /**
+   * Last successful Finish worktree outcome for this project ("merge" | "keep");
+   * null when unset. Legacy or malformed values normalize to null.
+   */
+  lastFinishOutcome?: FinishOutcome | null;
+  /**
+   * Opt-in per-project worktree setup (allowlisted gitignored files and/or
+   * async post-create command). Legacy or malformed values normalize to null.
+   */
+  worktreeSetup?: ProjectWorktreeSetup | null;
 }
 
 /**
@@ -433,13 +472,16 @@ export interface PlanHandoffDescendant {
    * force-removes that checkout and any uncommitted changes (ADR-0018).
    */
   worktree: boolean;
+  /** True iff this descendant's worktree is unshared, clean, and 0 commits ahead of its base. */
+  worktreeEmptyClean?: boolean;
 }
 
 /** The sessions that would be erased with a deleted session (issue #309). */
 export interface DeleteSessionPreview {
   descendants: PlanHandoffDescendant[];
+  /** True iff the session has an unshared worktree that is clean and 0 commits ahead of its base. */
+  worktreeEmptyClean?: boolean;
 }
-
 /** Per-tab outcome of session deletion, including cascade partial success. */
 export interface DeleteSessionResult {
   deleted: string[];
@@ -954,6 +996,12 @@ export interface BranchList {
    * `origin` when it exists, else the repo's single remote, else null (issue #414).
    */
   defaultRemote: string | null;
+  /**
+   * Local branches currently checked out in another worktree (excluding
+   * repoRoot itself). Maps branch name -> absolute worktree path on the
+   * owning host. Optional so older remote hosts still decode cleanly.
+   */
+  worktrees?: Record<string, string>;
 }
 
 export type SpawnWorktree =

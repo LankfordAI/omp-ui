@@ -2986,10 +2986,9 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
-  // The + and pill triggers precede the chip in the DOM; scope to the Workspace group.
+  // Desktop mounts BranchChip directly on the composer strip beside prompt options.
   const chipTrigger = (): HTMLButtonElement =>
-    document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
-
+    document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="branch"]')!;
   const buttonByText = (text: string): HTMLButtonElement =>
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
 
@@ -3837,19 +3836,19 @@ describe("Composer options popover (issue #939)", () => {
     });
   };
 
-  it("loads the branch segment without the panel ever opening", async () => {
+  it("loads the desktop strip branch cap without the options panel ever opening", async () => {
     backendMock.listBranches.mockResolvedValue(gitBranches);
     seed("ready");
     useStore.setState({ branches: {} });
     renderComposer();
     await act(async () => {});
     expect(panel().hidden).toBe(true);
-    const branch = pillSegment("branch");
-    expect(branch?.textContent).toContain("main");
-    expect(branch?.textContent).not.toContain("↓ 2");
+    expect(pillSegment("branch")).toBeNull();
+    const branchCap = document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="branch"]');
+    expect(branchCap?.textContent).toContain("main");
+    expect(branchCap?.textContent).not.toContain("↓ 2");
     expect(pullCap()?.textContent).toBe("↓ 2");
   });
-
   it("omits the pull cap when behind === 0", () => {
     seed("ready");
     useStore.setState({ branches: { "/p": { ...gitBranches, behind: 0 } } });
@@ -3870,7 +3869,7 @@ describe("Composer options popover (issue #939)", () => {
     expect(panel().hidden).toBe(true);
   });
 
-  it("clicking the pull cap while a session is mid-turn opens the options popover to the busy pull confirmation", async () => {
+  it("clicking the pull cap while a session is mid-turn opens the strip BranchChip to the busy pull confirmation without opening prompt options", async () => {
     backendMock.listBranches.mockResolvedValue({ ...gitBranches, behind: 0 });
     seed("running");
     useStore.setState({
@@ -3882,10 +3881,10 @@ describe("Composer options popover (issue #939)", () => {
       pullCap()!.click();
     });
     expect(backendMock.pullBranch).not.toHaveBeenCalled();
-    expect(panel().hidden).toBe(false);
-    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    expect(panel().hidden).toBe(true);
+    const chip = document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="branch"]')!;
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    const pullAnyway = [...panel().querySelectorAll<HTMLButtonElement>("button")].find(
+    const pullAnyway = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent?.trim() === "pull anyway",
     );
     expect(pullAnyway).toBeDefined();
@@ -3895,7 +3894,7 @@ describe("Composer options popover (issue #939)", () => {
     expect(backendMock.pullBranch).toHaveBeenCalledWith("/p");
   });
 
-  it("clicking the pull cap when diverged opens the options popover and branch menu showing divergence", async () => {
+  it("clicking the pull cap when diverged opens the strip BranchChip showing divergence without opening prompt options", async () => {
     seed("ready");
     useStore.setState({
       branches: { "/p": { ...gitBranches, ahead: 1, behind: 2 } },
@@ -3906,32 +3905,29 @@ describe("Composer options popover (issue #939)", () => {
       pullCap()!.click();
     });
     expect(backendMock.pullBranch).not.toHaveBeenCalled();
-    expect(panel().hidden).toBe(false);
-    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    expect(panel().hidden).toBe(true);
+    const chip = document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="branch"]')!;
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(panel().textContent).toContain("1 ahead, 2 behind origin/main");
+    expect(document.body.textContent).toContain("1 ahead, 2 behind origin/main");
   });
 
-  it("peels a nested branch menu before closing the panel on Escape", async () => {
+  it("keeps prompt options and strip BranchChip mutually exclusive and closes BranchChip on Escape", async () => {
     backendMock.listBranches.mockResolvedValue(gitBranches);
     seed("ready");
     useStore.setState({ branches: { "/p": gitBranches } });
     renderComposer();
     openOptions();
-    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    expect(panel().hidden).toBe(false);
+    const chip = document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="branch"]')!;
     act(() => chip.click());
     await act(async () => {});
     expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(panel().hidden).toBe(true);
 
     escape();
     expect(chip.getAttribute("aria-expanded")).toBe("false");
-    expect(panel().hidden).toBe(false);
-
-    escape();
-    expect(panel().hidden).toBe(true);
-    expect(document.activeElement).toBe(optionsTrigger());
+    expect(document.activeElement).toBe(chip);
   });
-
   it("keeps the panel open through a pick in the portaled model palette", async () => {
     const setModel = vi.fn(async () => {});
     const OTHER = { id: "model-y", name: "Model Y", provider: "test", input: ["text"], contextWindow: 1000 };

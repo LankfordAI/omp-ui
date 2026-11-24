@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { git, refArg, type GitOptions } from "./git";
 import type { BranchList, BranchListOptions, PushResult } from "./types";
@@ -99,6 +100,48 @@ export function parseBranchStatus(output: string): ParsedBranchStatus {
   return { head, upstream, ahead, behind };
 }
 
+function normalizeWorktreePath(p: string): string {
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync.native(p);
+  } catch {
+    resolved = /^[A-Za-z]:[\\/]/.test(p) ? p : path.resolve(p);
+  }
+  const slashed = resolved.replace(/[\\/]+/g, "/").replace(/\/+$/, "") || "/";
+  return process.platform === "win32" || /^[A-Za-z]:\//.test(slashed)
+    ? slashed.toLowerCase()
+    : slashed;
+}
+
+/**
+ * Parses `git worktree list --porcelain` into a map of local branch name ->
+ * absolute worktree path, excluding the entry matching `repoRoot` itself and
+ * ignoring detached or bare worktrees. Includes both managed and unmanaged
+ * external worktrees.
+ */
+export function parseWorktreeBranches(
+  porcelain: string,
+  repoRoot: string,
+): Record<string, string> {
+  const rootKey = normalizeWorktreePath(repoRoot);
+  const result: Record<string, string> = {};
+  for (const block of porcelain.split(/\r?\n\r?\n/)) {
+    let wtPath: string | null = null;
+    let branch: string | null = null;
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("worktree ")) {
+        wtPath = line.slice("worktree ".length).trim();
+      } else if (line.startsWith("branch refs/heads/")) {
+        branch = line.slice("branch refs/heads/".length).trim();
+      }
+    }
+    if (wtPath === null || wtPath === "" || branch === null || branch === "") continue;
+    if (normalizeWorktreePath(wtPath) === rootKey) continue;
+    result[branch] = wtPath;
+  }
+  return result;
+}
+
 function emptyBranchList(): BranchList {
   return {
     repoRoot: null,
@@ -114,6 +157,7 @@ function emptyBranchList(): BranchList {
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
     defaultRemote: null,
+    worktrees: {},
   };
 }
 
@@ -364,19 +408,23 @@ export function createBranchService(
       return emptyBranchList();
     }
 
-    const [statusRead, branchesRead, defaultBranchRead, defaultRemoteRead, mergeHeadRead] =
+    const [statusRead, branchesRead, defaultBranchRead, defaultRemoteRead, mergeHeadRead, worktreesRead] =
       await Promise.allSettled([
         readStatus(root),
         readLocalBranches(root),
         readDefaultBranch(root, runGit),
         resolveDefaultRemote(root, runGit),
         readMergeHead(root),
+        runGit(root, ["worktree", "list", "--porcelain"]).then((out) =>
+          parseWorktreeBranches(out, root),
+        ),
       ]);
     if (statusRead.status === "rejected") throw statusRead.reason;
     if (branchesRead.status === "rejected") throw branchesRead.reason;
     if (defaultBranchRead.status === "rejected") throw defaultBranchRead.reason;
     if (defaultRemoteRead.status === "rejected") throw defaultRemoteRead.reason;
     if (mergeHeadRead.status === "rejected") throw mergeHeadRead.reason;
+    const worktrees = worktreesRead.status === "fulfilled" ? worktreesRead.value : {};
     let status = statusRead.value;
     const current = status.head;
     const branches = branchesRead.value;
@@ -427,6 +475,7 @@ export function createBranchService(
       upstreamFetchedAt: entry?.fetchedAt ?? null,
       upstreamRefreshError: entry?.refreshError ?? null,
       defaultRemote,
+      worktrees,
     };
   };
 

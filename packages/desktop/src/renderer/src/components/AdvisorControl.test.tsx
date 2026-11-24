@@ -117,12 +117,11 @@ function seed(opts: {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-async function render(layout?: "inline" | "sheet"): Promise<void> {
+async function render(opts?: { placement?: "float" | "flow"; density?: "desktop" | "touch" }): Promise<void> {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root!.render(<AdvisorControl tabId={TAB} layout={layout} />));
-  // Mount's loadAdvisorDefaults hop has to land before the precedence reads it.
+  act(() => root!.render(<AdvisorControl tabId={TAB} placement={opts?.placement} density={opts?.density} />));
   await act(async () => {});
   await act(async () => {});
 }

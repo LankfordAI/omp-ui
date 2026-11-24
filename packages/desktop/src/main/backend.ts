@@ -206,6 +206,9 @@ import {
   type SpawnGateState,
   type SpawnRequest,
   type WorktreeReleaseOptions,
+  type WorkspacePolicy,
+  type FinishOutcome,
+  type ProjectWorktreeSetup,
   type SessionSummary,
   type PlanReviewVerdict,
   type ProjectGroup,
@@ -1415,6 +1418,26 @@ export class MainBackend {
           this.registry.setProjectBrowserClock(projectPath, on);
           await this.broadcast();
         },
+        [CH.setProjectWorkspacePolicy]: async (projectPath: string, policy: WorkspacePolicy | null) => {
+          this.registeredProjectPath(projectPath);
+          this.registry.setProjectWorkspacePolicy(projectPath, policy);
+          await this.broadcast();
+        },
+        [CH.setProjectLastFinishOutcome]: async (
+          projectPath: string,
+          outcome: FinishOutcome | null,
+        ) => {
+          this.registeredProjectPath(projectPath);
+          this.registry.setProjectLastFinishOutcome(projectPath, outcome);
+          await this.broadcast();
+        },
+        [CH.setProjectWorktreeSetup]: async (
+          projectPath: string,
+          setup: ProjectWorktreeSetup | null,
+        ) => {
+          this.registeredProjectPath(projectPath);
+          if (this.registry.setProjectWorktreeSetup(projectPath, setup)) await this.broadcast();
+        },
         [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
           this.registeredProjectPath(projectPath);
           if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
@@ -1680,7 +1703,9 @@ export class MainBackend {
           branch: string,
           baseRef: string | null,
           baseBranch: string | null,
-        ) => this.sessions.convertToWorktree(tabId, branch, baseRef, baseBranch),
+          mode?: "mint" | "checkout",
+        ) => this.sessions.convertToWorktree(tabId, branch, baseRef, baseBranch, mode),
+        [CH.reserveCheckout]: (tabId: string) => this.sessions.reserveCheckout(tabId),
         [CH.releaseWorktree]: (tabId: string, opts: WorktreeReleaseOptions) =>
           this.sessions.releaseWorktree(tabId, opts),
         [CH.syncWorktree]: (tabId: string, source: string) =>
@@ -3571,6 +3596,7 @@ export class MainBackend {
       hibernateIdleMinutes: this.registry.getSetting("hibernateIdleMinutes"),
       streamStallAbortSeconds: this.registry.getSetting("streamStallAbortSeconds"),
       defaultAgentMode: this.registry.getSetting("defaultAgentMode"),
+      workspacePolicy: this.registry.getSetting("workspacePolicy"),
       defaultCompactionMethod: this.registry.getSetting("defaultCompactionMethod"),
       advisorAutoReply: this.registry.getSetting("advisorAutoReply"),
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),

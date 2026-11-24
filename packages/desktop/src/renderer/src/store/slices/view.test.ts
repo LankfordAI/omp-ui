@@ -9,8 +9,9 @@ import {
   findOwner,
   findRecord,
   getNavigationGeneration,
+  checkoutOccupant,
+  effectiveWorkspacePolicy,
   isHomeView,
-  runningSessionTitleOnCheckout,
 } from "./view";
 
 const PROJECT = "/p";
@@ -20,6 +21,7 @@ function summary(
   tabId: string,
   title: string,
   worktree: SessionSummary["worktree"] = null,
+  patch: Partial<SessionSummary> = {},
 ): SessionSummary {
   return {
     tabId,
@@ -61,6 +63,7 @@ function summary(
     pendingPlan: null,
     planSettle: null,
     streamStalled: false,
+    ...patch,
   };
 }
 
@@ -81,54 +84,144 @@ const pick = (
   rpc: Record<string, RpcTabState>,
 ) => ({ state: stateWith(...sessions), tabs, rpc });
 
-describe("runningSessionTitleOnCheckout (issue #292)", () => {
-  it("guards a checkout a session runs in", () => {
+describe("checkoutOccupant (Slice 2)", () => {
+  it("guards a checkout a session runs in (rpc running or turnRunning)", () => {
     const s = pick(
       [summary("t1", "Busy")],
       [tabInfo({ tabId: "t1", projectCwd: PROJECT })],
       { t1: rpcTabState({ status: "running" }) },
     );
-    expect(runningSessionTitleOnCheckout(s, PROJECT)).toBe("Busy");
+    expect(checkoutOccupant(s, PROJECT)).toEqual({ tabId: "t1", title: "Busy", reason: "running" });
+
+    const sTurn = pick(
+      [summary("t1", "RemoteTurn", null, { turnRunning: true })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(sTurn, PROJECT)).toEqual({ tabId: "t1", title: "RemoteTurn", reason: "running" });
   });
 
-  it("does not flag the project root for a running worktree session", () => {
+  it("detects idle prompted Build sessions and live PTY sessions, while ignoring unprompted Build and Plan mode", () => {
+    const idleBuild = pick(
+      [summary("t1", "Idle Build", null, { sessionId: "sess-1", agentMode: "build" })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(idleBuild, PROJECT)).toEqual({
+      tabId: "t1",
+      title: "Idle Build",
+      reason: "build-live",
+    });
+
+    const unpromptedBuild = pick(
+      [summary("t1", "Blank", null, { sessionId: null, agentMode: "build" })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(unpromptedBuild, PROJECT)).toBeNull();
+
+    const planSession = pick(
+      [summary("t1", "Planner", null, { sessionId: "sess-1", agentMode: "plan" })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(planSession, PROJECT)).toBeNull();
+
+    const ptySession = pick(
+      [summary("t1", "Shell", null, { mode: "pty" })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(ptySession, PROJECT)).toEqual({
+      tabId: "t1",
+      title: "Shell",
+      reason: "pty-live",
+    });
+  });
+
+  it("decays occupancy when settled, snoozed, or dormant", () => {
+    const settled = pick(
+      [summary("t1", "Done", null, { sessionId: "s1", settledAtMs: 1000 })],
+      [],
+      {},
+    );
+    const snoozed = pick(
+      [summary("t1", "Snoozed", null, { sessionId: "s1", snoozed: true })],
+      [],
+      {},
+    );
+    const dormant = pick(
+      [summary("t1", "Dormant", null, { sessionId: "s1", live: "dormant" })],
+      [],
+      {},
+    );
+    expect(checkoutOccupant(settled, PROJECT)).toBeNull();
+    expect(checkoutOccupant(snoozed, PROJECT)).toBeNull();
+    expect(checkoutOccupant(dormant, PROJECT)).toBeNull();
+  });
+
+  it("ranks mid-turn running sessions ahead of idle Build or PTY sessions", () => {
+    const s = pick(
+      [
+        summary("t1", "Idle Build", null, { sessionId: "s1" }),
+        summary("t2", "MidTurn", null, { sessionId: "s2" }),
+      ],
+      [tabInfo({ tabId: "t2", projectCwd: PROJECT })],
+      { t2: rpcTabState({ status: "running" }) },
+    );
+    expect(checkoutOccupant(s, PROJECT)).toEqual({ tabId: "t2", title: "MidTurn", reason: "running" });
+  });
+
+  it("does not flag the project root for a worktree session, and still guards the worktree checkout", () => {
     const s = pick(
       [summary("t1", "Busy", { path: WORKTREE, branch: "feat/busy", base: null })],
       [tabInfo({ tabId: "t1", projectCwd: PROJECT })],
       { t1: rpcTabState({ status: "running" }) },
     );
-    expect(runningSessionTitleOnCheckout(s, PROJECT)).toBeNull();
+    expect(checkoutOccupant(s, PROJECT)).toBeNull();
+    expect(checkoutOccupant(s, WORKTREE)).toEqual({ tabId: "t1", title: "Busy", reason: "running" });
   });
 
-  it("still guards the worktree's own checkout", () => {
-    const s = pick(
-      [summary("t1", "Busy", { path: WORKTREE, branch: "feat/busy", base: null })],
-      [tabInfo({ tabId: "t1", projectCwd: PROJECT })],
-      { t1: rpcTabState({ status: "running" }) },
-    );
-    expect(runningSessionTitleOnCheckout(s, WORKTREE)).toBe("Busy");
-  });
-
-  it("excludes the named tab but keeps the others", () => {
+  it("excludes the named tab and scopes by remote instanceId", () => {
     const s = pick(
       [summary("t1", "One"), summary("t2", "Two")],
       [tabInfo({ tabId: "t1", projectCwd: PROJECT }), tabInfo({ tabId: "t2", projectCwd: PROJECT })],
       { t1: rpcTabState({ status: "running" }), t2: rpcTabState({ status: "running" }) },
     );
-    expect(runningSessionTitleOnCheckout(s, PROJECT, "t1")).toBe("Two");
-    expect(runningSessionTitleOnCheckout(s, PROJECT, "t2")).toBe("One");
-    expect(runningSessionTitleOnCheckout(s, PROJECT)).toBe("One");
+    expect(checkoutOccupant(s, PROJECT, "t1")).toEqual({ tabId: "t2", title: "Two", reason: "running" });
+    expect(checkoutOccupant(s, PROJECT, "t2")).toEqual({ tabId: "t1", title: "One", reason: "running" });
+    expect(checkoutOccupant(s, undefined)).toBeNull();
+
+    const remote = {
+      state: backendState({
+        projects: [group(PROJECT, summary("local-1", "Local", null, { sessionId: "s-l" }))],
+        remoteInstances: [
+          remoteInstance({
+            id: "inst-a",
+            projects: [group(PROJECT, summary("remote-1", "Remote", null, { sessionId: "s-r" }))],
+          }),
+        ],
+      }),
+      tabs: [],
+      rpc: {},
+    };
+    expect(checkoutOccupant(remote, PROJECT, undefined, null)?.tabId).toBe("local-1");
+    expect(checkoutOccupant(remote, PROJECT, undefined, "inst-a")?.tabId).toBe("remote-1");
   });
 
-  it("returns null without a cwd, without a record, or when not running", () => {
-    const s = pick(
-      [summary("t1", "Busy")],
-      [tabInfo({ tabId: "t1", projectCwd: PROJECT }), tabInfo({ tabId: "ghost", projectCwd: PROJECT })],
-      { t1: rpcTabState({ status: "ready" }), ghost: rpcTabState({ status: "running" }) },
-    );
-    expect(runningSessionTitleOnCheckout(s, undefined)).toBeNull();
-    // t1 is not running; `ghost` is running but has no backend record.
-    expect(runningSessionTitleOnCheckout(s, PROJECT)).toBeNull();
+  it("resolves effectiveWorkspacePolicy from project override then global then auto", () => {
+    const base = backendState({
+      workspacePolicy: "worktree",
+      projects: [
+        {
+          ...group(PROJECT),
+          project: { ...group(PROJECT).project, workspacePolicy: "checkout" },
+        },
+      ],
+    });
+    expect(effectiveWorkspacePolicy(base, PROJECT)).toBe("checkout");
+    expect(effectiveWorkspacePolicy(base, "/other")).toBe("worktree");
+    expect(effectiveWorkspacePolicy(null, PROJECT)).toBe("auto");
   });
 });
 

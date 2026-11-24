@@ -16,7 +16,7 @@ import { formatHotkey, matchesHotkey } from "../lib/hotkeys";
 import { useKeybinding } from "../lib/keybindings";
 import { useLoad } from "../lib/load";
 import { projectKey } from "../lib/project-key";
-import { useStore } from "../store";
+import { checkoutOccupant, effectiveWorkspacePolicy, useStore } from "../store";
 import { Button, ChoiceCapsule, ConfirmDialog, IconButton, IconPlus } from "./ui";
 import { WorktreeBranchFields } from "./WorktreeBranchFields";
 
@@ -230,6 +230,11 @@ export function NewSessionDialog() {
   };
 
   const [workspace, setWorkspace] = useState<"checkout" | "worktree">(() => seed?.workspace ?? "worktree");
+  const [workspaceTouched, setWorkspaceTouched] = useState(() => seed?.workspace !== undefined);
+  const pickWorkspace = (next: "checkout" | "worktree"): void => {
+    setWorkspaceTouched(true);
+    setWorkspace(next);
+  };
   const [planMode, setPlanMode] = useState(false);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -290,6 +295,24 @@ export function NewSessionDialog() {
   // yet) means the project isn't a git repository at all: no worktree there.
   const info = selection === null ? undefined : branches[projectKey(instanceId, projectCwd)];
   const notGit = info?.repoRoot === null;
+  const herePolicy = effectiveWorkspacePolicy(state, projectCwd || undefined, instanceId);
+  const hereOccupied = useStore((s) =>
+    selection === null ? false : checkoutOccupant(s, projectCwd, undefined, instanceId) !== null,
+  );
+  useEffect(() => {
+    if (face !== "here" || workspaceTouched || selection === null) return;
+    if (notGit || planMode) {
+      setWorkspace("checkout");
+      return;
+    }
+    if (herePolicy === "worktree") {
+      setWorkspace("worktree");
+    } else if (herePolicy === "checkout") {
+      setWorkspace("checkout");
+    } else {
+      setWorkspace(hereOccupied ? "worktree" : "checkout");
+    }
+  }, [face, workspaceTouched, selection, notGit, planMode, herePolicy, hereOccupied]);
   // The checkout's own branch cannot be worked in twice: git would refuse
   // the second checkout, so the candidate list drops it.
   const otherBranches = (info?.branches ?? []).filter((name) => name !== info?.current);
@@ -565,7 +588,7 @@ export function NewSessionDialog() {
                           title: notGit ? "This project isn't inside a git repo, so there's nothing to worktree." : undefined,
                         },
                       ]}
-                      onChange={setWorkspace}
+                      onChange={pickWorkspace}
                     />
                   </div>
                 </div>
@@ -804,7 +827,7 @@ export function NewSessionDialog() {
                         title: checkoutDisabled ? "Several copies on one machine each need their own worktree." : undefined,
                       },
                     ]}
-                    onChange={setWorkspace}
+                    onChange={pickWorkspace}
                   />
                 </div>
               </div>

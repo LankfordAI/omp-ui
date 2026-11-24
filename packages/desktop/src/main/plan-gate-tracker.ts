@@ -29,6 +29,8 @@ export interface PlanGateTrackerDeps {
   attention?: Attention;
   /** Suspends hibernation across the post-verdict quiet window (issue #246). */
   suspendForVerdict: (tabId: string) => void;
+  /** Notified when a tab flips between Plan and Build mode. */
+  onAgentModeChanged?: (tabId: string, next: AgentMode) => void;
 }
 
 /**
@@ -156,6 +158,7 @@ export class PlanGateTracker implements FrameObserver {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (record === undefined || record.agentMode === next) return; // no write, no broadcast
     this.deps.registry.updateSession(tabId, { agentMode: next });
+    this.deps.onAgentModeChanged?.(tabId, next);
     void this.deps.broadcast();
   }
 
