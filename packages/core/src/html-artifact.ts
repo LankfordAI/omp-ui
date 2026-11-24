@@ -151,7 +151,7 @@ export function composeHtmlArtifactDocument(html: string, themeCss: string, scri
     `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     style +
-    (scripts ? HEIGHT_REPORT_STUB : "") +
+    (scripts ? HEIGHT_REPORT_STUB + CLIPBOARD_WRITE_STUB : "") +
     `</head><body>${html}`
   );
 }
@@ -194,6 +194,58 @@ const HEIGHT_REPORT_STUB =
   "  window.addEventListener('resize', schedule);\n" +
   "  window.addEventListener('load', report);\n" +
   "  report();\n" +
+  "})();" +
+  "</script>";
+
+/** Write-only navigator.clipboard.writeText shim for scripts-mode guests
+ *  (issue #1324, ADR-0082). A data: URL has an opaque origin and
+ *  isSecureContext === false, so Chromium omits navigator.clipboard.
+ *  Gated on navigator.userActivation.isActive; clipboard reads remain
+ *  unavailable. */
+const CLIPBOARD_WRITE_STUB =
+  "<script>" +
+  "(function () {\n" +
+  "  if (navigator.clipboard) return;\n" +
+  "  function writeText(text) {\n" +
+  "    if (arguments.length < 1) {\n" +
+  "      return Promise.reject(new TypeError(\"Failed to execute 'writeText' on 'Clipboard': 1 argument required, but only 0 present.\"));\n" +
+  "    }\n" +
+  "    if (navigator.userActivation && !navigator.userActivation.isActive) {\n" +
+  "      return Promise.reject(new DOMException(\"Clipboard write requires user activation.\", \"NotAllowedError\"));\n" +
+  "    }\n" +
+  "    var value;\n" +
+  "    try {\n" +
+  "      value = \"\" + text;\n" +
+  "    } catch (err) {\n" +
+  "      return Promise.reject(err);\n" +
+  "    }\n" +
+  "    var wrote = false;\n" +
+  "    function onCopy(e) {\n" +
+  "      if (!e.clipboardData) return;\n" +
+  "      e.preventDefault();\n" +
+  "      e.stopImmediatePropagation();\n" +
+  "      e.clipboardData.setData(\"text/plain\", value);\n" +
+  "      wrote = true;\n" +
+  "    }\n" +
+  "    window.addEventListener(\"copy\", onCopy, true);\n" +
+  "    var ok = false;\n" +
+  "    try {\n" +
+  "      ok = document.execCommand(\"copy\");\n" +
+  "    } catch (err) {\n" +
+  "      return Promise.reject(err);\n" +
+  "    } finally {\n" +
+  "      window.removeEventListener(\"copy\", onCopy, true);\n" +
+  "    }\n" +
+  "    if (ok && wrote) return Promise.resolve();\n" +
+  "    return Promise.reject(new DOMException(\"Clipboard write failed.\", \"NotAllowedError\"));\n" +
+  "  }\n" +
+  "  try {\n" +
+  "    Object.defineProperty(navigator, \"clipboard\", {\n" +
+  "      configurable: true,\n" +
+  "      enumerable: true,\n" +
+  "      value: Object.freeze({ writeText: writeText }),\n" +
+  "    });\n" +
+  "  } catch (e) {}\n" +
   "})();" +
   "</script>";
 

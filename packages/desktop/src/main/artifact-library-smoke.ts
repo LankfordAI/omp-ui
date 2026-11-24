@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
-import { app, BrowserWindow, session, type WebContents } from "electron";
+import { app, BrowserWindow, clipboard, session, type WebContents } from "electron";
 import { deriveTheme, HTML_ARTIFACT_PARTITION, withArtifactReferenceContext, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import type { ArtifactPreparedSurface, ArtifactRuntimeSnapshot, ArtifactSurfaceSource } from "../artifact-runtime-protocol";
 import { ArtifactService } from "./artifact-service";
@@ -249,6 +249,17 @@ async function writePhase(): Promise<void> {
   await expectGuestRefusal(guest, "window.ompArtifact.saveState({expectedStateRevision:0,set:JSON.parse('{\"__proto__\":{}}')})", "prototype-refused-before-save");
   const rate = await guest.executeJavaScript("Promise.all(Array.from({length:32},()=>window.ompArtifact.load().then(()=>false,()=>true))).then(rows=>rows.filter(Boolean).length)");
   requireProof(rate > 0, "Runtime did not refuse flood/inflight calls"); await delay(1100); passed("actual-rate-inflight-refusal-with-recovery");
+
+  clipboard.writeText("smoke-seed");
+  const clipboardShape = await guest.executeJavaScript("({ hasWrite: typeof navigator.clipboard?.writeText === 'function', hasRead: typeof navigator.clipboard?.read !== 'undefined', hasReadText: typeof navigator.clipboard?.readText !== 'undefined' })") as { hasWrite: boolean; hasRead: boolean; hasReadText: boolean };
+  requireProof(clipboardShape.hasWrite && !clipboardShape.hasRead && !clipboardShape.hasReadText, "Artifact clipboard shim exposed read APIs or lacked writeText");
+  const unpromptedCopy = await guest.executeJavaScript("navigator.clipboard.writeText('denied').then(() => 'ok', (err) => err?.name ?? 'err')") as string;
+  requireProof(unpromptedCopy === "NotAllowedError" && clipboard.readText() === "smoke-seed", `Unprompted artifact clipboard write was not denied: ${unpromptedCopy}`);
+  await guest.executeJavaScript("navigator.clipboard.writeText('smoke-copied-ticket')", true);
+  let copiedText = clipboard.readText();
+  for (let i = 0; i < 25 && copiedText !== "smoke-copied-ticket"; i++) { await delay(20); copiedText = clipboard.readText(); }
+  requireProof(copiedText === "smoke-copied-ticket", `Gesture-activated artifact clipboard write did not reach clipboard (got ${JSON.stringify(copiedText)})`);
+  passed("actual-guest-clipboard-write-only-and-gesture-gated");
 
   // The fault is in real SQLite, not a fake service: abort insertion of the immutable
   // snapshot after the transaction has begun. The receipt must remain Not saved.
