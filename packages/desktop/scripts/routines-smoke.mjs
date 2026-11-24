@@ -712,15 +712,13 @@ const ROWS = [
         first !== undefined && first.routinePrompt.indexOf(TAG_A) >= 0 && first.routinePrompt.indexOf(UNTRUSTED_CLAUSE) > first.routinePrompt.indexOf(TAG_A),
         first?.routinePrompt.slice(-200),
       );
-      // #1278's sidebar takeover unmounts the coding <aside> (and its footer
-      // live count) while the Routines view is open, so read both from the
-      // plain shell; the run and its background lane are unaffected.
+      // #1278's sidebar takeover unmounts the coding <aside> while the
+      // Routines view is open, so read it from the plain shell; the run and
+      // its background lane are unaffected.
       await clickLabel(app, "Close Routines");
       const sidebar = await app.run(DOM.sidebarText);
       const control = await session(ctx.controlTabId);
       check("session absent from all coding sidebar sections", !sidebar.includes(rec.title) && sidebar.includes(control.title), { run: rec.title, control: control.title });
-      const liveTitle = await app.run(() => document.querySelector('aside [title^="Live sessions:"]')?.getAttribute("title") ?? null);
-      check("absent from footer live count", liveTitle !== null && liveTitle.startsWith("Live sessions: 1 "), liveTitle);
       await waitFor(async () => (await session(ctx.runA1))?.awaiting, 60_000, "A parks on probe_write");
       check("probe_read executed unprompted (mcp-calls.jsonl count = 1)", mcpCalls("probe_read") === 1 && mcpCalls("probe_write") === 0);
       return shot(app, "S3-background-run");
@@ -1031,24 +1029,25 @@ app.whenReady().then(() => {
         kept.map((s) => s && { live: s.live, routine: s.routine }),
       );
       await clickLabel(app, "Close Routines").catch(() => undefined);
-      // Routine runs never count toward the footer live count; released live
-      // runs must. Dormant survivors must appear as tiles in the (opened)
-      // Settled section. A live one waiting on a card reads once, as its
-      // Attention card (#1038), so the live count is its structural proof.
+      // Dormant survivors appear as tiles in the (opened) Settled section.
+      // Released live runs appear either as coding sidebar tiles or, while
+      // waiting on an Approval card, as Attention stack entries (#1038).
       await app.run(() => [...document.querySelectorAll("aside button")].find((b) => /^Settled \(\d+\)/i.test(b.innerText.trim()))?.click());
-      const liveExpected = (await state()).sessions.filter((s) => s.live === "live" && s.routine === null).length;
       const dormant = kept.filter((s) => s.live !== "live").map((s) => s.title);
+      const releasedLive = kept.filter((s) => s.live === "live").map((s) => s.title);
       const seen = await waitFor(async () => {
         const view = await app.run(() => ({
-          live: document.querySelector('aside [title^="Live sessions:"]')?.getAttribute("title") ?? null,
           tiles: [...document.querySelectorAll("aside [data-session-tile-title]")].map((el) => el.getAttribute("title")),
+          attention: document.querySelector('[role="group"][aria-label^="Needs attention"]')?.innerText ?? "",
         }));
-        return view.live?.startsWith(`Live sessions: ${liveExpected} `) && dormant.every((t) => view.tiles.includes(t)) ? view : null;
+        const dormantOk = dormant.every((t) => view.tiles.includes(t));
+        const liveOk = releasedLive.every((t) => view.tiles.includes(t) || view.attention.includes(t));
+        return dormantOk && liveOk ? view : null;
       }, 15_000, "released runs in sidebar").catch((err) => ({ error: err.message }));
       check(
         "released records become visible in the coding sidebar",
-        seen.error === undefined && kept.filter((s) => s.live === "live").length + 1 <= liveExpected,
-        { liveExpected, dormant, seen },
+        seen.error === undefined,
+        { dormant, releasedLive, seen },
       );
       await shot(app, "S9-released");
       return offShot;

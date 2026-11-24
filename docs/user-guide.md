@@ -477,7 +477,7 @@ the same routine's previous run is still open.
 
 A routine run is an ordinary native session titled "{name} · YYYY-MM-DD
 HH:mm". Its Session HUD reads "Started by the routine {name}". It does not
-appear in any sidebar section or the footer live count. It surfaces in the
+appear in any sidebar section. It surfaces in the
 **Attention stack** when it waits on an Approval card or another answer, and
 after it finishes it holds its unread mark there until you open it. The
 Routines view also shows a banner with **Review approval** while a run waits.
