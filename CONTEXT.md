@@ -197,8 +197,8 @@ _Avoid_: inbox, unread list, needs-you
 **Snoozed session**:
 An owned session the user parked through its sidebar row's context menu
 (*Snooze* / *Unsnooze*). The flag persists on the registry record. Snoozing is
-pure sidebar grouping — the process keeps running, idle-hibernation rules are
-unchanged, and the footer live count still includes snoozed live sessions.
+pure sidebar grouping — the process keeps running and idle-hibernation rules are
+unchanged.
 While the `snoozedSectionEnabled` setting is off, snoozed sessions render in
 their natural lists and keep their persisted flag. A *timed* snooze carries a
 deadline (`snoozedUntilMs`); the owning host's main process unsnoozes it then,

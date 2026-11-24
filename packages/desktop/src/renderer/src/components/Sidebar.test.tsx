@@ -1751,14 +1751,11 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     const run: SessionSummary = { ...group.sessions[0]!, tabId: "tab-run", title: "Morning overview · 2026-11-22 08:00", routine, ...patch };
     return { ...state, routinesEnabled: gate, projects: [{ ...group, sessions: [...group.sessions, run] }] };
   };
-  const footerText = (): string => document.body.querySelector("footer")?.textContent ?? "";
 
-  it("keeps a live routine run out of the rows and the footer live count", () => {
+  it("keeps a live routine run out of the coding sidebar rows", () => {
     useStore.setState({ state: withRun({ turnRunning: true }, true) });
     renderSidebar();
     expect(document.body.textContent).not.toContain("Morning overview · 2026-11-22 08:00");
-    expect(footerText()).toContain(`${2} ready`);
-    expect(footerText()).not.toContain(`${1} working`);
   });
 
   it("renders no Routines button while the gate is off", () => {
@@ -1779,7 +1776,7 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     expect(openRoutines).toHaveBeenCalled();
   });
 
-  it("hides remote routine runs from rows and footer counts, and surfaces remote approval-waiting runs in Needs attention (#1304)", () => {
+  it("hides remote routine runs from rows and surfaces remote approval-waiting runs in Needs attention (#1304)", () => {
     const remoteGroup = {
       project: { ...state.projects[0]!.project, path: "/projects/remote", name: "omp-ui" },
       sessions: [
@@ -1811,10 +1808,8 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
       }),
     });
     renderSidebar();
-    // Working remote routine run does not appear in rows or increment counts.
+    // Working remote routine run does not appear in rows.
     expect(document.body.textContent).not.toContain("Remote working run");
-    expect(footerText()).toContain(`${2} ready`);
-    expect(footerText()).not.toContain(`${1} working`);
     // Routines button badge counts waiting runs across both local and joined remote hosts (#1306).
     expect(button("Routines").querySelector("[data-routines-waiting]")?.textContent).toBe("1");
     // Remote waiting routine run surfaces in Needs attention with machine label and approval copy.
@@ -1855,6 +1850,42 @@ describe("Sidebar Artifacts pending-review badge (#1307)", () => {
       useStore.setState({ artifactPendingReviewCount: 0 });
     });
     expect(artifactsBtn.querySelector("[data-artifacts-pending-review]")).toBeNull();
+  });
+});
+
+describe("Sidebar footer (Variant A — Equal Flex Tiles, #1316)", () => {
+  it("renders icon-only flex-1 buttons with no live session count cluster", () => {
+    useStore.setState({
+      state: backendState({
+        artifactLibraryEnabled: true,
+        routinesEnabled: true,
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-studio", nickname: "studio", status: "joined" }),
+        ],
+      }),
+    });
+    renderSidebar();
+
+    const footer = document.body.querySelector("footer");
+    expect(footer).not.toBeNull();
+    expect(footer!.querySelector('[title^="Live sessions:"]')).toBeNull();
+    expect(footer!.textContent).not.toContain("ready");
+    expect(footer!.textContent).not.toContain("working");
+
+    const buttons = [...footer!.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Settings",
+      "Artifacts",
+      "Routines",
+      "Fleet",
+    ]);
+    for (const btn of buttons) {
+      expect(btn.getAttribute("title")).toBe(btn.getAttribute("aria-label"));
+      expect(btn.textContent).toBe("");
+      expect(btn.querySelector("svg")).not.toBeNull();
+      expect(btn.className.split(/\s+/)).toContain("flex-1");
+    }
   });
 });
 

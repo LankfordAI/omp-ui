@@ -23,7 +23,7 @@ import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, s
 import { AttentionStack } from "./AttentionStack";
 import { SessionRow } from "./SessionRow";
 import { useSplitSlot } from "./split-slot";
-import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, ConfirmDialog, Empty, IconArtifacts, IconButton, IconClose, IconFleet, IconPlus, IconRefresh, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
 import { FIELD } from "./settings/rows";
 
 /* ------------------------------------------------------------------- icons */
@@ -718,46 +718,28 @@ export function Sidebar() {
       lists.snoozed.length > 0 ||
       lists.settled.length > 0);
 
-  // The footer counts every live row this app can see, ignoring the search.
   const instances = state?.remoteInstances ?? [];
-  // The footer counts live rows in the section headings' own words (round-4
-  // judge, Clarity 2). One pass over every live row this app can see
-  // (ignoring the search, like the count always did): working mirrors the
-  // Working section's placement rule — in-flight work, not blocked on the
-  // user, not pinned, not parked in Snoozed — everything else is ready.
   // Routine runs (ADR-0100, #1304, #1306) are attention-only on every host:
-  // they never count as live coding sessions, and approval-waiting runs on
-  // both local and joined remote hosts feed the Routines footer chip.
-  const { totalLive, workingLive, routinesWaiting } = useMemo(() => {
-    let live = 0;
-    let working = 0;
+  // approval-waiting runs on both local and joined remote hosts feed the
+  // Routines footer chip.
+  const routinesWaiting = useMemo(() => {
+    if (state === null) return 0;
     let waiting = 0;
-    if (state !== null) {
-      const snoozeOn = state.snoozedSectionEnabled === true;
-      const count = (sessions: readonly SessionSummary[]) => {
-        for (const s of sessions) {
-          if (s.live !== "live") continue;
-          if (isRoutineRun(s)) {
-            if (s.awaitingHumanAnswer === true) waiting += 1;
-            continue;
-          }
-          live += 1;
-          const needsUser = s.pendingPlan !== null || s.awaitingHumanAnswer === true;
-          const inFlight = s.turnRunning === true || backgroundWorkTabIds.has(s.tabId);
-          const parked =
-            (typeof s.pinnedAtMs === "number") || (snoozeOn && s.snoozed === true);
-          if (inFlight && !needsUser && !parked) working += 1;
+    const count = (sessions: readonly SessionSummary[]) => {
+      for (const s of sessions) {
+        if (s.live === "live" && isRoutineRun(s) && s.awaitingHumanAnswer === true) {
+          waiting += 1;
         }
-      };
-      for (const group of state.projects) count(group.sessions);
-      count(state.chats);
-      for (const instance of state.remoteInstances) {
-        if (instance.status === "self") continue;
-        for (const group of instance.projects) count(group.sessions);
       }
+    };
+    for (const group of state.projects) count(group.sessions);
+    count(state.chats);
+    for (const instance of state.remoteInstances) {
+      if (instance.status === "self") continue;
+      for (const group of instance.projects) count(group.sessions);
     }
-    return { totalLive: live, workingLive: working, routinesWaiting: waiting };
-  }, [state, backgroundWorkTabIds]);
+    return waiting;
+  }, [state]);
   const hasInstances = instances.some((i) => i.status !== "self");
 
   // Collapse hides the docked sidebar (desktop and the compact shell's docked
@@ -779,6 +761,10 @@ export function Sidebar() {
       };
   const displayedSidebarWidth = previewWidth ?? resolved.sidebarWidth;
   const headerButton = compact ? "size-9 rounded-md border border-line" : "size-7";
+  const footerButtonClass = cn(
+    "flex flex-1 items-center justify-center gap-1.5 px-1 w-auto",
+    compact ? "min-h-11" : "h-7",
+  );
   // Round-3 judge, Hierarchy 2/8: an expanded section with zero rows is pure
   // dead chrome, so an empty Working (or Snoozed) never shows expanded no
   // matter the stored choice. Settled stays collapsed until the user opens it.
@@ -1097,105 +1083,89 @@ export function Sidebar() {
           onClear={clearSelection}
         />
       ) : (
-        /* Container-queried labels (issue #1042): at a readable sidebar width the
-           gear and fleet glyphs carry words instead of tooltip-only affordances;
-           below it they stay icon-only. */
-        /* Wrapping row (#1079): when the items don't fit, the ml-auto count
-           cluster drops whole to a second line instead of breaking mid-text
-           or clipping at the aside edge. Tighter line gap keeps it one band. */
-        <footer className="@container flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-line px-3 py-2 text-xs text-ink-faint">
-        {isAndroidShell() && (
-          <a
-            href="omp-ui://host-connection"
-            onClick={closeCompactSurface}
-            className="flex min-h-11 w-full items-center rounded-md px-1 text-sm text-ink-mid hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
-          >
-            Host connection…
-          </a>
-        )}
-        <IconButton
-          label="Settings"
-          onClick={() => {
-            openSettings();
-            closeCompactSurface();
-          }}
-          className="flex size-auto h-6 w-auto items-center gap-1 px-1"
-        >
-          <IconGear />
-          <span className="hidden whitespace-nowrap @[17rem]:inline">Settings</span>
-        </IconButton>
-        {state?.artifactLibraryEnabled === true && (
-          <IconButton label="Artifacts" pressed={artifactsOpen} onClick={() => {
-            if (artifactsOpen) closeArtifacts();
-            else openArtifacts();
-            closeCompactSurface();
-          }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
-            <span aria-hidden>▤</span>
-            <span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
-            {artifactPendingReviewCount > 0 && (
-              <span
-                data-artifacts-pending-review
-                title={`${artifactPendingReviewCount} artifact${artifactPendingReviewCount === 1 ? "" : "s"} waiting for review`}
-                className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+        <footer className="flex shrink-0 flex-col gap-1 border-t border-line px-2 py-1.5 text-xs text-ink-faint">
+          {isAndroidShell() && (
+            <a
+              href="omp-ui://host-connection"
+              onClick={closeCompactSurface}
+              className="flex min-h-11 w-full items-center rounded-md px-1 text-sm text-ink-mid hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+            >
+              Host connection…
+            </a>
+          )}
+          <div className="flex w-full items-center gap-1">
+            <IconButton
+              label="Settings"
+              onClick={() => {
+                openSettings();
+                closeCompactSurface();
+              }}
+              className={footerButtonClass}
+            >
+              <IconGear />
+            </IconButton>
+            {state?.artifactLibraryEnabled === true && (
+              <IconButton
+                label="Artifacts"
+                pressed={artifactsOpen}
+                onClick={() => {
+                  if (artifactsOpen) closeArtifacts();
+                  else openArtifacts();
+                  closeCompactSurface();
+                }}
+                className={footerButtonClass}
               >
-                {artifactPendingReviewCount}
-              </span>
+                <IconArtifacts />
+                {artifactPendingReviewCount > 0 && (
+                  <span
+                    data-artifacts-pending-review
+                    title={`${artifactPendingReviewCount} artifact${artifactPendingReviewCount === 1 ? "" : "s"} waiting for review`}
+                    className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+                  >
+                    {artifactPendingReviewCount}
+                  </span>
+                )}
+              </IconButton>
             )}
-          </IconButton>
-        )}
-        {hasAnyRoutinesHost(state) && (
-          <IconButton
-            label="Routines"
-            pressed={routinesOpen}
-            onClick={() => {
-              if (routinesOpen) closeRoutines();
-              else openRoutines();
-              closeCompactSurface();
-            }}
-            className="flex size-auto h-6 w-auto items-center gap-1 px-1"
-          >
-            <span aria-hidden>↻</span>
-            <span className="hidden whitespace-nowrap @[17rem]:inline">Routines</span>
-            {routinesWaiting > 0 && (
-              <span
-                data-routines-waiting
-                title={`${routinesWaiting} routine run waiting on an Approval card`}
-                className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+            {hasAnyRoutinesHost(state) && (
+              <IconButton
+                label="Routines"
+                pressed={routinesOpen}
+                onClick={() => {
+                  if (routinesOpen) closeRoutines();
+                  else openRoutines();
+                  closeCompactSurface();
+                }}
+                className={footerButtonClass}
               >
-                {routinesWaiting}
-              </span>
+                <IconRefresh />
+                {routinesWaiting > 0 && (
+                  <span
+                    data-routines-waiting
+                    title={`${routinesWaiting} routine run waiting on an Approval card`}
+                    className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+                  >
+                    {routinesWaiting}
+                  </span>
+                )}
+              </IconButton>
             )}
-          </IconButton>
-        )}
-        {hasInstances && (
-          <IconButton
-            label="Fleet"
-            pressed={fleetOpen}
-            onClick={() => {
-              if (fleetOpen) closeFleet();
-              else openFleet();
-              closeCompactSurface();
-            }}
-            className="flex size-auto h-6 w-auto items-center gap-1 px-1"
-          >
-            <IconFleet />
-            <span className="hidden whitespace-nowrap @[17rem]:inline">Fleet</span>
-          </IconButton>
-        )}
-        {totalLive > 0 && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap" title={`Live sessions: ${totalLive} with a running process — Ready and Working`}>
-            <Dot tone="signal" />
-            {/* Proportional tabular (round-3 judge, Consistency 3): the footer
-                number reads like every other meta count, not like code. The
-                words are the section headings' own (round-4 judge, Clarity 2).
-                nowrap (#1079): a count is one unit; it moves lines, never wraps. */}
-            <span className="tabular-nums whitespace-nowrap">{`${totalLive - workingLive} ready`}</span>
-            {workingLive > 0 && (
-              <span className="tabular-nums whitespace-nowrap">{`${workingLive} working`}</span>
+            {hasInstances && (
+              <IconButton
+                label="Fleet"
+                pressed={fleetOpen}
+                onClick={() => {
+                  if (fleetOpen) closeFleet();
+                  else openFleet();
+                  closeCompactSurface();
+                }}
+                className={footerButtonClass}
+              >
+                <IconFleet />
+              </IconButton>
             )}
-          </span>
-        )}
-      </footer>
+          </div>
+        </footer>
       )}
       {!sheet && !resolved.pinned && (
         <ResizeHandle
