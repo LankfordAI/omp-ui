@@ -162,6 +162,7 @@ function sessionRecord(tabId: string, title: string) {
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null, settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,

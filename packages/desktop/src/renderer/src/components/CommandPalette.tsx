@@ -314,7 +314,7 @@ export function CommandPalette() {
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
       // Settle (#980, #1005): any live session; a running turn confirms first.
       const rec = findRecord(state, tab.tabId);
-      if (rec !== undefined && canSettle(rec, state?.snoozedSectionEnabled === true)) {
+      if (rec !== undefined && canSettle(rec)) {
         out.push({
           id: "session:settle",
           group: "Session",

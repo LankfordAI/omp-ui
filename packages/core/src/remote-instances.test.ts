@@ -85,10 +85,6 @@ describe("sidebar snooze routing (issue #935)", () => {
     expect(REMOTE_PROXY_CHANNELS.has("session:setSnoozed")).toBe(true);
   });
 
-  it("never proxies the snooze-section setting to a joined instance", () => {
-    // Settings stay app-local, like every other settings:* channel.
-    expect(REMOTE_PROXY_CHANNELS.has("settings:setSnoozedSectionEnabled")).toBe(false);
-  });
 });
 
 describe("knowledge vault channels (issue #764)", () => {

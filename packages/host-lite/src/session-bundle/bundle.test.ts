@@ -19,7 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const execFileP = promisify(execFile);
 
@@ -246,6 +246,49 @@ describe("session bundle", () => {
       expect(await lite.sessions.browserPaneEnsure("tab-1")).toEqual({ status: "not-live" });
       await lite.dispose();
     } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces timed snooze deadlines via SnoozeClock, stamps reminderAtMs, and clears snooze on Pin (#1323)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-snooze-"));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { deps } = fakeDeps(bundle, base);
+      const lite = bundle.createSessionBundle(deps);
+      const setSnoozed = lite.handlers[bundle.CH.setSessionSnoozed] as (
+        tabId: string,
+        snoozed: boolean,
+        untilMs?: number | null,
+      ) => void;
+      const setPinned = lite.handlers[bundle.CH.setSessionPinned] as (tabId: string, pinned: boolean) => void;
+
+      // Timed snooze wakes via SnoozeClock at deadline and stamps reminderAtMs.
+      setSnoozed("tab-1", true, Date.now() + 5_000);
+      let state = await lite.state();
+      let [summary] = state.projects[0]?.sessions as Array<Record<string, unknown>>;
+      expect(summary.snoozed).toBe(true);
+      expect(summary.settledAtMs).toBeNull();
+      expect(summary.reminderAtMs).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(5_001);
+      state = await lite.state();
+      [summary] = state.projects[0]?.sessions as Array<Record<string, unknown>>;
+      expect(summary.snoozed).toBe(false);
+      expect(summary.snoozedUntilMs).toBeNull();
+      expect(typeof summary.reminderAtMs).toBe("number");
+
+      // Pinning a snoozed row clears snooze so latest gesture wins.
+      setSnoozed("tab-1", true, null);
+      setPinned("tab-1", true);
+      state = await lite.state();
+      [summary] = state.projects[0]?.sessions as Array<Record<string, unknown>>;
+      expect(summary.snoozed).toBe(false);
+      expect(typeof summary.pinnedAtMs).toBe("number");
+
+      await lite.dispose();
+    } finally {
+      vi.useRealTimers();
       fs.rmSync(base, { recursive: true, force: true });
     }
   });

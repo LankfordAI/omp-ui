@@ -46,6 +46,7 @@ import {
   SessionManager,
   type SessionManagerDependencies,
 } from "../../../desktop/src/main/session-manager";
+import { SnoozeClock } from "../../../desktop/src/main/snooze-clock";
 import type { LiteSessions } from "../seams";
 
 /** One rebroadcast frame; the seam's sink signature (RemoteHost addSink). */
@@ -147,6 +148,17 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     return waiter.settle.promise;
   };
 
+  let managerRef: SessionManager | null = null;
+  const snoozeClock = new SnoozeClock({
+    sessions: () => input.registry.sessions,
+    updateSession: (tabId, patch) => {
+      const updated = input.registry.updateSession(tabId, patch);
+      if (patch.snoozed === false) void managerRef?.cancelSnoozePark(tabId);
+      return updated;
+    },
+    broadcast: () => void broadcast(),
+  });
+
   // Windowless default where a desktop default would reach Electron: the
   // partition clearer's fallback dynamic-imports browser-pane-contents (the
   // bundle shims it anyway; this keeps a unit-tested desktop build honest).
@@ -154,13 +166,16 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     ...input,
     send: emit,
     broadcast,
+    onSnoozeCleared: () => snoozeClock.sync(),
     browserPane: {
       ...input.browserPane,
       clearPartition: async () => {},
     },
   });
-
+  managerRef = manager;
+  snoozeClock.sync();
   const gate = input.spawnGate;
+
   const spawnGateState: SpawnGateState = {
     model: gate !== undefined && gate.model !== null ? formatModelRole(gate.model) : null,
     advisorModel: gate !== undefined && gate.advisorModel !== null ? formatModelRole(gate.advisorModel) : null,
@@ -349,21 +364,34 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     // First-title ownership (issue #1090): the same atomic claim desktop
     // main answers — joined renderers of a host-lite-owned session race here.
     [CH.claimFirstTitle]: (tabId: string) => manager.claimFirstTitle(tabId),
-    // The snooze deadline's wake clock is the index slice's service (the
-    // desktop backend's snoozeClock): the flag/deadline persists here so the
-    // owner's sidebar stays honest; nothing fires a live-process wake until
-    // that slice lands.
-    [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
+    [CH.setSessionSnoozed]: async (tabId: string, snoozed: boolean, untilMs?: number | null) => {
       input.registry.updateSession(tabId, {
         snoozed,
         snoozedUntilMs: snoozed ? (untilMs ?? null) : null,
+        reminderAtMs: null,
+        ...(snoozed ? { settledAtMs: null } : {}),
       });
+      snoozeClock.sync();
+      const stillSnoozed = input.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true;
+      if (snoozed && stillSnoozed) {
+        manager.requestSnoozePark(tabId);
+      } else {
+        await manager.cancelSnoozePark(tabId);
+      }
       void broadcast();
     },
-    [CH.setSessionPinned]: (tabId: string, pinned: boolean) => {
+    [CH.setSessionPinned]: async (tabId: string, pinned: boolean) => {
       const record = input.registry.sessions.find((s) => s.tabId === tabId);
       if (record === undefined) return;
-      input.registry.updateSession(tabId, { pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null });
+      const clearSnooze = pinned && record.snoozed;
+      input.registry.updateSession(tabId, {
+        pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null,
+        ...(clearSnooze ? { snoozed: false, snoozedUntilMs: null } : {}),
+      });
+      if (clearSnooze) {
+        snoozeClock.sync();
+        await manager.cancelSnoozePark(tabId);
+      }
       void broadcast();
     },
     [CH.setSessionAutoSettleOnMerge]: (tabId: string, on: boolean | null) => {
@@ -449,6 +477,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       };
     },
     dispose: async () => {
+      snoozeClock.dispose();
       manager.killAll();
       sinks.clear();
     },

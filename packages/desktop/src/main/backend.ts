@@ -599,7 +599,11 @@ export class MainBackend {
     this.clockStamper = new ClockStamper();
     this.snoozeClock = new SnoozeClock({
       sessions: () => this.registry.sessions,
-      updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
+      updateSession: (tabId, patch) => {
+        const updated = this.registry.updateSession(tabId, patch);
+        if (patch.snoozed === false) void this.sessions?.cancelSnoozePark?.(tabId);
+        return updated;
+      },
       broadcast: () => void this.broadcast(),
       onWake: (tabIds) => this.notifier.notifySnoozeReturn(tabIds),
     });
@@ -694,6 +698,10 @@ export class MainBackend {
             },
             nativeTheme.shouldUseDarkColors,
           ),
+        onSnoozeCleared: (tabId) => {
+          this.notifier.clearSnooze(tabId);
+          this.snoozeClock.sync();
+        },
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => {
@@ -999,7 +1007,7 @@ export class MainBackend {
       sessions: () => this.registry.sessions,
       clearSessionRoutine: (tabId) => this.registry.updateSession(tabId, { routine: null }),
       markSessionSettled: (tabId, settledAtMs) =>
-        this.registry.updateSession(tabId, { settledAtMs, snoozed: false, snoozedUntilMs: null }),
+        this.registry.updateSession(tabId, { settledAtMs, snoozed: false, snoozedUntilMs: null, reminderAtMs: null }),
       isLive: (tabId) => this.sessions.isLive(tabId),
       isTurnRunning: (tabId) => this.sessions.isTurnRunning(tabId),
       awaitingHumanAnswer: (tabId) => this.sessions.pendingAnswer(tabId),
@@ -1580,21 +1588,39 @@ export class MainBackend {
         // every first-title dispatch route must win before dispatching; the
         // session manager also releases it on process exit and delete.
         [CH.claimFirstTitle]: (tabId: string) => this.sessions.claimFirstTitle(tabId),
-        [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
+        [CH.setSessionSnoozed]: async (tabId: string, snoozed: boolean, untilMs?: number | null) => {
           this.registry.updateSession(tabId, {
             snoozed,
             snoozedUntilMs: snoozed ? (untilMs ?? null) : null,
+            reminderAtMs: null,
+            ...(snoozed ? { settledAtMs: null } : {}),
           });
+          this.notifier.clearSnooze(tabId);
           // Re-arms for the new deadline; a deadline already past wakes now.
           this.snoozeClock.sync();
+          const stillSnoozed = this.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true;
+          if (snoozed && stillSnoozed) {
+            this.sessions.requestSnoozePark(tabId);
+          } else {
+            await this.sessions.cancelSnoozePark(tabId);
+          }
           void this.broadcast();
         },
-        [CH.setSessionPinned]: (tabId: string, pinned: boolean) => {
+        [CH.setSessionPinned]: async (tabId: string, pinned: boolean) => {
           // Pin time orders the Pinned group (issue #981): this host's clock
           // stamps it, and re-pinning keeps the first stamp so the row holds its place.
+          // Pinning a snoozed row clears snooze so the latest gesture wins (#1323).
           const record = this.registry.sessions.find((s) => s.tabId === tabId);
           if (record === undefined) return;
-          this.registry.updateSession(tabId, { pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null });
+          const clearSnooze = pinned && record.snoozed;
+          this.registry.updateSession(tabId, {
+            pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null,
+            ...(clearSnooze ? { snoozed: false, snoozedUntilMs: null } : {}),
+          });
+          if (clearSnooze) {
+            this.snoozeClock.sync();
+            await this.sessions.cancelSnoozePark(tabId);
+          }
           void this.broadcast();
         },
         [CH.setSessionAutoSettleOnMerge]: (tabId: string, on: boolean | null) => {
@@ -2996,6 +3022,7 @@ export class MainBackend {
           autoTitled: false,
           snoozed: false,
           snoozedUntilMs: null,
+          reminderAtMs: null,
           routine: null,
           pinnedAtMs: null,
           settledAtMs: null,
@@ -3580,7 +3607,6 @@ export class MainBackend {
       routineWarnCostUsd: this.registry.getSetting("routineWarnCostUsd"),
       routineMaxCostUsd: this.registry.getSetting("routineMaxCostUsd"),
       councilEnabled: this.registry.getSetting("councilEnabled"),
-      snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
       autoSettleMergedPullRequests: this.registry.getSetting("autoSettleMergedPullRequests"),
       remoteVsCodeEnabled: this.registry.getSetting("remoteVsCodeEnabled"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),

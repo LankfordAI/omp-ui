@@ -18,6 +18,10 @@ import type { TurnTracker } from "./turns";
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
+/** Recheck interval for a snoozed session that was busy when parked (issue #1323). */
+const SNOOZE_PARK_RETRY_MS = 60_000;
+/** Reap intent: settle stamps `settledAtMs`; park leaves the session unsettled-dormant (#1323). */
+export type HibernateIntent = "settle" | "park";
 /**
  * The no-kill verdicts of the idle hibernation attempt. `rearm`: a guard is
  * in force or the probe said "not idle" — re-examine next window (issue #247).
@@ -63,7 +67,7 @@ export interface HibernationTrackerDeps {
    */
   preventsHibernation: (tabId: string) => boolean;
   /** The manager's SIGTERM → grace → SIGKILL reap primitive. */
-  hibernate: (tabId: string, entry: LiveEntry) => Promise<boolean>;
+  hibernate: (tabId: string, entry: LiveEntry, intent?: HibernateIntent) => Promise<boolean>;
   /** Runs the attempt behind the tab's op chain (issue #297). */
   runSerialized: (tabId: string, work: () => Promise<void>) => Promise<void>;
 }
@@ -75,10 +79,44 @@ export interface HibernationTrackerDeps {
 export class HibernationTracker implements FrameObserver {
   /** Idle-kill timers, keyed by tabId (issue #246). */
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Snooze-park retry timers, keyed by tabId (issue #1323). */
+  private readonly snoozeTimers = new Map<string, NodeJS.Timeout>();
   private readonly records = new Map<string, HibernateRecord>();
 
   constructor(private readonly deps: HibernationTrackerDeps) {}
 
+  /**
+   * Snooze park (issue #1323): any live rpc-ui session with `record.snoozed`
+   * should hibernate without settling as soon as it is safe. The initial
+   * attempt bypasses `isViewed` because the user often snoozes the active tab;
+   * if busy, retries on terminal `agent_end` and every 60 s while snoozed.
+   */
+  requestSnoozePark(tabId: string): void {
+    const entry = this.deps.getLive(tabId);
+    if (!entry || entry.kind !== "rpc-ui") return;
+    this.stopSnoozeTimer(tabId);
+    void this.deps.runSerialized(tabId, () => this.attemptSnoozePark(tabId, true));
+  }
+
+  /**
+   * Cancels any pending snooze-park retry or in-flight pre-kill probe when a
+   * session leaves Snoozed (unsnooze, pin, expiry, prompt, resume). An
+   * in-flight reap is already serialized on the tab's op chain and cannot be
+   * undone once SIGTERM has left, so clearing the probe prevents a late
+   * response from crossing into `hibernate(..., "park")`.
+   */
+  cancelSnoozePark(tabId: string): void {
+    this.stopSnoozeTimer(tabId);
+    const rec = this.records.get(tabId);
+    if (rec !== undefined && rec.probeId !== null) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
+      const resolve = rec.probeResolve;
+      rec.probeId = null;
+      rec.probeResolve = null;
+      resolve?.(null);
+    }
+  }
   /**
    * Post-verdict hibernation suspension (issue #246): between the verdict
    * and the implementation prompt the process is momentarily quiet.
@@ -158,11 +196,16 @@ export class HibernationTracker implements FrameObserver {
         }
         this.deps.turns.end(tabId);
         if (rec.settleSuspendedUntil !== null) rec.settleSuspendedUntil = null;
+        const snoozed = this.isRecordSnoozed(tabId);
         // Public agent_end is authoritative idle. Only a terminal end
-        // announces completion; a pending plan gate or blocking answer owns
-        // attention instead.
-        if (!this.deps.awaitingHumanAnswer(tabId))
+        // announces completion; a pending plan gate, blocking answer, or
+        // snoozed drain suppresses turn-complete attention (#1323).
+        if (!snoozed && !this.deps.awaitingHumanAnswer(tabId))
           this.deps.attention?.turnEnded(tabId);
+        if (snoozed) {
+          this.stopSnoozeTimer(tabId);
+          void this.deps.runSerialized(tabId, () => this.attemptSnoozePark(tabId, false));
+        }
         break;
       }
     }
@@ -170,6 +213,21 @@ export class HibernationTracker implements FrameObserver {
     // Any real frame re-arms the clock.
     rec.armed = true;
     this.armHibernateTimer(tabId);
+  }
+
+  onSend(tabId: string, cmd: RpcFrame): void {
+    // Any outgoing client command invalidates an in-flight pre-kill probe so
+    // a stale idle answer cannot reap a session the user just acted on.
+    if (cmd.type === "get_state") return;
+    const rec = this.records.get(tabId);
+    if (rec !== undefined && rec.probeId !== null) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
+      const resolve = rec.probeResolve;
+      rec.probeId = null;
+      rec.probeResolve = null;
+      resolve?.(null);
+    }
   }
 
 
@@ -183,7 +241,7 @@ export class HibernationTracker implements FrameObserver {
 
   private clear(tabId: string): void {
     this.stopTimer(tabId);
-    // A mid-probe exit settles the probe as "not idle": the attempt maps it
+    this.stopSnoozeTimer(tabId);
     // to a no-kill verdict, never to a kill on our own uncertainty.
     const rec = this.records.get(tabId);
     if (rec !== undefined) {
@@ -205,10 +263,18 @@ export class HibernationTracker implements FrameObserver {
     this.timers.delete(tabId);
   }
 
+  private stopSnoozeTimer(tabId: string): void {
+    const timer = this.snoozeTimers.get(tabId);
+    if (timer !== undefined) clearTimeout(timer);
+    this.snoozeTimers.delete(tabId);
+  }
+
   /** For killAll. */
   disposeAll(): void {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
+    for (const timer of this.snoozeTimers.values()) clearTimeout(timer);
+    this.snoozeTimers.clear();
     for (const rec of this.records.values()) clearTimeout(rec.probeTimer);
     this.records.clear();
   }
@@ -256,8 +322,18 @@ export class HibernationTracker implements FrameObserver {
     );
   }
 
-  /** True when a kill cannot lose work or an in-flight exchange. */
-  private hibernable(entry: LiveEntry, tabId: string): boolean {
+  private isRecordSnoozed(tabId: string): boolean {
+    return this.deps.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true;
+  }
+
+  /** True while a held prompt is waiting on live limit telemetry (`sendAtMs === null`). */
+  private awaitsHeldPromptLimits(tabId: string): boolean {
+    const held = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.heldPrompt ?? null;
+    return held !== null && held.sentAtMs === null && held.sendAtMs === null;
+  }
+
+  /** Core safety guards shared by idle hibernation and snooze-park (#1323). */
+  private safeToHibernate(entry: LiveEntry, tabId: string, opts: { ignoreViewed?: boolean } = {}): boolean {
     if (entry.kind !== "rpc-ui") return false;
     const rec = this.recordFor(tabId);
     if (!rec.armed) return false; // still booting
@@ -267,8 +343,15 @@ export class HibernationTracker implements FrameObserver {
     // idling out here would silently end autonomous work no renderer watches
     // (issue #381, #683).
     if (this.deps.preventsHibernation(tabId)) return false;
-    if (this.deps.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
+    if (!opts.ignoreViewed && this.deps.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
+    return true;
+  }
+
+  /** True when a kill cannot lose work or an in-flight exchange. */
+  private hibernable(entry: LiveEntry, tabId: string): boolean {
+    if (!this.safeToHibernate(entry, tabId)) return false;
     if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)
+    const rec = this.recordFor(tabId);
     const until = rec.settleSuspendedUntil;
     if (until !== null) {
       if (Date.now() < until) return false; // post-verdict window
@@ -277,6 +360,12 @@ export class HibernationTracker implements FrameObserver {
     return true;
   }
 
+  /** Safety check for snooze-park: bypasses idle-minute/last-active/verdict guards (#1323). */
+  private snoozeParkable(entry: LiveEntry, tabId: string, ignoreViewed: boolean): boolean {
+    if (!this.isRecordSnoozed(tabId)) return false;
+    if (this.awaitsHeldPromptLimits(tabId)) return false;
+    return this.safeToHibernate(entry, tabId, { ignoreViewed });
+  }
   /**
    * Resets the idle clock. Arms regardless of guards (issue #247): the check
    * re-verifies every guard itself, so a guard that lapses while the session
@@ -363,7 +452,45 @@ export class HibernationTracker implements FrameObserver {
     if (state === null || state.parked > 0 || state.streaming || state.asyncWork)
       return "rearm";
     if (!this.hibernable(entry, tabId)) return "rearm";
-    return { reaped: await this.deps.hibernate(tabId, entry) };
+    const intent: HibernateIntent = this.isRecordSnoozed(tabId) ? "park" : "settle";
+    return { reaped: await this.deps.hibernate(tabId, entry, intent) };
+  }
+
+  private scheduleSnoozeRetry(tabId: string): void {
+    this.stopSnoozeTimer(tabId);
+    if (!this.isRecordSnoozed(tabId)) return;
+    const timer = setTimeout(
+      () => void this.deps.runSerialized(tabId, () => this.attemptSnoozePark(tabId, false)),
+      SNOOZE_PARK_RETRY_MS,
+    );
+    if (typeof timer.unref === "function") timer.unref();
+    this.snoozeTimers.set(tabId, timer);
+  }
+
+  private async attemptSnoozePark(tabId: string, ignoreViewed: boolean): Promise<void> {
+    this.snoozeTimers.delete(tabId);
+    if (!this.isRecordSnoozed(tabId)) return;
+    const entry = this.deps.getLive(tabId);
+    if (!entry || entry.kind !== "rpc-ui") return;
+    if (!this.snoozeParkable(entry, tabId, ignoreViewed)) {
+      this.scheduleSnoozeRetry(tabId);
+      return;
+    }
+    const state = await this.probeState(tabId, entry);
+    if (!this.isRecordSnoozed(tabId)) return;
+    const current = this.deps.getLive(tabId);
+    if (current !== entry) return;
+    if (state === null || state.parked > 0 || state.streaming || state.asyncWork) {
+      this.scheduleSnoozeRetry(tabId);
+      return;
+    }
+    if (!this.snoozeParkable(entry, tabId, ignoreViewed)) {
+      this.scheduleSnoozeRetry(tabId);
+      return;
+    }
+    if (!(await this.deps.hibernate(tabId, entry, "park"))) {
+      this.scheduleSnoozeRetry(tabId);
+    }
   }
 
   /**
@@ -385,5 +512,4 @@ export class HibernationTracker implements FrameObserver {
       this.armHibernateTimer(tabId);
     }
   }
-
 }

@@ -74,10 +74,9 @@ sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
 to omp-ui, even under registered projects. Its sidebar position is its open
 order (`launchedAt`, newest open first): exactly one section per session —
 the unheaded main list (unsettled, no running turn), **Working** (live inside a
-turn), **Snoozed** (parked via the row's context menu, only while the
-`snoozedSectionEnabled` setting is on), or **Settled** (`settledAtMs !== null`
-or archived/missing, not snoozed). There is no manual order. The one exception
-is a **Routine run**: while it needs nothing from a human it lists nowhere, and
+turn), **Snoozed** (parked via the row's context menu or Selection bar), or
+**Settled** (`settledAtMs !== null` or archived/missing, not snoozed). There is
+no manual order. The one exception
 when it does it rides the **Attention stack**.
 _Avoid_: tracked session, managed session
 
@@ -192,29 +191,40 @@ A **Routine run** waiting on an Approval card (local or on a joined remote
 instance) joins the stack; opening its row opens the session to its card. A
 finished Routine run leaves the stack once it self-settles — its history lives
 in the Routines view's run history (#1304, #1305).
+An unsettled session whose timed snooze expired (`OwnedSessionRecord.reminderAtMs
+!== null`, local or on a joined remote instance, including dormant rows) also
+joins the stack as a **reminder** card; clicking resumes it in one click,
+right-clicking opens the row menu (re-snooze/Settle), and dismissing, viewing,
+prompting, resuming, or settling clears `reminderAtMs` (#1323).
 _Avoid_: inbox, unread list, needs-you
 
 **Snoozed session**:
-An owned session the user parked through its sidebar row's context menu
-(*Snooze* / *Unsnooze*). The flag persists on the registry record. Snoozing is
-pure sidebar grouping — the process keeps running and idle-hibernation rules are
-unchanged.
-While the `snoozedSectionEnabled` setting is off, snoozed sessions render in
-their natural lists and keep their persisted flag. A *timed* snooze carries a
-deadline (`snoozedUntilMs`); the owning host's main process unsnoozes it then,
-or at the next launch if the app was closed (ADR-0068 addendum, #979).
+An owned session the user set aside through its sidebar row's context menu or
+the Selection bar (*Snooze* / *Unsnooze*). The flag persists on the registry
+record (`snoozed`, optional `snoozedUntilMs`). Snoozing clears `settledAtMs`
+and `reminderAtMs`, outranks **Pinned** while keeping `pinnedAtMs` intact, and
+hibernates idle native sessions without settling (`settledAtMs: null`) so
+multi-day tickets hold no RAM/CPU; busy native sessions defer until safely
+idle, and live PTY sessions keep their process untouched. A *timed* snooze
+carries a deadline (`snoozedUntilMs`); the owning host's main process
+(`SnoozeClock`, desktop and `host-lite`) clears `snoozed` at expiry and stamps
+`reminderAtMs` so the session returns visibly in the **Attention stack** and
+through a desktop notification, or at the next launch if the app was closed
+(ADR-0068 addenda, #979, #1323).
 _Avoid_: parked session, hidden session, waiting session
 
 **Pinned session**:
 An owned session the user pinned through its sidebar row's context menu
 (*Pin* / *Unpin*). The record keeps the pin time (`pinnedAtMs`), stamped by the
-owning host. An unsettled pinned session sits in the **Pinned** group at the top
-of the main list, ordered by pin time, across app restarts and reboots, and
-never moves to **Working** or **Snoozed**. When settled (or archived/missing) it
-files to **Settled** with its pin intact and returns to **Pinned** on resume.
-Pinning is a fixed rule, not manual reordering (ADR-0068 addendum, #981, #1137).
+owning host. An unsettled, non-snoozed pinned session sits in the **Pinned**
+group at the top of the main list, ordered by pin time, across app restarts
+and reboots, and never moves to **Working**. Snoozing a pinned session moves
+it to **Snoozed** with its pin intact so waking or unsnoozing restores its
+slot in **Pinned**; pinning a snoozed session clears its snooze. When settled
+(or archived/missing) it files to **Settled** with its pin intact and returns
+to **Pinned** on resume. Pinning is a fixed rule, not manual reordering
+(ADR-0068 addenda, #981, #1137, #1323).
 _Avoid_: favorite session, starred session, sticky session
-
 **Private session**:
 An owned session pinned write-quiet against the memory system: its spawns
 carry a per-lineage `--config` overlay (ADR-0055) pinning `autolearn.enabled:

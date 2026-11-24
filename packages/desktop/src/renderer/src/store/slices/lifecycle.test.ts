@@ -1551,6 +1551,7 @@ describe("every tab-activation path focuses the tab (issue #99)", () => {
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: live === "live" ? null : 1_000,
  heldPrompt: null,
@@ -1745,6 +1746,7 @@ describe("hiding or deleting the active tab moves focus to the last visible surv
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: null,
  heldPrompt: null,
@@ -2598,6 +2600,7 @@ describe("carryover context seed (issue #824)", () => {
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: live === "live" ? null : 1_000,
     heldPrompt: null,
@@ -3086,5 +3089,51 @@ describe("moveUnpromptedSession (issue #936)", () => {
     const fresh = h.useStore.getState().rpc[FRESH]!;
     expect(fresh.composerQueue?.references).toBeUndefined();
     expect(fresh.items.at(-1)).toMatchObject({ kind: "notice", level: "warn", text: expect.stringContaining("Deploy fix") });
+  });
+});
+
+describe("snooze-park teardown and seamless one-click resume (issue #1323)", () => {
+  const lifecycle = () => h.useStore.getState() as UiStore & LifecycleSlice;
+
+  it("drops a materialized snoozed tab from renderer state on snooze-park hibernation", () => {
+    const base = h.stateWithRecord("sess-1");
+    const snoozedRec = { ...base.projects[0]!.sessions[0]!, snoozed: true, settledAtMs: null };
+    h.useStore.setState({
+      state: { ...base, projects: [{ ...base.projects[0]!, sessions: [snoozedRec] }] },
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+
+    lifecycle().teardownProcess(h.TAB, 0, true);
+
+    const st = h.useStore.getState();
+    expect(st.activeTabId).toBeNull();
+    expect(st.rpc[h.TAB]).toBeUndefined();
+    expect(st.hibernated[h.TAB]).toBeUndefined();
+  });
+
+  it("auto-resumes a still-mounted unsettled hibernated tab via openSession without showing the Settled overlay", async () => {
+    const base = h.stateWithRecord("sess-1");
+    const unsettledRec = { ...base.projects[0]!.sessions[0]!, live: "dormant" as const, settledAtMs: null, reminderAtMs: Date.now() };
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: { ...base, projects: [{ ...base.projects[0]!, sessions: [unsettledRec] }] },
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true })],
+      activeTabId: null,
+      exited: { [h.TAB]: 0 },
+      hibernated: { [h.TAB]: true },
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+
+    await h.useStore.getState().openSession(h.TAB);
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "resume", resumeTabId: h.TAB }),
+    );
+    const st = h.useStore.getState();
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(st.exited[h.TAB]).toBeUndefined();
+    expect(st.hibernated[h.TAB]).toBeUndefined();
   });
 });

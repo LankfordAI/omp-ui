@@ -211,6 +211,7 @@ const session = (
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ reminderAtMs: null,
  pinnedAtMs: null,
  settledAtMs: 1_000,
  heldPrompt: null,

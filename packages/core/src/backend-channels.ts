@@ -668,11 +668,6 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setCouncilEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
-  /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
-  setSnoozedSectionEnabled: {
-    channel: "settings:setSnoozedSectionEnabled",
-    ...request<[on: boolean], void>([bool()]),
-  },
   /** Settle a worktree session once every linked pull request merges (issue #985); default on. */
   setAutoSettleMergedPullRequests: {
     channel: "settings:setAutoSettleMergedPullRequests",

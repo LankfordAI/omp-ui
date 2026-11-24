@@ -120,8 +120,6 @@ export interface RegistrySettings {
   routineMaxCostUsd: number;
   /** Council subsystem gate (#1052); default on since graduation. */
   councilEnabled: boolean;
-  /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
-  snoozedSectionEnabled: boolean;
   /** Settle a worktree session once every pull request linked to it is
    *  merged (issue #985); default on. A record's autoSettleOnMerge overrides. */
   autoSettleMergedPullRequests: boolean;
@@ -415,10 +413,6 @@ export const SETTINGS: SettingDescriptors = {
   ),
   councilEnabled: validatedSetting(
     () => true,
-    (value): value is boolean => typeof value === "boolean",
-  ),
-  snoozedSectionEnabled: validatedSetting(
-    () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
   autoSettleMergedPullRequests: validatedSetting(
@@ -856,6 +850,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // snoozedUntilMs (issue #979) post-dates snoozed; absent loads as null, a
     // present value must be a finite epoch-ms number or null.
     optNullable(value, "snoozedUntilMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
+    // reminderAtMs (issue #1323) post-dates snoozedUntilMs; stamped when a timed
+    // snooze expires, absent loads as null, present must be a finite epoch-ms number or null.
+    optNullable(value, "reminderAtMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
     // pinnedAtMs (issue #981) post-dates snoozed; absent loads as null, a
     // present value must be a finite epoch-ms number or null.
     optNullable(value, "pinnedAtMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
@@ -939,51 +936,60 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     });
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
-    .map((s) => ({
-      ...s,
-      advisor: s.advisor === true,
-      // Absent normalizes to false like advisor (issue #804); the guard
-      // above drops records whose present value is not a boolean.
-      autoTitled: s.autoTitled === true,
-      private: s.private === true,
-      chat: s.chat === true,
-      snoozed: s.snoozed === true,
-      // A deadline without the flag is meaningless: only a snoozed record keeps it.
-      snoozedUntilMs: s.snoozed === true ? (s.snoozedUntilMs ?? null) : null,
-      pinnedAtMs: s.pinnedAtMs ?? null,
-      settledAtMs:
-        "settledAtMs" in s && (s.settledAtMs === null || typeof s.settledAtMs === "number")
+    .map((s) => {
+      const snoozed = s.snoozed === true;
+      // Snooze is a park state, never settled: clear any pre-upgrade settledAtMs
+      // on snoozed records so waking returns them to the main list or Pinned (#1323).
+      const settledAtMs = snoozed
+        ? null
+        : "settledAtMs" in s && (s.settledAtMs === null || typeof s.settledAtMs === "number")
           ? s.settledAtMs
-          : legacySettledAtMs(s),
-      // Never a validity gate (the councilRoster rule): a malformed held prompt
-      // (issue #986) normalizes to null so the session always survives.
-      heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
-      // Same rule (issue #987): a schedule that no longer parses drops, never the session.
-      scheduledPrompt: isScheduledPrompt(s.scheduledPrompt) ? s.scheduledPrompt : null,
-      // Same rule (ADR-0100, #1263): a malformed routine pin drops, never the session.
-      routine: isSessionRoutine(s.routine) ? s.routine : null,
-      // Never a validity gate: a malformed link drops only itself (issue #985).
-      pullRequests: parsePullRequestLinks(s.pullRequests),
-      autoSettleOnMerge: s.autoSettleOnMerge ?? null,
-      askSource: s.askSource ?? null,
-      fleet: s.fleet ?? null,
-      model: s.model ?? null,
-      thinkingLevel: s.thinkingLevel ?? null,
-      advisorModel: s.advisorModel ?? null,
-      compactionMethod: s.compactionMethod ?? null,
-      approvalMode: s.approvalMode ?? null,
-      serviceTier: s.serviceTier ?? null,
-      subagentModels: s.subagentModels ?? null,
-      agentMode: s.agentMode ?? "build",
-      worktree: s.worktree
-        ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
-        : null,
-      planImplementationSource: s.planImplementationSource ?? null,
-      experiment: s.experiment ?? null,
-      // Never a validity gate: a malformed history row drops only itself, so
-      // the session record (and its transcript link) always survives.
-      proposedPlans: parseProposedPlans(s.proposedPlans),
-    }));
+          : legacySettledAtMs(s);
+      return {
+        ...s,
+        advisor: s.advisor === true,
+        // Absent normalizes to false like advisor (issue #804); the guard
+        // above drops records whose present value is not a boolean.
+        autoTitled: s.autoTitled === true,
+        private: s.private === true,
+        chat: s.chat === true,
+        snoozed,
+        // A deadline without the flag is meaningless: only a snoozed record keeps it.
+        snoozedUntilMs: snoozed ? (s.snoozedUntilMs ?? null) : null,
+        // A reminder only lives on an unsettled, non-snoozed record (#1323).
+        reminderAtMs: !snoozed && settledAtMs === null ? (s.reminderAtMs ?? null) : null,
+        pinnedAtMs: s.pinnedAtMs ?? null,
+        settledAtMs,
+        // Never a validity gate (the councilRoster rule): a malformed held prompt
+        // (issue #986) normalizes to null so the session always survives.
+        heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
+        // Same rule (issue #987): a schedule that no longer parses drops, never the session.
+        scheduledPrompt: isScheduledPrompt(s.scheduledPrompt) ? s.scheduledPrompt : null,
+        // Same rule (ADR-0100, #1263): a malformed routine pin drops, never the session.
+        routine: isSessionRoutine(s.routine) ? s.routine : null,
+        // Never a validity gate: a malformed link drops only itself (issue #985).
+        pullRequests: parsePullRequestLinks(s.pullRequests),
+        autoSettleOnMerge: s.autoSettleOnMerge ?? null,
+        askSource: s.askSource ?? null,
+        fleet: s.fleet ?? null,
+        model: s.model ?? null,
+        thinkingLevel: s.thinkingLevel ?? null,
+        advisorModel: s.advisorModel ?? null,
+        compactionMethod: s.compactionMethod ?? null,
+        approvalMode: s.approvalMode ?? null,
+        serviceTier: s.serviceTier ?? null,
+        subagentModels: s.subagentModels ?? null,
+        agentMode: s.agentMode ?? "build",
+        worktree: s.worktree
+          ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
+          : null,
+        planImplementationSource: s.planImplementationSource ?? null,
+        experiment: s.experiment ?? null,
+        // Never a validity gate: a malformed history row drops only itself, so
+        // the session record (and its transcript link) always survives.
+        proposedPlans: parseProposedPlans(s.proposedPlans),
+      };
+    });
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"
       ? raw.settings

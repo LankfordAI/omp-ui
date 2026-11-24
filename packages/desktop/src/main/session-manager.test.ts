@@ -7596,6 +7596,149 @@ describe("merged-finish settle (issue #924)", () => {
     }
   });
 
+  it("snooze-park reaps an idle native session without setting settledAtMs, and resume/prompt/view clear snooze & reminder (#1323)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    // Arm the tracker past boot.
+    rpc.frame({ type: "agent_end" });
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: Date.now() + 86_400_000, settledAtMs: null });
+    manager.requestSnoozePark(TAB);
+    // Answer the pre-kill get_state probe as idle.
+    const sentCmds = rpc.send.mock.calls.map((call: unknown[]) => call[0]);
+    const probe = sentCmds.find(
+      (cmd): cmd is { type: "get_state"; id: string } =>
+        typeof cmd === "object" && cmd !== null && "type" in cmd && cmd.type === "get_state" && "id" in cmd && typeof cmd.id === "string",
+    );
+    expect(probe).toBeDefined();
+    rpc.frame({
+      type: "response",
+      id: probe!.id,
+      command: "get_state",
+      success: true,
+      data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+    });
+    await vi.waitFor(() => expect(manager.isLive(TAB)).toBe(false));
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: true,
+      settledAtMs: null,
+    });
+
+    // Simulate expiry stamping reminderAtMs, then resume: clears snoozed, snoozedUntilMs, reminderAtMs.
+    registry.updateSession(TAB, { snoozed: false, snoozedUntilMs: null, reminderAtMs: Date.now() });
+    await resumeRpc(manager);
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: false,
+      snoozedUntilMs: null,
+      reminderAtMs: null,
+    });
+
+    // Viewing a live reminded session clears reminderAtMs.
+    registry.updateSession(TAB, { reminderAtMs: Date.now() });
+    manager.setViewedTab("desktop", TAB);
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.reminderAtMs).toBeNull();
+
+    // Sending a human prompt to a live snoozed session clears snooze and reminder.
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: Date.now() + 60_000, reminderAtMs: null });
+    manager.rpcSend(TAB, { type: "prompt", id: "u1", message: "back to work" });
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      snoozed: false,
+      snoozedUntilMs: null,
+      reminderAtMs: null,
+    });
+  });
+
+  it("snooze-park leaves a live PTY session running (#1323)", async () => {
+    const { manager, registry } = setup({ mode: "pty" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+    manager.requestSnoozePark(TAB);
+    await Promise.resolve();
+    expect(manager.isLive(TAB)).toBe(true);
+  });
+
+  it("cancels a probing snooze-park when unsnoozed or prompted before SIGTERM, and delivers a prompt sent mid-reap on the resumed process (#1323)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const first = rpcInstances[0]!;
+      first.frame({ type: "agent_end" });
+
+      // Part 1: unsnooze while get_state probe is in flight cancels before SIGTERM.
+      registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+      manager.requestSnoozePark(TAB);
+      const probe1 = first.send.mock.calls
+        .map((c: unknown[]) => c[0])
+        .find((cmd): cmd is { type: "get_state"; id: string } =>
+          typeof cmd === "object" && cmd !== null && "type" in cmd && cmd.type === "get_state",
+        );
+      expect(probe1).toBeDefined();
+      registry.updateSession(TAB, { snoozed: false, snoozedUntilMs: null });
+      const cancelled = manager.cancelSnoozePark(TAB);
+      first.frame({
+        type: "response",
+        id: probe1!.id,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      });
+      await cancelled;
+      expect(first.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+
+      // Part 2: prompt arriving during the SIGTERM/grace window clears snooze,
+      // waits out the in-flight reap, resumes the session, and delivers the prompt.
+      first.send.mockClear();
+      first.kill.mockImplementation(() => {
+        // Simulate SIGTERM accepted (rpc.dead === true) while process lingers in grace window.
+        Object.defineProperty(first, "dead", { value: true, configurable: true });
+      });
+      registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+      manager.requestSnoozePark(TAB);
+      const probe2 = first.send.mock.calls
+        .map((c: unknown[]) => c[0])
+        .find((cmd): cmd is { type: "get_state"; id: string } =>
+          typeof cmd === "object" && cmd !== null && "type" in cmd && cmd.type === "get_state",
+        );
+      expect(probe2).toBeDefined();
+      first.frame({
+        type: "response",
+        id: probe2!.id,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(first.kill).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(TAB)).toBe(true); // lingering in SIGTERM grace window
+
+      const userPrompt = { type: "prompt", id: "mid-reap-1", message: "actually keep going" };
+      manager.rpcSend(TAB, userPrompt);
+      expect(registry.sessions.find((s) => s.tabId === TAB)?.snoozed).toBe(false);
+      // Must not be written into the dying process.
+      expect(
+        first.send.mock.calls.some(
+          (c: unknown[]) => typeof c[0] === "object" && c[0] !== null && "id" in c[0] && c[0].id === "mid-reap-1",
+        ),
+      ).toBe(false);
+
+      // Complete the reap of the first process; queued resume starts the replacement and delivers the prompt on ready.
+      first.exit(0);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(RpcClientMock).toHaveBeenCalledTimes(2));
+      const secondOpts = RpcClientMock.mock.calls[1]![0] as Core.RpcClientOpts;
+      const initial = typeof secondOpts.initialCommands === "function"
+        ? secondOpts.initialCommands()
+        : (secondOpts.initialCommands ?? []);
+      expect(initial).toContainEqual(userPrompt);
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("persists settledAtMs across settle, hibernate, resume, and killAll (issue #1137)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     // Fresh spawn starts unsettled (settledAtMs: null).

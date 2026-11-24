@@ -78,12 +78,17 @@ describe("deleteSessions (issue #988)", () => {
   });
 });
 
-describe("snoozeSessions / retitleSessions (issue #988)", () => {
-  it("snoozes only the rows not already snoozed, keeping the two-argument call for an indefinite snooze", async () => {
-    const state = sessions({ tabId: "a" }, { tabId: "b", snoozed: true });
-    h.useStore.setState({ state: { ...state, snoozedSectionEnabled: true } });
+describe("snoozeSessions / retitleSessions (issues #988, #1323)", () => {
+  it("snoozes resumable rows not already snoozed, skipping archived/missing, keeping the two-argument call for an indefinite snooze", async () => {
+    const state = sessions(
+      { tabId: "a" },
+      { tabId: "b", snoozed: true },
+      { tabId: "c", live: "archived" },
+      { tabId: "d", live: "missing" },
+    );
+    h.useStore.setState({ state });
 
-    await store().snoozeSessions(["a", "b"], null);
+    await store().snoozeSessions(["a", "b", "c", "d"], null);
     expect(h.mockBackend.setSessionSnoozed.mock.calls).toEqual([["a", true]]);
   });
 

@@ -40,6 +40,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    reminderAtMs: null,
     pinnedAtMs: null,
     settledAtMs: null,
     heldPrompt: null,
@@ -228,7 +229,6 @@ describe("Registry.load", () => {
     expect(reg.getSetting("experimentsFlagSplitSeeded")).toBe(true);
     expect(reg.getSetting("councilDefaultOnSeeded")).toBe(true);
     expect(reg.getSetting("themeAgentAccessDefaultOnSeeded")).toBe(true);
-    expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
     expect(reg.getSetting("sttModel")).toBeNull();
@@ -251,14 +251,16 @@ describe("Registry.load", () => {
     expect(reg.getSetting("remoteVsCodeEnabled")).toBe(true);
   });
 
-  it("parses a non-boolean snoozedSectionEnabled setting as false (issue #935)", () => {
+  it("loads a legacy snoozedSectionEnabled key cleanly and drops it on next save (issue #1323)", () => {
     const file = tmpFile();
     fs.writeFileSync(
       file,
-      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [], settings: { snoozedSectionEnabled: "yes" } }),
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [], settings: { snoozedSectionEnabled: true } }),
     );
     const reg = Registry.load(file);
-    expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
+    reg.setSetting("desktopNotifications", false);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as { settings: Record<string, unknown> };
+    expect("snoozedSectionEnabled" in saved.settings).toBe(false);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -1246,7 +1248,6 @@ describe("Registry persistence", () => {
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["autoresearchEnabled", (registry) => registry.setSetting("autoresearchEnabled", false)],
       ["councilEnabled", (registry) => registry.setSetting("councilEnabled", true)],
-      ["snoozedSectionEnabled", (registry) => registry.setSetting("snoozedSectionEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],
       ["audioInputDevice", (registry) => registry.setSetting("audioInputDevice", null)],
@@ -2282,6 +2283,50 @@ describe("snoozed sidebar flag (issue #935)", () => {
     const stray = { ...sessionRecord(), snoozed: false, snoozedUntilMs: 1_800_000_000_000 };
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [stray] }));
     expect(Registry.load(file).sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+  });
+
+  it("clears settledAtMs on snoozed records and normalizes reminderAtMs (issue #1323)", () => {
+    const file = tmpFile();
+    const preUpgradeSnoozed = {
+      ...sessionRecord(),
+      tabId: "tab-snoozed",
+      snoozed: true,
+      snoozedUntilMs: 1_800_000_000_000,
+      settledAtMs: 1_700_000_000_000,
+      reminderAtMs: 1_750_000_000_000,
+    };
+    const activeReminder = {
+      ...sessionRecord(),
+      tabId: "tab-reminded",
+      snoozed: false,
+      settledAtMs: null,
+      reminderAtMs: 1_750_000_000_000,
+    };
+    const settledReminder = {
+      ...sessionRecord(),
+      tabId: "tab-settled",
+      snoozed: false,
+      settledAtMs: 1_700_000_000_000,
+      reminderAtMs: 1_750_000_000_000,
+    };
+    const badReminder = {
+      ...sessionRecord(),
+      tabId: "tab-bad",
+      reminderAtMs: "soon",
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [preUpgradeSnoozed, activeReminder, settledReminder, badReminder],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["tab-snoozed", "tab-reminded", "tab-settled"]);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-snoozed", snoozed: true, settledAtMs: null, reminderAtMs: null });
+    expect(reg.sessions[1]).toMatchObject({ tabId: "tab-reminded", snoozed: false, settledAtMs: null, reminderAtMs: 1_750_000_000_000 });
+    expect(reg.sessions[2]).toMatchObject({ tabId: "tab-settled", settledAtMs: 1_700_000_000_000, reminderAtMs: null });
   });
 });
 

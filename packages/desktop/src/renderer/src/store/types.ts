@@ -826,8 +826,6 @@ export interface SettingsSlice {
   /** Council subsystem gate (issue #1052); default on; enabling seeds an
    * authored-empty global roster from favorites (main owns the seed). */
   setCouncilEnabled(on: boolean): Promise<void>;
-  /** Sidebar Snoozed section gate (issue #935); default off. */
-  setSnoozedSectionEnabled(on: boolean): Promise<void>;
   /** Settle worktree sessions once their pull requests merge (issue #985); default on. */
   setAutoSettleMergedPullRequests(on: boolean): Promise<void>;
   /** Open in VS Code over Remote-SSH (issue #995); default off. */

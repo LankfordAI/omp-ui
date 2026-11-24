@@ -17,7 +17,7 @@ import { buildAttentionEntries, buildSidebarLists, isRoutineRun, isSessionSettle
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
-import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
+import { formatSnoozeUntil, fromDateTimeLocal, snoozeDaysFromNow, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useShallow } from "zustand/react/shallow";
 import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, isHomeView, supportsBulkAction, useStore } from "../store";
 import { AttentionStack } from "./AttentionStack";
@@ -62,11 +62,11 @@ function SkeletonRows() {
   );
 }
 
-/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze, #981 Pin, #980 Settle). */
+/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935/#1323 Snooze, #981 Pin, #980 Settle). */
 type OpenSessionMenu = (
   tabId: string,
   event: ReactMouseEvent<HTMLElement>,
-  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean; pin: boolean; pinned: boolean; settle: boolean },
+  items: { migrate: boolean; ask: boolean; snooze: boolean; canSnooze: boolean; snoozed: boolean; pin: boolean; pinned: boolean; settle: boolean },
 ) => void;
 
 interface SessionMenuRequest {
@@ -74,6 +74,7 @@ interface SessionMenuRequest {
   migrate: boolean;
   ask: boolean;
   snooze: boolean;
+  canSnooze: boolean;
   snoozed: boolean;
   pin: boolean;
   pinned: boolean;
@@ -86,15 +87,77 @@ interface SessionMenuRequest {
 const MENU_ROW =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
 
-/** Menu label per timed-snooze preset (issue #979). */
+/** Menu label per timed-snooze preset (issues #979, #1323). */
 const SNOOZE_PRESET_LABEL = {
-  hour: "Snooze 1 hour",
-  evening: "Snooze until this evening",
-  morning: "Snooze until tomorrow morning",
-  nextWeek: "Snooze until next week",
+  hour: "In 1 hour",
+  evening: "This evening",
+  morning: "Tomorrow morning",
+  twoDays: "In 2 days",
+  threeDays: "In 3 days",
+  nextWeek: "Next week",
 } as const satisfies Record<SnoozePreset, string>;
 
-/** The custom "Snooze until…" picker (issue #979): a local date-time, future only. */
+/** Shared preset + Indefinitely + Custom list used by row context menus and SelectionBar (#1323). */
+function SnoozeMenuItems({
+  onPick,
+  onCustom,
+  autoFocusFirst = false,
+}: {
+  onPick: (untilMs: number | null) => void;
+  onCustom: () => void;
+  autoFocusFirst?: boolean;
+}) {
+  const now = new Date();
+  const presets = snoozePresets(now);
+  return (
+    <>
+      {presets.map(({ preset, untilMs }, index) => (
+        <button
+          key={preset}
+          type="button"
+          role="menuitem"
+          autoFocus={autoFocusFirst && index === 0}
+          className={cn(MENU_ROW, "flex items-center justify-between gap-4")}
+          onClick={() => {
+            // Re-verify freshness if the menu sat open past the target instant (#1323).
+            const currentNow = new Date();
+            const fresh =
+              untilMs > currentNow.getTime()
+                ? untilMs
+                : (snoozePresets(currentNow).find((p) => p.preset === preset)?.untilMs ?? untilMs);
+            onPick(fresh);
+          }}
+        >
+          <span>{SNOOZE_PRESET_LABEL[preset]}</span>
+          <span className="tabular-nums text-ink-faint">{formatSnoozeUntil(untilMs, now)}</span>
+        </button>
+      ))}
+      <div role="separator" className="my-1 border-t border-line-soft" />
+      <button type="button" role="menuitem" className={MENU_ROW} onClick={() => onPick(null)}>
+        Indefinitely
+      </button>
+      <button type="button" role="menuitem" className={MENU_ROW} onClick={onCustom}>
+        Custom…
+      </button>
+    </>
+  );
+}
+
+const QUICK_DAY_CHIPS = [
+  { label: "2d", days: 2 },
+  { label: "3d", days: 3 },
+  { label: "5d", days: 5 },
+  { label: "1w", days: 7 },
+  { label: "2w", days: 14 },
+] as const;
+
+function formatReminderPreview(ms: number): string {
+  const day = new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric" }).format(ms);
+  const time = new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ms);
+  return `Returns ${day} at ${time}`;
+}
+
+/** The custom "Snooze until…" picker (issues #979, #1323): quick day chips, "In N days at HH:MM", and synced datetime-local. */
 function SnoozeUntilDialog({
   onSnooze,
   onClose,
@@ -102,44 +165,132 @@ function SnoozeUntilDialog({
   onSnooze: (untilMs: number) => void;
   onClose: () => void;
 }) {
-  // Opens on tomorrow 09:00, the "Tomorrow morning" preset's deadline.
-  const [value, setValue] = useState(() => toDateTimeLocal(snoozePresets(new Date()).find((p) => p.preset === "morning")!.untilMs));
-  const picked = fromDateTimeLocal(value);
-  const untilMs = picked !== null && picked > Date.now() ? picked : null;
+  const initialMs = useMemo(() => snoozeDaysFromNow(new Date(), 2, "09:00")!, []);
+  const [daysInput, setDaysInput] = useState("2");
+  const [timeInput, setTimeInput] = useState("09:00");
+  const [dateTimeValue, setDateTimeValue] = useState(() => toDateTimeLocal(initialMs));
+  const [mode, setMode] = useState<"days" | "datetime">("days");
+
+  const applyDaysAndTime = (nextDaysStr: string, nextTime: string): void => {
+    setMode("days");
+    setDaysInput(nextDaysStr);
+    setTimeInput(nextTime);
+    if (/^\d+$/.test(nextDaysStr.trim())) {
+      const computed = snoozeDaysFromNow(new Date(), Number(nextDaysStr.trim()), nextTime);
+      if (computed !== null) setDateTimeValue(toDateTimeLocal(computed));
+    }
+  };
+
+  const handleDateTimeChange = (nextVal: string): void => {
+    setMode("datetime");
+    setDateTimeValue(nextVal);
+    const parsed = fromDateTimeLocal(nextVal);
+    if (parsed !== null) {
+      const target = new Date(parsed);
+      const now = new Date();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const targetMidnight = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+      const diffDays = Math.round((targetMidnight - todayMidnight) / 86_400_000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setTimeInput(`${pad(target.getHours())}:${pad(target.getMinutes())}`);
+      setDaysInput(diffDays >= 1 && diffDays <= 365 ? String(diffDays) : "");
+    }
+  };
+
+  const now = new Date();
+  const picked =
+    mode === "days"
+      ? /^\d+$/.test(daysInput.trim())
+        ? snoozeDaysFromNow(now, Number(daysInput.trim()), timeInput)
+        : null
+      : fromDateTimeLocal(dateTimeValue);
+  const untilMs = picked !== null && picked > now.getTime() ? picked : null;
+
+  const submit = (): void => {
+    if (untilMs !== null) onSnooze(untilMs);
+  };
+
   return (
     <ConfirmDialog
       kicker="Snooze"
       title="Snooze until"
       tone="iris"
       onClose={onClose}
-      width="w-[22rem]"
+      width="w-[24rem]"
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="solid" tone="iris" disabled={untilMs === null} onClick={() => untilMs !== null && onSnooze(untilMs)}>
+          <Button variant="solid" tone="iris" disabled={untilMs === null} onClick={submit}>
             Snooze
           </Button>
         </>
       }
     >
-      <label className="flex flex-col gap-1.5 text-xs text-ink-mid">
-        Return to the list at
-        <input
-          type="datetime-local"
-          autoFocus
-          value={value}
-          min={toDateTimeLocal(Date.now())}
-          onChange={(event) => setValue(event.target.value)}
-          className={FIELD}
-        />
-      </label>
-      {untilMs === null && <p className="mt-2 text-xs text-rose">Pick a time in the future.</p>}
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick day presets">
+          {QUICK_DAY_CHIPS.map((chip) => {
+            const active = mode === "days" && daysInput.trim() === String(chip.days);
+            return (
+              <Button
+                key={chip.label}
+                size="xs"
+                selected={active}
+                onClick={() => applyDaysAndTime(String(chip.days), timeInput)}
+              >
+                {chip.label}
+              </Button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-ink-mid">
+          <span>In</span>
+          <input
+            type="number"
+            aria-label="Days from now"
+            autoFocus
+            min={1}
+            max={365}
+            step={1}
+            value={daysInput}
+            onChange={(event) => applyDaysAndTime(event.target.value, timeInput)}
+            className={cn(FIELD, "w-20 tabular-nums")}
+          />
+          <span>days at</span>
+          <input
+            type="time"
+            aria-label="Return time"
+            value={timeInput}
+            onChange={(event) => applyDaysAndTime(daysInput, event.target.value)}
+            className={cn(FIELD, "w-28 tabular-nums")}
+          />
+        </div>
+        <label className="flex flex-col gap-1.5 text-xs text-ink-mid">
+          Return to the list at
+          <input
+            type="datetime-local"
+            value={dateTimeValue}
+            min={toDateTimeLocal(Date.now())}
+            onChange={(event) => handleDateTimeChange(event.target.value)}
+            className={FIELD}
+          />
+        </label>
+        {untilMs !== null ? (
+          <p className="text-xs text-ink-dim">{formatReminderPreview(untilMs)}</p>
+        ) : (
+          <p className="text-xs text-rose">Pick a whole number of days (1–365) and a time in the future.</p>
+        )}
+      </form>
     </ConfirmDialog>
   );
 }
-
 /** The sidebar sections a Shift+click range stays inside (issue #988); the main list is Pinned plus the rest. */
 type SelectionSection = "main" | "snoozed" | "working" | "settled";
 
@@ -168,9 +319,8 @@ function Row({
 }) {
   // Issue #888: gate the row context menu on the local binary's floor.
   const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
-  const snoozedEnabled = useStore((st) => st.state?.snoozedSectionEnabled === true);
   // Settle (#980): the same eligibility as the row's hover action.
-  const settle = canSettle(entry.session, snoozedEnabled);
+  const settle = canSettle(entry.session);
   return (
     <div className={cn(!entry.reachable && "opacity-60")}>
       <SessionRow
@@ -200,16 +350,17 @@ function Row({
             s.live !== "live" &&
             (entry.instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
           const ask = entry.instanceId === null && s.sessionId !== null && s.live !== "missing";
-          // Snooze (#935): every reachable row offers it while the setting
-          // is on — parking a `missing` record is legitimate.
-          const snooze = snoozedEnabled;
+          // Snooze (#935, #1323): always available on resumable rows; already-snoozed
+          // archived/missing rows can still Unsnooze.
           const snoozed = s.snoozed === true;
+          const canSnooze = s.live !== "archived" && s.live !== "missing";
+          const snooze = snoozed || canSnooze;
           // Pin (#981, #1137): any unsettled row can pin; any pinned row can
           // unpin, even a settled one that keeps its pin until resume.
           const pinned = typeof s.pinnedAtMs === "number";
           const pin = pinned || !isSessionSettled(s);
           if (!migrate && !ask && !snooze && !pin && !settle) return;
-          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle });
+          openSessionMenu(s.tabId, event, { migrate, ask, snooze, canSnooze, snoozed, pin, pinned, settle });
         }}
       />
     </div>
@@ -341,7 +492,6 @@ function SelectionBar({
   const unsnoozeSessions = useStore((st) => st.unsnoozeSessions);
   const retitleSessions = useStore((st) => st.retitleSessions);
   const deleteSessions = useStore((st) => st.deleteSessions);
-  const snoozedOn = useStore((st) => st.state?.snoozedSectionEnabled === true);
   // Per-action counts of the rows that support it; shallow-compared, so the
   // bar re-renders only when a count changes.
   const counts = useStore(
@@ -389,51 +539,30 @@ function SelectionBar({
         <Button size="xs" disabled={counts.settle === 0} onClick={() => act(() => settleSessions(tabIds))}>
           {`${"Settle"} (${counts.settle})`}
         </Button>
-        {snoozedOn && (
-          <div ref={snoozeButtonRef} className="relative">
-            <Button
-              size="xs"
-              disabled={counts.snooze === 0}
-              selected={snoozeMenuOpen}
-              onClick={() => setSnoozeMenuOpen(!snoozeMenuOpen)}
-            >
-              {`${"Snooze"} (${counts.snooze})`}
-            </Button>
-            {snoozeMenuOpen && (
-              <div ref={menuRef} role="menu" className="absolute bottom-full left-0 z-50 mb-1">
-                <Panel className="edge-lit animate-rise w-max p-1">
-                  <button type="button" role="menuitem" autoFocus className={MENU_ROW} onClick={() => act(() => snoozeSessions(tabIds, null))}>
-                    Snooze
-                  </button>
-                  {snoozePresets(new Date()).map(({ preset, untilMs }) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      role="menuitem"
-                      className={MENU_ROW}
-                      onClick={() => act(() => snoozeSessions(tabIds, untilMs))}
-                    >
-                      {SNOOZE_PRESET_LABEL[preset]}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={MENU_ROW}
-                    onClick={() => act(() => onSnoozeCustom(tabIds))}
-                  >
-                    Snooze until…
-                  </button>
-                </Panel>
-              </div>
-            )}
-          </div>
-        )}
-        {snoozedOn && (
-          <Button size="xs" disabled={counts.unsnooze === 0} onClick={() => act(() => unsnoozeSessions(tabIds))}>
-            {`${"Unsnooze"} (${counts.unsnooze})`}
+        <div ref={snoozeButtonRef} className="relative">
+          <Button
+            size="xs"
+            disabled={counts.snooze === 0}
+            selected={snoozeMenuOpen}
+            onClick={() => setSnoozeMenuOpen(!snoozeMenuOpen)}
+          >
+            {`${"Snooze"} (${counts.snooze})`}
           </Button>
-        )}
+          {snoozeMenuOpen && (
+            <div ref={menuRef} role="menu" className="absolute bottom-full left-0 z-50 mb-1">
+              <Panel className="edge-lit animate-rise w-max p-1">
+                <SnoozeMenuItems
+                  autoFocusFirst
+                  onPick={(untilMs) => act(() => snoozeSessions(tabIds, untilMs))}
+                  onCustom={() => act(() => onSnoozeCustom(tabIds))}
+                />
+              </Panel>
+            </div>
+          )}
+        </div>
+        <Button size="xs" disabled={counts.unsnooze === 0} onClick={() => act(() => unsnoozeSessions(tabIds))}>
+          {`${"Unsnooze"} (${counts.unsnooze})`}
+        </Button>
         <Button
           size="xs"
           disabled={counts.retitle === 0}
@@ -501,6 +630,7 @@ export function Sidebar() {
   const [query, setQuery] = useState("");
   // The session row's context menu (issue #888); Sidebar-local, never in the store.
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null);
+  const [snoozeSubmenuOpen, setSnoozeSubmenuOpen] = useState(false);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
   // Timed snooze's custom picker (issue #979): the tabs it will snooze — one
@@ -511,19 +641,26 @@ export function Sidebar() {
   const [selection, setSelection] = useState<ReadonlySet<string>>(() => new Set());
   const selectionAnchor = useRef<{ section: SelectionSection; tabId: string } | null>(null);
   const [bulkSnoozeOpen, setBulkSnoozeOpen] = useState(false);
+  const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
 
-  // Issue #888/#895: the per-row Migrate/Ask menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle }) => {
+  // Issue #888/#895/#1323: the per-row Migrate/Ask/Snooze/Pin/Settle menu.
+  const openSessionMenu: OpenSessionMenu = (
+    tabId,
+    event,
+    { migrate, ask, snooze, canSnooze, snoozed, pin, pinned, settle },
+  ) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
     const keyboardPosition = event.clientX === 0 && event.clientY === 0;
     const rect = currentTarget.getBoundingClientRect();
+    setSnoozeSubmenuOpen(false);
     setSessionMenu({
       tabId,
       migrate,
       ask,
       snooze,
+      canSnooze,
       snoozed,
       pin,
       pinned,
@@ -542,8 +679,14 @@ export function Sidebar() {
   useDismissal({
     open: sessionMenu !== null,
     refs: sessionMenuRef,
-    onClose: () => setSessionMenu(null),
-    onEscape: () => setSessionMenu(null),
+    onClose: () => {
+      setSnoozeSubmenuOpen(false);
+      setSessionMenu(null);
+    },
+    onEscape: () => {
+      setSnoozeSubmenuOpen(false);
+      setSessionMenu(null);
+    },
     restoreFocus: () => {
       const m = sessionMenu;
       if (m !== null) m.trigger.focus();
@@ -584,10 +727,15 @@ export function Sidebar() {
     if (st.state === null) return "";
     const parts: string[] = [];
     const visit = (s: SessionSummary, instanceId: string | null): void => {
+      if (s.snoozed === true) return;
       const waitingRun =
         isRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
-      if ((instanceId !== null || st.unread[s.tabId] === undefined) && !waitingRun) return;
-      parts.push(`${instanceId ?? "local"}:${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
+      const reminderDue =
+        !isRoutineRun(s) && !isSessionSettled(s) && typeof s.reminderAtMs === "number";
+      if ((instanceId !== null || st.unread[s.tabId] === undefined) && !waitingRun && !reminderDue) return;
+      parts.push(
+        `${instanceId ?? "local"}:${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}|${reminderDue ? s.reminderAtMs : ""}`,
+      );
     };
     for (const g of st.state.projects) for (const s of g.sessions) visit(s, null);
     for (const s of st.state.chats) visit(s, null);
@@ -595,8 +743,9 @@ export function Sidebar() {
       if (instance.status !== "joined") continue;
       for (const g of instance.projects) {
         for (const s of g.sessions) {
-          if (!isRoutineRun(s)) continue;
-          if (s.live !== "live" || s.awaitingHumanAnswer !== true) continue;
+          const waitingRun = isRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
+          const reminderDue = !isRoutineRun(s) && !isSessionSettled(s) && s.snoozed !== true && typeof s.reminderAtMs === "number";
+          if (!waitingRun && !reminderDue) continue;
           visit(s, instance.id);
         }
       }
@@ -842,7 +991,35 @@ export function Sidebar() {
                  stay docked to the bottom edge of the sidebar whatever the
                  row count (issue #1044, restoring #937). */
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
-                <AttentionStack entries={attention} onActivate={closeCompactSurface} />
+                <AttentionStack
+                  entries={attention}
+                  onActivate={closeCompactSurface}
+                  onReminderContextMenu={(entry, event) => {
+                    if (!entry.reachable) return;
+                    const s = entry.session;
+                    const chat = entry.project === null;
+                    const migrate =
+                      !chat &&
+                      s.sessionId !== null &&
+                      s.live !== "live" &&
+                      (entry.instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
+                    const ask = entry.instanceId === null && s.sessionId !== null && s.live !== "missing";
+                    const canSnooze = s.live !== "archived" && s.live !== "missing";
+                    const pinned = typeof s.pinnedAtMs === "number";
+                    const pin = pinned || !isSessionSettled(s);
+                    const settle = canSettle(s);
+                    openSessionMenu(s.tabId, event, {
+                      migrate,
+                      ask,
+                      snooze: canSnooze,
+                      canSnooze,
+                      snoozed: false,
+                      pin,
+                      pinned,
+                      settle,
+                    });
+                  }}
+                />
                 {/* Pinned (#981) heads the main list in pin order; it never
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
@@ -1012,52 +1189,86 @@ export function Sidebar() {
                   {sessionMenu.pinned ? "Unpin" : "Pin"}
                 </button>
               )}
-              {sessionMenu.snooze && (
+              {sessionMenu.snooze && sessionMenu.snoozed && (
                 <button
                   ref={sessionMenu.settle || sessionMenu.ask || sessionMenu.migrate || sessionMenu.pin ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {
-                    const { tabId, snoozed } = sessionMenu;
+                    const { tabId } = sessionMenu;
+                    setSnoozeSubmenuOpen(false);
                     setSessionMenu(null);
-                    void setSessionSnoozed(tabId, !snoozed);
+                    void setSessionSnoozed(tabId, false);
                   }}
                   className={MENU_ROW}
                 >
-                  {sessionMenu.snoozed ? "Unsnooze" : "Snooze"}
+                  Unsnooze
                 </button>
               )}
-              {/* Timed snooze (#979): presets resolve against the clock at open. */}
-              {sessionMenu.snooze && !sessionMenu.snoozed && (
-                <>
-                  {snoozePresets(new Date()).map(({ preset, untilMs }) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        const { tabId } = sessionMenu;
-                        setSessionMenu(null);
-                        void setSessionSnoozed(tabId, true, untilMs);
-                      }}
-                      className={MENU_ROW}
-                    >
-                      {SNOOZE_PRESET_LABEL[preset]}
-                    </button>
-                  ))}
+              {sessionMenu.canSnooze && (
+                <div
+                  className="relative"
+                  onMouseEnter={() => setSnoozeSubmenuOpen(true)}
+                  onMouseLeave={() => setSnoozeSubmenuOpen(false)}
+                >
                   <button
+                    ref={
+                      sessionMenu.settle ||
+                      sessionMenu.ask ||
+                      sessionMenu.migrate ||
+                      sessionMenu.pin ||
+                      (sessionMenu.snooze && sessionMenu.snoozed)
+                        ? undefined
+                        : sessionMenuItemRef
+                    }
                     type="button"
                     role="menuitem"
-                    onClick={() => {
-                      const { tabId } = sessionMenu;
-                      setSessionMenu(null);
-                      setSnoozeCustomTabIds([tabId]);
+                    aria-haspopup="menu"
+                    aria-expanded={snoozeSubmenuOpen}
+                    onClick={() => setSnoozeSubmenuOpen((open) => !open)}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowRight") {
+                        event.preventDefault();
+                        setSnoozeSubmenuOpen(true);
+                      } else if (event.key === "ArrowLeft") {
+                        event.preventDefault();
+                        setSnoozeSubmenuOpen(false);
+                      }
                     }}
-                    className={MENU_ROW}
+                    className={cn(MENU_ROW, "flex items-center justify-between gap-4")}
                   >
-                    Snooze until…
+                    <span>{sessionMenu.snoozed ? "Snooze again" : "Snooze"}</span>
+                    <span aria-hidden className="text-ink-faint">›</span>
                   </button>
-                </>
+                  {snoozeSubmenuOpen && (
+                    <div
+                      role="menu"
+                      aria-label="Snooze duration"
+                      className={cn(
+                        "absolute top-0 z-50 w-max",
+                        sessionMenu.x > window.innerWidth / 2 ? "right-full pr-1" : "left-full pl-1",
+                      )}
+                    >
+                      <Panel className="edge-lit animate-rise p-1">
+                        <SnoozeMenuItems
+                          onPick={(untilMs) => {
+                            const { tabId } = sessionMenu;
+                            setSnoozeSubmenuOpen(false);
+                            setSessionMenu(null);
+                            if (untilMs === null) void setSessionSnoozed(tabId, true);
+                            else void setSessionSnoozed(tabId, true, untilMs);
+                          }}
+                          onCustom={() => {
+                            const { tabId } = sessionMenu;
+                            setSnoozeSubmenuOpen(false);
+                            setSessionMenu(null);
+                            setSnoozeCustomTabIds([tabId]);
+                          }}
+                        />
+                      </Panel>
+                    </div>
+                  )}
+                </div>
               )}
             </Panel>
           </div>,

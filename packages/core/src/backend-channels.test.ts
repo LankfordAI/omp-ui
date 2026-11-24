@@ -265,7 +265,6 @@ const VALID_ARGS = {
   setExperimentsEnabled: [true],
   setAutoresearchEnabled: [true],
   setCouncilEnabled: [true],
-  setSnoozedSectionEnabled: [true],
   setRemoteVsCodeEnabled: [true],
   setDeviceAgentAccess: [true],
   setTelemetryModelsEnabled: [false],

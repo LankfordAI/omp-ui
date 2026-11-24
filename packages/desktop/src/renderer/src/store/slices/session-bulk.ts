@@ -14,20 +14,20 @@ export type BulkAction = "settle" | "snooze" | "unsnooze" | "retitle" | "delete"
 
 /**
  * Whether one row supports one bulk action — the same gates its row menu,
- * hover actions, and Session HUD apply. Snooze and Unsnooze exist only while
- * the Snoozed section is on. Retitle needs a live native session this window
- * runs a transcript for (`session.error.retitleNotLive` otherwise). Stop
- * needs a process; Delete takes every row.
+ * hover actions, and Session HUD apply. Archived/missing rows cannot wake to
+ * the main list so they omit new Snooze, while already-snoozed rows still
+ * allow Unsnooze (#1323). Retitle needs a live native session this window
+ * runs a transcript for (`session.error.retitleNotLive` otherwise); Delete
+ * takes every row.
  */
 export function supportsBulkAction(st: UiStore, s: SessionSummary, action: BulkAction): boolean {
-  const snoozedOn = st.state?.snoozedSectionEnabled === true;
   switch (action) {
     case "settle":
-      return canSettle(s, snoozedOn);
+      return canSettle(s);
     case "snooze":
-      return snoozedOn && s.snoozed !== true;
+      return s.snoozed !== true && s.live !== "archived" && s.live !== "missing";
     case "unsnooze":
-      return snoozedOn && s.snoozed === true;
+      return s.snoozed === true;
     case "retitle":
       return (
         s.mode === "rpc-ui" &&
