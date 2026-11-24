@@ -2,7 +2,7 @@
 // index a repository publishes, and the shapes Browse and Install carry. Pure —
 // the renderer validates input and previews listings with it.
 import { isObject } from "./guards";
-import type { ThemeBackdropKind, ThemeBackdropMime } from "./theme-backdrop";
+import type { ThemeBackdropImageMime, ThemeBackdropSceneMime } from "./theme-backdrop";
 import { GIT_SHA, OFFICIAL_THEME_REPOSITORY, THEME_REPOSITORY_ID, isRepositoryThemePath } from "./theme-origin";
 import { isThemeSeeds, type ThemeSeeds } from "./theme-seeds";
 import { stripJsonc } from "./vscode-theme";
@@ -22,6 +22,11 @@ export const THEME_TAGS_MAX = 6;
 export const THEME_TAG_CHARS_MAX = 24;
 export const THEME_DESCRIPTION_MAX = 160;
 export const THEME_SLUG_CHARS_MAX = 64;
+/** Theme backdrops accepted by GitHub theme repositories (image and SVG scene only). */
+export type RepositoryBackdropKind = "image" | "scene";
+export type RepositoryBackdropMime = ThemeBackdropImageMime | ThemeBackdropSceneMime;
+/** Maximum theme file size in a GitHub theme repository (6 MiB; image/SVG backdrops only). */
+export const REPOSITORY_THEME_FILE_BYTES_MAX = 6 * 1024 * 1024;
 /** Image backdrops the official repository accepts; tighter than the app's 4 MiB. The tool and the Share panel both read it. */
 export const REPOSITORY_IMAGE_BYTES_MAX = 1024 * 1024;
 /**
@@ -152,7 +157,7 @@ export interface ThemeIndexEntry {
   /** Trimmed. */
   label: string;
   seeds: ThemeSeeds;
-  backdrop: ThemeBackdropKind | null;
+  backdrop: RepositoryBackdropKind | null;
   /** EMPTY_THEME_META for a v1 index. */
   meta: ThemeMeta;
 }
@@ -168,7 +173,7 @@ export interface ThemeRepositoryListing {
   repository: string;
   commit: string;
   themes: ThemeRepositoryEntry[];
-  /** Index entries dropped because the tree lacks the path or the file exceeds THEME_FILE_BYTES_MAX. */
+  /** Index entries dropped because the tree lacks the path or the file exceeds REPOSITORY_THEME_FILE_BYTES_MAX. */
   skipped: number;
 }
 
@@ -186,7 +191,7 @@ export interface RepositoryThemeInstallRequest {
 
 /** One repository theme's backdrop, verified host-side for Preview (#1182). Nothing is stored. */
 export interface RepositoryThemeBackdrop {
-  mime: ThemeBackdropMime;
+  mime: RepositoryBackdropMime;
   /** base64, as every other binary here travels. */
   data: string;
   blur: number;

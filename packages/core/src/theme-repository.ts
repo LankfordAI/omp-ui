@@ -5,9 +5,10 @@
 // redirects refused, no Authorization header, size caps and a timeout.
 import { createHash } from "node:crypto";
 import { checkBackdropBytes, type ThemeBackdropKind } from "./theme-backdrop";
-import { THEME_FILE_BYTES_MAX, type StoredThemeDraft } from "./theme-file";
+import type { StoredThemeDraft } from "./theme-file";
 import { GIT_SHA } from "./theme-origin";
 import {
+  REPOSITORY_THEME_FILE_BYTES_MAX,
   THEME_INDEX_BYTES_MAX,
   THEME_INDEX_FILE,
   THEME_INDEX_V2_BYTES_MAX,
@@ -210,7 +211,7 @@ export async function fetchThemeRepositoryListing(
   let skipped = 0;
   for (const entry of index.entries) {
     const file = files.get(entry.path);
-    if (file === undefined || file.size > THEME_FILE_BYTES_MAX) {
+    if (file === undefined || file.size > REPOSITORY_THEME_FILE_BYTES_MAX) {
       skipped += 1;
       continue;
     }
@@ -227,7 +228,7 @@ export async function fetchRepositoryThemeFile(
   fetchImpl: ThemeRepositoryFetch = defaultThemeRepositoryFetch,
   now: () => number = Date.now,
 ): Promise<{ ok: true; text: string } | { ok: false; message: string }> {
-  const res = await get(`${RAW}/${repository}/${commit}/${entry.path}`, RAW_HEADERS, THEME_FILE_BYTES_MAX, now, fetchImpl);
+  const res = await get(`${RAW}/${repository}/${commit}/${entry.path}`, RAW_HEADERS, REPOSITORY_THEME_FILE_BYTES_MAX, now, fetchImpl);
   if (!res.ok) {
     if (res.message === NOT_FOUND) return { ok: false, message: "the theme file is missing at that commit" };
     if (res.message === TOO_LARGE) return { ok: false, message: "the theme file is larger than 6 MiB" };

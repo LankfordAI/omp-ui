@@ -9,8 +9,8 @@ import {
 } from "@omp-ui/core/theme";
 import {
   BACKDROP_BLUR_MAX,
+  BACKDROP_BYTES_MAX,
   BACKDROP_DEFAULT_BLUR,
-  BACKDROP_IMAGE_BYTES_MAX,
   backdropFloors,
   checkBackdropBytes,
   type ThemeBackdropKind,
@@ -153,6 +153,10 @@ export function ThemeEditor(props: {
   ]);
   const failures = useMemo(() => themeGateFailures(source), [source]);
   const assetKind = backdrop === null ? null : backdrop.from === "bytes" ? backdrop.kind : (asset?.kind ?? "image");
+  const assetMime: ThemeBackdropMime =
+    backdrop !== null && backdrop.from === "bytes"
+      ? backdrop.mime
+      : (asset?.mime ?? (assetKind === "scene" ? "image/svg+xml" : assetKind === "video" ? "video/mp4" : "image/png"));
   const draftTheme = useMemo<Theme>(() => {
     const derived = deriveTheme(source);
     if (assetKind === null) return { ...derived, backdrop: null };
@@ -161,11 +165,11 @@ export function ThemeEditor(props: {
       backdrop: {
         assetHash: DRAFT_HASH,
         kind: assetKind,
-        mime: assetKind === "scene" ? "image/svg+xml" : "image/png",
+        mime: assetMime,
         blur,
       },
     };
-  }, [source, assetKind, blur]);
+  }, [source, assetKind, assetMime, blur]);
 
   // Leaving the editor (Save, Cancel, closing Settings, Escape) always restores the saved theme.
   useEffect(
@@ -231,8 +235,8 @@ export function ThemeEditor(props: {
     event.target.value = "";
     if (file === undefined) return;
     setBackdropError(null);
-    if (file.size > BACKDROP_IMAGE_BYTES_MAX) {
-      setBackdropError("Cannot use that file: backdrops can be at most 4 MiB.");
+    if (file.size > BACKDROP_BYTES_MAX) {
+      setBackdropError("Cannot use that file: backdrops can be at most 16 MiB (4 MiB for images and scenes).");
       return;
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -363,7 +367,7 @@ export function ThemeEditor(props: {
 
       <h4 className="mt-3 text-sm font-semibold text-ink">Backdrop</h4>
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        <Button onClick={() => picker.current?.click()}>Choose image or scene…</Button>
+        <Button onClick={() => picker.current?.click()}>Choose image, scene, or video…</Button>
         {backdrop !== null && (
           <Button variant="ghost" onClick={() => setBackdrop(null)}>
             Remove backdrop
@@ -373,7 +377,7 @@ export function ThemeEditor(props: {
       <input
         ref={picker}
         type="file"
-        accept=".png,.jpg,.jpeg,.webp,.svg"
+        accept=".png,.jpg,.jpeg,.webp,.svg,.mp4,.webm"
         tabIndex={-1}
         aria-hidden
         className="sr-only"

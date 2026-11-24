@@ -257,6 +257,17 @@ describe("fetchRepositoryThemeFile", () => {
       message: "a file GitHub served does not match the repository's commit",
     });
   });
+
+  it("still enforces the 6 MiB repository file limit", async () => {
+    const over = 6 * 1024 * 1024 + 1;
+    const { fetch } = fakeFetch({
+      [rawUrl("themes/dusk.json")]: { headers: { "content-length": String(over) }, body: "x" },
+    });
+    expect(await fetchRepositoryThemeFile(REPO, COMMIT, listed, fetch, () => NOW)).toEqual({
+      ok: false,
+      message: "the theme file is larger than 6 MiB",
+    });
+  });
 });
 
 describe("repositoryThemeMismatch", () => {
@@ -269,6 +280,9 @@ describe("repositoryThemeMismatch", () => {
   };
   const scene = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>').toString("base64");
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]).toString("base64");
+  const mp4 = Buffer.from([
+    0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+  ]).toString("base64");
   const draft = (patch: Partial<StoredThemeDraft> = {}): StoredThemeDraft => ({
     label: " Dusk ",
     seeds: { canvas: "#1A1B26" },
@@ -284,8 +298,18 @@ describe("repositoryThemeMismatch", () => {
     ["label", draft({ label: "Dawn" })],
     ["seeds", draft({ seeds: { canvas: "#1a1b27" } })],
     ["backdrop kind", draft({ backdrop: { from: "bytes", data: png, blur: 12 } })],
+    ["smuggled video backdrop against scene entry", draft({ backdrop: { from: "bytes", data: mp4, blur: 12 } })],
     ["missing backdrop", draft({ backdrop: null })],
   ])("trips on a different %s", (_name, file) => {
     expect(repositoryThemeMismatch(indexEntry, file)).toBe(true);
+  });
+
+  it("trips on a smuggled video backdrop against an image entry", () => {
+    expect(
+      repositoryThemeMismatch(
+        { ...indexEntry, backdrop: "image" },
+        draft({ backdrop: { from: "bytes", data: mp4, blur: 12 } }),
+      ),
+    ).toBe(true);
   });
 });

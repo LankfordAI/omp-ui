@@ -9,7 +9,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CH, sourceFromDraft, type BackendState, type ThemeApplyResult, type ThemeList, type ThemeSetArgs, type ThemeSetOutcome, type ThemeSource } from "@omp-ui/core";
+import {
+  BACKDROP_IMAGE_BYTES_MAX,
+  BACKDROP_VIDEO_BYTES_MAX,
+  CH,
+  sourceFromDraft,
+  type BackendState,
+  type SaveStoredThemeResult,
+  type ThemeApplyResult,
+  type ThemeList,
+  type ThemeSetArgs,
+  type ThemeSetOutcome,
+  type ThemeSource,
+  type ThemeToolArgs,
+} from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
@@ -82,6 +95,7 @@ interface ThemeInternals {
   applyThemeFromTool(source: ThemeSource): Promise<ThemeApplyResult | null>;
   setThemeFromTool(args: ThemeSetArgs): Promise<ThemeSetOutcome>;
   listThemesForTool(): ThemeList;
+  saveThemeFromTool(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
 }
 
 function internals(): ThemeInternals {
@@ -282,5 +296,72 @@ describe("listThemesForTool (issue #1175)", () => {
     seedSettings({ themeMode: "fixed", themeId: "ghost-theme", storedThemes: [] });
     const list = internals().listThemesForTool();
     expect(list.effectiveLabel).toBe("ghost-theme");
+  });
+});
+
+describe("saveThemeFromTool video backdrops", () => {
+  const MP4_HEAD = new Uint8Array([
+    0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+  ]);
+  const PNG_HEAD = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  function seedSessionDir(): { cwd: string; tabId: string } {
+    const cwd = fs.mkdtempSync(path.join(base, "proj-"));
+    const record = ownedSessionRecord({ projectCwd: cwd });
+    seedRegistry(registryFile, {
+      projects: [],
+      sessions: [record],
+      settings: { themeMode: "fixed", themeId: "graphite", storedThemes: [] },
+    });
+    return { cwd, tabId: record.tabId };
+  }
+
+  it("accepts a local MP4 larger than 4 MiB and up to 16 MiB", async () => {
+    const { cwd, tabId } = seedSessionDir();
+    const video = new Uint8Array(BACKDROP_IMAGE_BYTES_MAX + 1024);
+    video.set(MP4_HEAD);
+    fs.writeFileSync(path.join(cwd, "loop.mp4"), video);
+    const result = await internals().saveThemeFromTool(tabId, {
+      label: "Ridge",
+      seeds: { canvas: "#0a0a0a" },
+      backdrop: { path: "loop.mp4", blur: 8 },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.source.backdrop).toMatchObject({ kind: "video", mime: "video/mp4", blur: 8 });
+  });
+
+  it("rejects a PNG larger than 4 MiB via checkBackdropBytes", async () => {
+    const { cwd, tabId } = seedSessionDir();
+    const bigPng = new Uint8Array(BACKDROP_IMAGE_BYTES_MAX + 1);
+    bigPng.set(PNG_HEAD);
+    fs.writeFileSync(path.join(cwd, "big.png"), bigPng);
+    const result = await internals().saveThemeFromTool(tabId, {
+      label: "BigPng",
+      seeds: { canvas: "#0a0a0a" },
+      backdrop: { path: "big.png" },
+    });
+    expect(result).toEqual({ ok: false, reason: "invalid", message: "image backdrops can be at most 4 MiB" });
+  });
+
+  it("rejects an MP4 larger than 16 MiB before reading it", async () => {
+    const { cwd, tabId } = seedSessionDir();
+    const fd = fs.openSync(path.join(cwd, "huge.mp4"), "w");
+    try {
+      fs.writeSync(fd, MP4_HEAD, 0, MP4_HEAD.length, 0);
+      fs.ftruncateSync(fd, BACKDROP_VIDEO_BYTES_MAX + 1);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const result = await internals().saveThemeFromTool(tabId, {
+      label: "HugeMp4",
+      seeds: { canvas: "#0a0a0a" },
+      backdrop: { path: "huge.mp4" },
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid",
+      message: "backdrops can be at most 16 MiB (4 MiB for images and scenes)",
+    });
   });
 });

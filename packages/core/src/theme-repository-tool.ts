@@ -5,10 +5,11 @@
 import { createHash } from "node:crypto";
 import { isObject } from "./guards";
 import { themeGateFailures, type ThemeGateFailure } from "./theme";
-import { checkBackdropBytes, type ThemeBackdropKind } from "./theme-backdrop";
-import { THEME_FILE_BYTES_MAX, parseThemeFile, sourceFromDraft } from "./theme-file";
+import { checkBackdropBytes } from "./theme-backdrop";
+import { parseThemeFile, sourceFromDraft } from "./theme-file";
 import {
   REPOSITORY_IMAGE_BYTES_MAX,
+  REPOSITORY_THEME_FILE_BYTES_MAX,
   THEME_DESCRIPTION_MAX,
   THEME_INDEX_BYTES_MAX,
   THEME_INDEX_ENTRIES_MAX,
@@ -23,6 +24,7 @@ import {
   parseThemeDetails,
   parseThemeIndexV2,
   sameThemeSeeds,
+  type RepositoryBackdropKind,
   type ThemeDetails,
 } from "./theme-repository-format";
 import type { ThemeSeeds } from "./theme-seeds";
@@ -38,7 +40,7 @@ export interface CheckedTheme {
   label: string;
   /** Verbatim from the theme file. */
   seeds: ThemeSeeds;
-  backdrop: ThemeBackdropKind | null;
+  backdrop: RepositoryBackdropKind | null;
   details: ThemeDetails;
 }
 
@@ -159,8 +161,8 @@ function checkTheme(
 
   let theme: Omit<CheckedTheme, "details"> | null = null;
   let backdropHash: string | null = null;
-  const raw = bytes.length > THEME_FILE_BYTES_MAX ? undefined : plainJson(bytes);
-  if (bytes.length > THEME_FILE_BYTES_MAX) {
+  const raw = bytes.length > REPOSITORY_THEME_FILE_BYTES_MAX ? undefined : plainJson(bytes);
+  if (bytes.length > REPOSITORY_THEME_FILE_BYTES_MAX) {
     bad(path, "the theme file is larger than 6 MiB");
   } else if (raw === undefined) {
     bad(path, "must be plain JSON, with no comments or trailing commas");
@@ -173,7 +175,7 @@ function checkTheme(
       for (const failure of themeGateFailures(sourceFromDraft("custom-check", label, parsed.draft.seeds))) {
         bad(path, formatGateFailure(failure));
       }
-      let kind: ThemeBackdropKind | null = null;
+      let kind: RepositoryBackdropKind | null = null;
       const backdrop = parsed.draft.backdrop;
       if (backdrop !== null && backdrop.from === "bytes") {
         if (!STRICT_BASE64.test(backdrop.data)) {
@@ -184,6 +186,8 @@ function checkTheme(
           const declared = isObject(raw) && isObject(raw.backdrop) ? raw.backdrop.mime : undefined;
           if (!check.ok) {
             bad(path, check.message);
+          } else if (check.kind === "video") {
+            bad(path, "video backdrops are not accepted in theme repositories");
           } else if (declared !== check.mime) {
             bad(path, `the backdrop says it is ${String(declared)} but its bytes are ${check.mime}`);
           } else if (check.kind === "image" && data.length > REPOSITORY_IMAGE_BYTES_MAX) {

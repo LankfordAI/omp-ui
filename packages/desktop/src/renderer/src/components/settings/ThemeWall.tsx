@@ -661,9 +661,11 @@ export function ThemeWall(props: {
             {kind !== null && <Chip>{kind}</Chip>}
             {card.backdropKind !== null && (
               <Chip>
-                {card.backdropKind === "scene"
-                  ? "animated backdrop"
-                  : "backdrop"}
+                {card.backdropKind === "video"
+                  ? "video backdrop"
+                  : card.backdropKind === "scene"
+                    ? "animated backdrop"
+                    : "backdrop"}
               </Chip>
             )}
             {card.meta.tags.map((tag) => (
@@ -792,7 +794,11 @@ export function ThemeWall(props: {
   const matches = (card: WallCard): boolean =>
     (scheme === "any" || (scheme === "dark") === card.theme.dark) &&
     (backdropFilter === "any" ||
-      (backdropFilter === "none" ? card.backdropKind === null : card.backdropKind === backdropFilter)) &&
+      (backdropFilter === "none"
+        ? card.backdropKind === null
+        : backdropFilter === "scene"
+          ? card.backdropKind === "scene" || card.backdropKind === "video"
+          : card.backdropKind === backdropFilter)) &&
     (activeTags.length === 0 || card.meta.tags.some((tag) => activeTags.includes(tag))) &&
     (needle === "" ||
       [card.label, ...card.meta.tags, card.meta.author ?? "", card.meta.description ?? ""]

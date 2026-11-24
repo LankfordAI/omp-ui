@@ -224,7 +224,7 @@ function ThemesTab() {
     clearVerdicts();
     try {
       if (file.size > THEME_FILE_BYTES_MAX) {
-        setError("That file is too large to be a theme file (6 MiB at most).");
+        setError("That file is too large to be a theme file (24 MiB at most).");
         return;
       }
       setBusy(true);
@@ -467,7 +467,7 @@ function DisplaySection() {
       <div className="mt-4 border-t border-line-soft">
         <Row
           title="Animate backdrops"
-          hint="Lets a theme's scene move. Costs some GPU while the window is visible; pauses when it is hidden or when the system asks for reduced motion. Backdrops show beside the transcript, so a full-width transcript leaves little room for them."
+          hint="Lets a theme's scene or video backdrop move. Costs some GPU while the window is visible; pauses when it is hidden or when the system asks for reduced motion. Backdrops show beside the transcript, so a full-width transcript leaves little room for them."
         >
           <Switch
             on={backdropMotion !== false}

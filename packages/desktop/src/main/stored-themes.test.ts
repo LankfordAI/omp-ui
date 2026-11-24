@@ -23,6 +23,12 @@ const PASSING = { canvas: "#1a1b26" };
 const SCENE = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
 const OTHER_SCENE = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>';
 const b64 = (text: string): string => Buffer.from(text, "utf8").toString("base64");
+const MP4_BYTES = new Uint8Array([
+  0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d,
+]);
+const WEBM_BYTES = new Uint8Array([
+  0x1a, 0x45, 0xdf, 0xa3, 0x87, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d,
+]);
 
 function setup(): { deps: StoredThemeDeps; registry: Registry; backdropDir: string; broadcast: Mock } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-stored-themes-"));
@@ -58,6 +64,39 @@ describe("saveStoredTheme (issue #1168)", () => {
     expect(assets(backdropDir)).toEqual([result.source.backdrop!.assetHash]);
     expect(fs.readFileSync(path.join(backdropDir, result.source.backdrop!.assetHash), "utf8")).toBe(SCENE);
     expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("stores MP4 and WebM video backdrops under their SHA-256 and prunes on replacement or removal", async () => {
+    const { deps, registry, backdropDir } = setup();
+    const saved = await saveStoredTheme(
+      deps,
+      draft({ label: "Loop", backdrop: { from: "bytes", data: Buffer.from(MP4_BYTES).toString("base64"), blur: 10 } }),
+    );
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.source.backdrop).toMatchObject({ kind: "video", mime: "video/mp4", blur: 10 });
+    const mp4Hash = saved.source.backdrop!.assetHash;
+    expect(assets(backdropDir)).toEqual([mp4Hash]);
+    expect(fs.readFileSync(path.join(backdropDir, mp4Hash))).toEqual(Buffer.from(MP4_BYTES));
+
+    const replaced = await saveStoredTheme(
+      deps,
+      draft({
+        id: saved.source.id,
+        label: "Loop WebM",
+        backdrop: { from: "bytes", data: Buffer.from(WEBM_BYTES).toString("base64"), blur: 6 },
+      }),
+    );
+    expect(replaced.ok).toBe(true);
+    if (!replaced.ok) return;
+    expect(replaced.source.backdrop).toMatchObject({ kind: "video", mime: "video/webm", blur: 6 });
+    const webmHash = replaced.source.backdrop!.assetHash;
+    expect(assets(backdropDir)).toEqual([webmHash]);
+    expect(assets(backdropDir)).not.toContain(mp4Hash);
+
+    await removeStoredTheme(deps, saved.source.id);
+    expect(registry.getSetting("storedThemes")).toEqual([]);
+    expect(assets(backdropDir)).toEqual([]);
   });
 
   it("writes nothing for a draft the gate refuses", async () => {

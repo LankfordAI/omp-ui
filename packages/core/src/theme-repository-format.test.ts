@@ -168,8 +168,12 @@ describe("parseThemeIndexV2", () => {
     expect(result.ok && result.entries[0]!.meta.tags).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
 
-  it("fails an entry whose required field is invalid", () => {
+  it("fails an entry whose required field is invalid (including video backdrop)", () => {
     expect(parseThemeIndexV2(indexV2([{ ...entry("a.json"), seeds: { canvas: "red" } }]))).toEqual({
+      ok: false,
+      message: "theme index entry 1 is invalid",
+    });
+    expect(parseThemeIndexV2(indexV2([{ ...entry("a.json"), backdrop: "video" }]))).toEqual({
       ok: false,
       message: "theme index entry 1 is invalid",
     });
