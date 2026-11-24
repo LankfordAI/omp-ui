@@ -15,6 +15,18 @@ function normalizeRelPattern(raw: string): string {
   return trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
 }
 
+function hasControlChar(value: string, allowWhitespace = false): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 0x7f) return true;
+    if (code < 0x20) {
+      if (allowWhitespace && (code === 0x09 || code === 0x0a || code === 0x0d)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Validates one repo-relative path or glob pattern for worktree setup:
  * rejects empty strings, absolute paths, drive prefixes, `..` traversal,
@@ -23,7 +35,7 @@ function normalizeRelPattern(raw: string): string {
 export function isSafeWorktreeSetupPattern(raw: string): boolean {
   const pattern = normalizeRelPattern(raw);
   if (pattern === "" || pattern.length > WORKTREE_SETUP_MAX_PATH_LENGTH) return false;
-  if (/[\u0000-\u001f\u007f]/.test(pattern)) return false;
+  if (hasControlChar(pattern)) return false;
   if (pattern.startsWith("/") || /^[A-Za-z]:/.test(pattern)) return false;
   const segments = pattern.split("/");
   if (segments.some((seg) => seg === "" || seg === "." || seg === "..")) return false;
@@ -77,7 +89,7 @@ export function validateWorktreeSetup(
         `worktree setup post-create command must be at most ${WORKTREE_SETUP_MAX_COMMAND_LENGTH} characters`,
       );
     }
-    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(postCreateCommand)) {
+    if (hasControlChar(postCreateCommand, true)) {
       throw new Error("worktree setup post-create command contains invalid control characters");
     }
   }

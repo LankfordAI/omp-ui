@@ -10781,6 +10781,42 @@ describe("reserveCheckout & checkout-mode convertToWorktree (Slice 2)", () => {
     expect(registry.sessions.find((s) => s.tabId === dirtyTab)!.worktree?.path).toBe(dirtyWt.path);
     expect(fs.existsSync(dirtyWt.path)).toBe(true);
   });
+
+  it("serializes empty-worktree reclaim in settleSession against a concurrent resume", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/settle-race", baseRef: "main", baseBranch: null } },
+    });
+    const rpcFirst = rpcInstances.at(-1)!;
+    rpcFirst.kill.mockImplementation(() => rpcFirst.exit(0));
+    const wt = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+    expect(fs.existsSync(wt.path)).toBe(true);
+
+    const settlePromise = manager.settleSession(tabId);
+    const resumePromise = manager.spawn({
+      origin: "resume",
+      resumeTabId: tabId,
+      cols: 80,
+      rows: 24,
+      planMode: false,
+    });
+    const [settled] = await Promise.all([settlePromise, resumePromise]);
+    expect(settled).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(false);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    const rpcResumed = rpcInstances.at(-1)!;
+    expect(rpcResumed).not.toBe(rpcFirst);
+    expect(rpcResumed.dead).toBe(false);
+  });
   it("runs opt-in worktreeSetup copyPaths and async postCreateCommand, emitting worktree:setupState (Slice 3.3)", async () => {
     const { manager, registry, sent } = setup();
     const project = await gitProject(base);

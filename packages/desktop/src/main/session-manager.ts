@@ -3746,20 +3746,27 @@ export class SessionManager {
     this.killShell(tabId);
     // Captured before the chain runs: if a resume replaces the process while
     // this queues, the reap must never touch the successor. Absent means
-    // already dormant — nothing to reap, and that is a settled session.
+    // already dormant — nothing to reap, and that is a settled session, unless
+    // a resume landed ahead of us in the queue.
     const captured = this.live.get(tabId);
-    const settled =
-      captured === undefined ||
-      (await this.enqueueOp(tabId, "settle", async () => {
+    return this.enqueueOp(tabId, "settle", async () => {
+      let settled: boolean;
+      if (captured === undefined) {
+        settled = !this.live.has(tabId);
+      } else {
         const current = this.live.get(tabId);
-        if (current !== captured) return current === undefined;
-        if (current.kind === "rpc-ui") return this.hibernate(tabId, current, "settle");
-        // PTY: the terminate-style reap minus its own enqueueOp (we already hold the chain).
-        this.deps.breadcrumb?.record("session-terminate", { tabId });
-        await this.escalateOnTerminate(tabId, current);
-        return this.live.get(tabId) !== current;
-      }));
-    if (settled) {
+        if (current !== captured) {
+          settled = current === undefined;
+        } else if (current.kind === "rpc-ui") {
+          settled = await this.hibernate(tabId, current, "settle");
+        } else {
+          // PTY: the terminate-style reap minus its own enqueueOp (we already hold the chain).
+          this.deps.breadcrumb?.record("session-terminate", { tabId });
+          await this.escalateOnTerminate(tabId, current);
+          settled = this.live.get(tabId) !== current;
+        }
+      }
+      if (!settled) return false;
       this.releaseCheckoutClaim(tabId);
       this.cancelWorktreeSetup(tabId);
       const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -3793,8 +3800,8 @@ export class SessionManager {
         }
         if (changed) void this.deps.broadcast();
       }
-    }
-    return settled;
+      return true;
+    });
   }
 
   private async hibernate(

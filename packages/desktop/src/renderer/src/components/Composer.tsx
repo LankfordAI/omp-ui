@@ -952,7 +952,7 @@ export function Composer({
         } else if (!planOn && workspacePolicy === "auto" && isGitRepo && !workspaceTouched) {
           // Host-serialized checkout reservation prevents two blank Build tabs
           // opened side-by-side from racing onto the shared checkout.
-          let occupied = false;
+          let occupied: boolean;
           try {
             if (typeof backend.reserveCheckout === "function") {
               const res = await backend.reserveCheckout(tabId);
