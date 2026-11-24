@@ -31,6 +31,8 @@ async function gitRepoWithIgnored(): Promise<string> {
   await execFileP("git", ["init", "-q", "-b", "main"], { cwd: dir });
   await execFileP("git", ["config", "user.email", "test@example.com"], { cwd: dir });
   await execFileP("git", ["config", "user.name", "test"], { cwd: dir });
+  // Windows runners default to core.autocrlf=true, which checks tracked files out as CRLF.
+  await execFileP("git", ["config", "core.autocrlf", "false"], { cwd: dir });
   fs.writeFileSync(path.join(dir, ".gitignore"), ".env\n.env.*\ncache/\n");
   fs.writeFileSync(path.join(dir, "tracked.txt"), "tracked\n");
   await execFileP("git", ["add", "."], { cwd: dir });

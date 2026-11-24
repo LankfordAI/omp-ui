@@ -883,7 +883,11 @@ describe("parseWorktreeBranches", () => {
     const wt = path.join(tmpDir(), "linked-wt");
     await gitIn(dir, ["worktree", "add", "-q", "-b", "feat/linked", wt, "main"]);
     const list = await listBranches(dir);
-    expect(list.worktrees?.["feat/linked"]).toBe(fs.realpathSync.native(wt));
+    // git emits forward-slash paths in `worktree list --porcelain` on Windows,
+    // while fs.realpathSync.native uses the platform separator — normalize both.
+    expect(path.normalize(list.worktrees?.["feat/linked"] ?? "")).toBe(
+      path.normalize(fs.realpathSync.native(wt)),
+    );
     expect(list.worktrees?.main).toBeUndefined();
   });
 });
