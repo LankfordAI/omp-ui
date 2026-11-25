@@ -1986,4 +1986,78 @@ describe("FinishWorktreeDialog", () => {
     expect(backendMock.settleSession).not.toHaveBeenCalled();
   });
   });
+
+  describe("worktree checked out directly on its destination branch (issue #1363)", () => {
+    it("unblocks return, keeps the branch, preserves destination in the select, and settles without merging", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({
+          destination: "main",
+          destinationCheckout: "other",
+          alreadyMerged: true,
+          ahead: 0,
+          behind: 0,
+        }),
+      );
+      await openDialog("main");
+
+      // Must not claim main is checked out in another worktree or force Push & PR.
+      expect(document.body.textContent).not.toContain("checked out in another worktree");
+      expect(document.body.textContent).toContain("this worktree is on main — nothing to merge");
+      expect(document.body.textContent).toContain("finish on main");
+      expect(document.body.textContent).toContain("the checkout is removed; the branch main stays");
+      expect(mergeRadio().disabled).toBe(false);
+      expect(mergeRadio().checked).toBe(true);
+      expect(destinationSelect().value).toBe("main");
+
+      const primary = primaryButton();
+      expect(primary.disabled).toBe(false);
+      expect(primary.textContent).toBe("return");
+
+      act(() => primary.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // Skips git merge, keeps the `main` branch ref alive, closes, and settles.
+      expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
+        keepBranch: true,
+        mergedInto: null,
+        checkoutOnReturn: null,
+      });
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+    });
+
+    it("allows returning an already-merged branch even when destination is checked out in another worktree", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({
+          destination: "main",
+          destinationCheckout: "other",
+          alreadyMerged: true,
+          ahead: 0,
+          behind: 0,
+        }),
+      );
+      await openDialog(BRANCH);
+
+      expect(mergeRadio().disabled).toBe(false);
+      expect(mergeRadio().checked).toBe(true);
+      expect(document.body.textContent).not.toContain("checked out in another worktree");
+      expect(primaryButton().textContent).toBe("return");
+
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
+        keepBranch: false,
+        mergedInto: "main",
+        checkoutOnReturn: null,
+      });
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
+    });
+  });
 });

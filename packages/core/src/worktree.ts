@@ -581,7 +581,7 @@ export async function isEmptyCleanWorktree(
     if (dirty !== false) return false;
     const resolved = await resolveMergeDestination(projectCwd, worktree.base);
     const dest = resolved.destination ?? (await readDefaultBranch(projectCwd));
-    if (dest === null) return false;
+    if (dest === null || dest === worktree.branch) return false;
     if (!(await hasRef(projectCwd, `refs/heads/${worktree.branch}`))) return false;
     if (!(await hasRef(projectCwd, `refs/heads/${dest}`))) return false;
     return await isAncestor(projectCwd, worktree.branch, dest);
@@ -1140,6 +1140,10 @@ export async function removeWorktreeBranch(
   }
   const existing: string[] = [];
   for (const candidate of destinations) {
+    // Never let a branch self-justify its own deletion (#1363): e.g. a worktree
+    // checked out directly on `main` has base `main`, and `main` is trivially
+    // an ancestor of `main`.
+    if (candidate === branch) continue;
     if (await hasRef(projectCwd, `refs/heads/${candidate}`)) existing.push(candidate);
   }
   if (existing.length === 0) return { kind: "kept-no-destination" };

@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_ROUTINE_NOTIFICATIONS, type RoutineRecord, type RoutineRunRow } from "./routine";
+import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
+  ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
+  type RoutineRecord,
+  type RoutineRunRow,
+} from "./routine";
 import { RoutineRunHistory, RoutineStore } from "./routine-store";
 
 const dirs: string[] = [];
@@ -242,6 +247,51 @@ describe("RoutineStore scheduled-refresh backfill (ADR-0101)", () => {
       "utf8",
     );
     expect(new RoutineStore(badFile).list().map((r) => r.id)).toEqual([VALID_ID]);
+  });
+
+  it("rejects adding or updating into Plan mode with an artifact binding without mutating state (#1361)", () => {
+    const file = tempFile("routines-plan-artifact");
+    const store = new RoutineStore(file);
+    const binding = {
+      artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+      datasetIds: ["scores"],
+      autoApply: false,
+    };
+    expect(() => store.add(record({ mode: "plan", artifact: binding }))).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(store.list()).toEqual([]);
+    expect(fs.existsSync(file)).toBe(false);
+
+    store.add(record({ id: VALID_ID, mode: "build", artifact: binding }));
+    expect(() => store.update(VALID_ID, { mode: "plan" })).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(store.get(VALID_ID)?.mode).toBe("build");
+
+    const id2 = "b".repeat(22);
+    store.add(record({ id: id2, mode: "plan", artifact: null }));
+    expect(() => store.update(id2, { artifact: binding })).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(store.get(id2)?.artifact).toBeNull();
+  });
+
+  it("migrates a legacy on-disk Plan-mode artifact routine to Build mode once without dropping it (#1361)", () => {
+    const file = tempFile("routines-legacy-plan-artifact");
+    const binding = {
+      artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+      datasetIds: ["tickets"],
+      autoApply: true,
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, routines: [record({ mode: "plan", artifact: binding })] }),
+      "utf8",
+    );
+
+    const store = new RoutineStore(file);
+    expect(store.get(VALID_ID)).toMatchObject({ mode: "build", artifact: binding });
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { routines: RoutineRecord[] };
+    expect(onDisk.routines).toHaveLength(1);
+    expect(onDisk.routines[0]).toMatchObject({ id: VALID_ID, mode: "build", artifact: binding });
+
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)).toMatchObject({ mode: "build", artifact: binding });
   });
 });
 

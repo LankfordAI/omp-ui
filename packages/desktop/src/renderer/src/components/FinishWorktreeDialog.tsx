@@ -76,16 +76,8 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const dirty = status?.worktreeDirty === true;
   const targetName =
     c.newBranch !== null ? c.newBranch.name.trim() : (c.destination ?? "");
-  // The merge radio's blockers mirror the controller's primary gate — a
-  // scratch merge (new branch included) is immune to the project checkout's
-  // mid-merge, and only an "other"-held destination refuses outright. The
-  // dirty overlap (#1050) blocks exactly as the controller's gate does.
-  const mergeBlocked =
-    status !== null &&
-    c.newBranch === null &&
-    (status.destinationCheckout === "other" ||
-      (status.destinationCheckout === "project" &&
-        (status.mergeInProgress || (c.destinationDirtyFiles?.length ?? 0) > 0)));
+  const sameBranch = c.newBranch === null && targetName !== "" && targetName === branch;
+  const mergeBlocked = c.mergeBlocked;
 
   const working = c.phase.s === "working";
   const blockerTab = c.resolution?.blockedByTabId ?? null;
@@ -98,16 +90,19 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
 
   const mergeSublabel = (): React.ReactNode => {
     if (status === null) return null;
+    if (status.alreadyMerged)
+      return (
+        <p className={quietClass}>
+          {sameBranch
+            ? `commits are already on ${branch}; returning keeps the branch`
+            : `the branch ${branch} is already in ${targetName}`}
+        </p>
+      );
     if (c.newBranch === null && status.destinationCheckout === "other")
       return <p className={copperClass}>{`${targetName} is checked out in another worktree — pick another destination`}</p>;
     if (c.newBranch === null && status.destinationCheckout === "project" && status.mergeInProgress)
       return <p className={copperClass}>a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort</p>;
-    if (status.alreadyMerged)
-      return (
-        <p className={quietClass}>{`the branch ${branch} is already in ${targetName}`}</p>
-      );
     const preview = status.preview;
-    // The working-tree overlap (issue #1050): the ref-level preview below is
     // blind to these files, and git refuses the merge on them before any
     // strategy runs. They take the row over — "no conflicts predicted"
     // beside a merge that cannot start is exactly what this issue reported.
@@ -200,9 +195,11 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const returnHint = (): string => {
     if (c.outcome === "merge")
       return c.returnSession
-        ? c.checkoutTarget !== null
-          ? `the checkout is removed, the branch ${branch} deleted once it is in ${targetName}, and this session returns on ${targetName}`
-          : `the checkout is removed and the branch ${branch} deleted once it is in ${targetName}`
+        ? sameBranch
+          ? `the checkout is removed; the branch ${branch} stays`
+          : c.checkoutTarget !== null
+            ? `the checkout is removed, the branch ${branch} deleted once it is in ${targetName}, and this session returns on ${targetName}`
+            : `the checkout is removed and the branch ${branch} deleted once it is in ${targetName}`
         : `the session stays in its checkout on ${branch}`;
     return c.returnSession
       ? `the checkout is removed; the branch ${branch} stays`
@@ -290,9 +287,11 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           <p className="text-xs text-ink-faint">
             {status === null
               ? "…"
-              : status.alreadyMerged
-                ? `the branch ${branch} is already in ${targetName}`
-                : `${status.ahead === 1 ? `${status.ahead} commit` : `${status.ahead} commits`} ahead of ${targetName}, ${status.behind} behind`}
+              : sameBranch
+                ? `this worktree is on ${branch} — nothing to merge`
+                : status.alreadyMerged
+                  ? `the branch ${branch} is already in ${targetName}`
+                  : `${status.ahead === 1 ? `${status.ahead} commit` : `${status.ahead} commits`} ahead of ${targetName}, ${status.behind} behind`}
           </p>
           {dirty && (
             <div className="flex items-center justify-between gap-2">
@@ -387,15 +386,17 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           <label
             className={mergeBlocked ? `${radioRowClass} pointer-events-none text-ink-dim` : radioRowClass}
             title={
-              status !== null && c.newBranch === null && status.destinationCheckout === "other"
-                ? `${status.destination} is checked out in another worktree — pick another destination`
-                : status !== null &&
-                    status.destinationCheckout === "project" &&
-                    status.mergeInProgress
-                  ? "a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort"
-                  : (c.destinationDirtyFiles?.length ?? 0) > 0
-                    ? "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first"
-                    : undefined
+              !mergeBlocked
+                ? undefined
+                : status !== null && c.newBranch === null && status.destinationCheckout === "other"
+                  ? `${status.destination} is checked out in another worktree — pick another destination`
+                  : status !== null &&
+                      status.destinationCheckout === "project" &&
+                      status.mergeInProgress
+                    ? "a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort"
+                    : (c.destinationDirtyFiles?.length ?? 0) > 0
+                      ? "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first"
+                      : undefined
             }
           >
             <input
@@ -408,7 +409,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             />
             <span className="min-w-0 space-y-1">
               <span className="block text-ink">
-                {`merge into ${targetName}`}
+                {sameBranch ? `finish on ${branch}` : `merge into ${targetName}`}
               </span>
               {mergeSublabel()}
             </span>
@@ -438,6 +439,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 <option value="" disabled>
                   checking the repo…
                 </option>
+              )}
+              {c.destination !== null && !c.branches.includes(c.destination) && (
+                <option value={c.destination}>{c.destination}</option>
               )}
               {c.branches.map((name) => (
                 <option key={name} value={name}>
@@ -474,6 +478,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     onChange={(event) => c.setNewBranch({ from: event.target.value })}
                   >
                     {c.newBranch.from === "" && <option value="" disabled />}
+                    {c.newBranch.from !== "" && !c.branches.includes(c.newBranch.from) && (
+                      <option value={c.newBranch.from}>{c.newBranch.from}</option>
+                    )}
                     {c.branches.map((name) => (
                       <option key={name} value={name}>
                         {name}

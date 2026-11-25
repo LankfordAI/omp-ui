@@ -240,7 +240,11 @@ function routineCreateTool(): RpcHostToolDefinition {
           enum: ["worktree", "checkout"],
           description: 'Run isolation; omit = "worktree" (a fresh worktree each fire). "checkout" runs in the registered checkout itself.',
         },
-        mode: { type: "string", enum: ["plan", "build"] },
+        mode: {
+          type: "string",
+          enum: ["plan", "build"],
+          description: 'Execution mode. Artifact-bound routines require "build" (Plan mode disables omp-ui_artifact_capture).',
+        },
         model: { type: ["string", "null"], description: "Model selector; null = machine default." },
         thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default." },
         allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
@@ -251,7 +255,7 @@ function routineCreateTool(): RpcHostToolDefinition {
         },
         artifact: {
           oneOf: [ROUTINE_ARTIFACT_BINDING_SCHEMA, { type: "null" }],
-          description: "Scheduled-refresh binding (ADR-0101); omit = plain routine.",
+          description: 'Scheduled-refresh binding (ADR-0101); omit = plain routine. Requires mode: "build" (Plan mode disables omp-ui_artifact_capture).',
         },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
@@ -314,7 +318,11 @@ function routineUpdateTool(): RpcHostToolDefinition {
           enum: ["worktree", "checkout"],
           description: 'New run isolation; omit = keep the stored choice. "checkout" runs in the registered checkout itself.',
         },
-        mode: { type: "string", enum: ["plan", "build"] },
+        mode: {
+          type: "string",
+          enum: ["plan", "build"],
+          description: 'Execution mode. Artifact-bound routines require "build" (Plan mode disables omp-ui_artifact_capture).',
+        },
         model: { type: ["string", "null"], description: "Model selector; null = machine default; omit = leave unchanged." },
         thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default; omit = leave unchanged." },
         allow: { type: "array", items: { type: "string" }, description: "Replaces the exact omp tool keys allowed unprompted; omit = preserve the current list." },
@@ -325,7 +333,7 @@ function routineUpdateTool(): RpcHostToolDefinition {
         },
         artifact: {
           oneOf: [ROUTINE_ARTIFACT_BINDING_SCHEMA, { type: "null" }],
-          description: "Scheduled-refresh binding (ADR-0101); null clears it, omit = leave unchanged.",
+          description: 'Scheduled-refresh binding (ADR-0101); null clears it, omit = leave unchanged. Requires mode: "build" (Plan mode disables omp-ui_artifact_capture).',
         },
         enabled: {
           type: "boolean",

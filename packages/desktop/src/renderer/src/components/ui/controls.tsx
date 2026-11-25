@@ -488,7 +488,7 @@ export function ChoiceCapsule<T extends string | number>({
             aria-pressed={selected}
             tabIndex={selected && !disabled && option.disabled !== true ? 0 : -1}
             onClick={() => {
-              if (!disabled) onChange(option.value);
+              if (!disabled && option.disabled !== true) onChange(option.value);
             }}
             onKeyDown={(event) => {
               const target =

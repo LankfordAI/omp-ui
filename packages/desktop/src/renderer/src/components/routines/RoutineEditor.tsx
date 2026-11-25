@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { nextRunAfter } from "@omp-ui/core/scheduled-prompt";
 import {
   DEFAULT_ROUTINE_NOTIFICATIONS,
+  ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
   ROUTINE_CLI_BYPASS_TOOLS,
   ROUTINE_COST_MAX_USD,
   ROUTINE_DEFAULT_ALLOW_BUILTINS,
@@ -395,7 +396,9 @@ export function RoutineEditor({
                       ? `Each hook is at most ${ROUTINE_SCRIPT_MAX} characters.`
                       : draft.artifactId !== null && draft.datasetIds.length === 0
                         ? "Pick at least one artifact dataset to refresh."
-                        : null;
+                        : draft.artifactId !== null && draft.mode === "plan"
+                          ? ROUTINE_ARTIFACT_PLAN_MODE_ERROR
+                          : null;
 
   const input: RoutineInput | null =
     problem === null && schedule !== null
@@ -585,7 +588,8 @@ export function RoutineEditor({
       ? thinkingLevelColor(thinkingActiveIndex, efforts.length)
       : undefined;
 
-  const validationBanner = saveError ?? (dirty ? problem : null);
+  const validationBanner =
+    saveError ?? (dirty || (draft.artifactId !== null && draft.mode === "plan") ? problem : null);
   const visibleTab: StudioTab = routine === null && activeTab === "history" ? "config" : activeTab;
 
   return (
@@ -1015,7 +1019,12 @@ export function RoutineEditor({
                       disabled={readOnly}
                       options={[
                         { value: "build", label: "Build" },
-                        { value: "plan", label: "Plan" },
+                        {
+                          value: "plan",
+                          label: "Plan",
+                          disabled: draft.artifactId !== null,
+                          title: draft.artifactId !== null ? ROUTINE_ARTIFACT_PLAN_MODE_ERROR : undefined,
+                        },
                       ]}
                       onChange={(mode) => set({ mode })}
                       optionClassName="tab-label px-2"
@@ -1281,7 +1290,11 @@ export function RoutineEditor({
                       disabled={busy === "save"}
                       onChange={(e) => {
                         const next = e.target.value;
-                        set({ artifactId: next === "" ? null : next, datasetIds: [] });
+                        set({
+                          artifactId: next === "" ? null : next,
+                          datasetIds: [],
+                          ...(next !== "" && draft.mode === "plan" ? { mode: "build" } : {}),
+                        });
                         setArtifactDatasets(null);
                       }}
                     >
@@ -1342,7 +1355,7 @@ export function RoutineEditor({
                         <span>Apply each scheduled capture without review (the app still refuses if the data changed underneath)</span>
                       </label>
                       <p className="text-[11px] leading-relaxed text-ink-faint">
-                        While bound, <code className="font-mono">omp-ui_artifact_capture</code> runs unprompted for this routine; a policy deny of that tool still wins.
+                        Artifact refresh routines run in Build mode so <code className="font-mono">omp-ui_artifact_capture</code> is available; while bound, it runs unprompted (a policy deny still wins).
                       </p>
                     </>
                   )}

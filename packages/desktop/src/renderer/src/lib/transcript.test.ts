@@ -421,6 +421,99 @@ describe("reduceEvent message lifecycle", () => {
     });
     expect(assistant(items)).toMatchObject({ timestamp, streaming: false });
   });
+
+  // issue #1337: omp ≥ 19.2 marks an unmet-soft-tool-requirement stop
+  // errorFromAgentLoop; the transcript says so distinctly instead of leaving
+  // it as a bare provider-error turn.
+  it("appends omp's own notice text when the agent loop stopped the turn", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "working" },
+    });
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage:
+          "Soft tool requirement 'task' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop.",
+        errorFromAgentLoop: true,
+      },
+    });
+    const a = assistant(items);
+    expect(a).toMatchObject({ stopReason: "error", errorFromAgentLoop: true });
+    const notice = items.at(-1);
+    expect(notice?.kind).toBe("notice");
+    expect(notice).toMatchObject({
+      level: "warn",
+      text:
+        "Soft tool requirement 'task' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop.",
+    });
+  });
+
+  it("falls back to generic loop-stop copy when the message carries no text", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: { role: "assistant", content: [], stopReason: "error", errorFromAgentLoop: true },
+    });
+    const notice = items.at(-1);
+    expect(notice?.kind).toBe("notice");
+    if (notice?.kind !== "notice") throw new Error("expected a notice item");
+    expect(notice.text).toContain("agent loop");
+  });
+
+  it("keeps a provider-error turn notice-free", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "Request failed: overloaded_error",
+      },
+    });
+    expect(assistant(items)).not.toHaveProperty("errorFromAgentLoop");
+    expect(items.some((i) => i.kind === "notice")).toBe(false);
+  });
+
+  it("replays a persisted agent-loop stop with the same notice", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "Soft tool requirement 'task' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop.",
+        errorFromAgentLoop: true,
+      },
+    ]);
+    expect(items[0]).toMatchObject({ kind: "assistant", errorFromAgentLoop: true });
+    expect(items[1]).toMatchObject({
+      kind: "notice",
+      level: "warn",
+      text: "Soft tool requirement 'task' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop.",
+    });
+  });
+
+  it("replays the agent-loop-stop notice after the message's tool cards, as the live path streamed it", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "t1", name: "bash", arguments: {} }],
+        stopReason: "error",
+        errorMessage: "Soft tool requirement 'bash' was not satisfied after 3 forced turns.",
+        errorFromAgentLoop: true,
+      },
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["assistant", "tool", "notice"]);
+  });
 });
 
 describe("reduceEvent tool executions", () => {
