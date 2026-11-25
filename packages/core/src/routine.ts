@@ -368,6 +368,8 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
   const mode = parseMode(raw.mode);
   const workspace = parseWorkspace(raw.workspace === undefined ? "worktree" : raw.workspace);
   const allow = parseToolKeyList(raw.allow, "allow");
+  const artifact = parseArtifactBinding(raw.artifact, "artifact");
+  assertRoutineModeArtifactCompatible(mode, artifact);
   return {
     name,
     instructions,
@@ -380,7 +382,7 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
     thinkingLevel: parseNullableString(raw.thinkingLevel === undefined ? null : raw.thinkingLevel, "thinkingLevel"),
     allow,
     deny: parseToolKeyList(raw.deny === undefined ? [] : raw.deny, "deny"),
-    artifact: parseArtifactBinding(raw.artifact, "artifact"),
+    artifact,
     warnUsd: parseSpendNumber(raw.warnUsd === undefined ? null : raw.warnUsd, "warnUsd"),
     maxUsd: parseSpendNumber(raw.maxUsd === undefined ? null : raw.maxUsd, "maxUsd"),
     timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
@@ -590,6 +592,9 @@ export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArg
     }
   }
   if (!changed) throw new Error("routine update must change at least one field");
+  if (args.mode !== undefined && args.artifact !== undefined) {
+    assertRoutineModeArtifactCompatible(args.mode, args.artifact);
+  }
   return args;
 }
 
@@ -610,6 +615,9 @@ export function routinePatchFromAgentUpdate(
   args: RoutineAgentUpdateArgs,
   nowIso: string,
 ): RoutinePatch {
+  const nextMode = args.mode ?? current.mode;
+  const nextArtifact = args.artifact !== undefined ? args.artifact : current.artifact;
+  assertRoutineModeArtifactCompatible(nextMode, nextArtifact);
   const patch: RoutinePatch = { enabled: args.enabled ?? false };
   if (args.name !== undefined) patch.name = args.name;
   if (args.instructions !== undefined) patch.instructions = args.instructions;
@@ -1087,6 +1095,18 @@ function parseArtifactBinding(value: unknown, field: string): RoutineArtifactBin
   return { artifactId: value.artifactId, datasetIds: [...value.datasetIds], autoApply: value.autoApply };
 }
 
+export const ROUTINE_ARTIFACT_PLAN_MODE_ERROR =
+  "Artifact refresh routines must run in Build mode (Plan mode disables omp-ui_artifact_capture)";
+
+export function assertRoutineModeArtifactCompatible(
+  mode: RoutineMode,
+  artifact: RoutineArtifactBinding | null,
+): void {
+  if (mode === "plan" && artifact !== null) {
+    throw new Error(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+  }
+}
+
 /** Absent means all-off. A present value must be well-formed: never coerce. */
 function parseNotifications(value: unknown): RoutineNotifications {
   if (value === undefined) return { ...DEFAULT_ROUTINE_NOTIFICATIONS };
@@ -1315,13 +1335,16 @@ export function parseRoutineInput(raw: unknown): RoutineInput {
   assertAllowedKeys(raw, ROUTINE_INPUT_KEYS, "routine");
   const enabled = raw.enabled === undefined ? true : raw.enabled;
   if (typeof enabled !== "boolean") throw new Error("enabled must be a boolean");
+  const mode = parseMode(raw.mode);
+  const artifact = parseArtifactBinding(raw.artifact, "artifact");
+  assertRoutineModeArtifactCompatible(mode, artifact);
   return {
     name: parseName(raw.name),
     instructions: parseInstructions(raw.instructions),
     schedule: parseSchedule(raw.schedule),
     timeZone: parseTimeZone(raw.timeZone),
     destination: parseDestination(raw.destination),
-    mode: parseMode(raw.mode),
+    mode,
     model: parseNullableString(raw.model, "model"),
     thinkingLevel: parseNullableString(raw.thinkingLevel, "thinkingLevel"),
     spend: parseSpend(raw.spend),
@@ -1329,7 +1352,7 @@ export function parseRoutineInput(raw: unknown): RoutineInput {
     scripts: parseScripts(raw.scripts),
     timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
     notifications: parseNotifications(raw.notifications),
-    artifact: parseArtifactBinding(raw.artifact, "artifact"),
+    artifact,
     enabled,
   };
 }
@@ -1356,6 +1379,9 @@ export function parseRoutinePatch(raw: unknown): RoutinePatch {
   if ("enabled" in raw) {
     if (typeof raw.enabled !== "boolean") throw new Error("enabled must be a boolean");
     out.enabled = raw.enabled;
+  }
+  if (out.mode !== undefined && out.artifact !== undefined) {
+    assertRoutineModeArtifactCompatible(out.mode, out.artifact);
   }
   return out;
 }

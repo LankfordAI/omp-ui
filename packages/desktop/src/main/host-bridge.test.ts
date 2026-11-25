@@ -2660,6 +2660,24 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     expect(JSON.stringify(f.sent[1])).toContain("time zone");
   });
 
+  it("refuses Plan-mode routines bound to an artifact on create and update before reaching the service (#1361)", async () => {
+    const f = routineFixture();
+    const artifact = {
+      artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+      datasetIds: ["tickets"],
+      autoApply: false,
+    };
+    f.bridge.route("t1", toolCallFrame("p1", "omp-ui_routines_create", { ...GOOD_ARGS, mode: "plan", artifact }), f.send);
+    f.bridge.route("t1", toolCallFrame("p2", "omp-ui_routines_update", { id: ROUTINE_ID, mode: "plan", artifact }), f.send);
+    await settled();
+    expect(f.received).toEqual([]);
+    const byId = (id: string) => f.sent.find((frame) => frame.id === id);
+    expect(byId("p1")).toMatchObject({ id: "p1", isError: true });
+    expect(JSON.stringify(byId("p1"))).toContain("Build mode");
+    expect(byId("p2")).toMatchObject({ id: "p2", isError: true });
+    expect(JSON.stringify(byId("p2"))).toContain("Build mode");
+  });
+
   it("answers unavailable when the routines dep is absent and explains the review URI on read", async () => {
     const f = fixture();
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", GOOD_ARGS), f.send);

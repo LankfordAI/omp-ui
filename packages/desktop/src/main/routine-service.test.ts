@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ARTIFACT_CAPTURE_TOOL_NAME,
+  ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
   DEFAULT_ROUTINE_NOTIFICATIONS,
   ROUTINE_NOTIFY_TOOL_KEY,
   ROUTINE_ID_PATTERN,
@@ -459,6 +461,54 @@ describe("RoutineService boot hygiene (#1305)", () => {
     expect(h.sessions.find((s) => s.tabId === "live-routine")?.settledAtMs).toBeNull();
     expect(h.sessions.find((s) => s.tabId === "dormant-settled")?.settledAtMs).toBe(1234);
     expect(h.sessions.find((s) => s.tabId === "ordinary-dormant")?.settledAtMs).toBeNull();
+    h.service.dispose();
+  });
+});
+
+describe("RoutineService artifact binding mode invariant and dryRun (#1361)", () => {
+  const binding = {
+    artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+    datasetIds: ["tickets"],
+    autoApply: false,
+  };
+
+  it("rejects creating or transitioning into Plan mode while bound, and allows atomic transitions", async () => {
+    const h = harness();
+    await expect(h.service.create(input({ mode: "plan", artifact: binding }))).rejects.toThrow(
+      ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
+    );
+    expect(h.store.list()).toEqual([]);
+
+    const bound = await h.service.create(input({ mode: "build", artifact: binding }));
+    await expect(h.service.update(bound.id, { mode: "plan" })).rejects.toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    await expect(
+      h.service.updateFromAgent({ id: bound.id, mode: "plan" }, new Date(T0).toISOString()),
+    ).rejects.toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(h.store.get(bound.id)?.mode).toBe("build");
+
+    const unboundPlan = await h.service.update(bound.id, { mode: "plan", artifact: null });
+    expect(unboundPlan).toMatchObject({ mode: "plan", artifact: null });
+
+    await expect(h.service.update(bound.id, { artifact: binding })).rejects.toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    await expect(
+      h.service.updateFromAgent({ id: bound.id, artifact: binding }, new Date(T0).toISOString()),
+    ).rejects.toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(h.store.get(bound.id)?.artifact).toBeNull();
+
+    const reboundBuild = await h.service.update(bound.id, { mode: "build", artifact: binding });
+    expect(reboundBuild).toMatchObject({ mode: "build", artifact: binding });
+    h.service.dispose();
+  });
+
+  it("includes omp-ui_artifact_capture: allow in dryRun for bound routines", async () => {
+    const h = harness();
+    const bound = await h.service.create(input({ mode: "build", artifact: binding }));
+    const dryBound = await h.service.dryRun({ kind: "saved", id: bound.id });
+    expect(dryBound.compiled.overlayEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBe("allow");
+
+    const plain = await h.service.create(input({ mode: "plan", artifact: null }));
+    const dryPlain = await h.service.dryRun({ kind: "saved", id: plain.id });
+    expect(dryPlain.compiled.overlayEntries[ARTIFACT_CAPTURE_TOOL_NAME]).toBeUndefined();
     h.service.dispose();
   });
 });

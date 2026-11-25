@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { writeTextAtomic } from "./atomic-write";
 import {
+  assertRoutineModeArtifactCompatible,
   DEFAULT_ROUTINE_NOTIFICATIONS,
   isRoutineRecord,
   isRoutineRunRow,
@@ -67,6 +68,12 @@ export class RoutineStore {
         record.artifact = null;
         mutated = true;
       }
+      // Legacy pre-#1361 record: artifact refresh requires Build mode (Plan mode
+      // withholds omp-ui_artifact_capture). Migrate in place once rather than dropping.
+      if (record.mode === "plan" && record.artifact !== null) {
+        record.mode = "build";
+        mutated = true;
+      }
       this.records.push(record);
     }
     if (mutated) {
@@ -92,6 +99,7 @@ export class RoutineStore {
   }
 
   add(record: RoutineRecord): void {
+    assertRoutineModeArtifactCompatible(record.mode, record.artifact);
     if (this.records.some((r) => r.id === record.id)) {
       throw new Error(`routine ${record.id} already exists`);
     }
@@ -103,6 +111,7 @@ export class RoutineStore {
     const index = this.records.findIndex((r) => r.id === id);
     if (index < 0) throw new Error(`unknown routine ${id}`);
     const next: RoutineRecord = structuredClone({ ...this.records[index]!, ...patch });
+    assertRoutineModeArtifactCompatible(next.mode, next.artifact);
     this.records[index] = next;
     this.save();
     return structuredClone(next);

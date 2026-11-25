@@ -15,7 +15,7 @@ import { backendState, remoteInstance } from "../../test/fixtures";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const backendMock = {
   artifactList: vi.fn(async () => ({
-    artifacts: [],
+    artifacts: [] as unknown[],
     nextCursor: null,
     libraryBytesUsed: 0,
     totalCount: 0,
@@ -1169,5 +1169,231 @@ describe("RoutinesView Schedule refresh shortcut from Artifacts (#1307)", () => 
     expect(artifactDescribe).toHaveBeenCalledWith({ artifactId: beyondPageId });
     expect(document.body.textContent).toContain("Older Dashboard");
     expect(document.body.textContent).not.toContain("no longer exists");
+  });
+});
+
+describe("RoutineEditor Plan-mode artifact guard (#1361)", () => {
+  const ARTIFACT_ID = "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b";
+
+  it("auto-switches Plan to Build when binding an artifact, disables Plan while bound, and re-enables Plan when cleared", async () => {
+    backendMock.artifactList.mockResolvedValue({
+      artifacts: [
+        {
+          artifactId: ARTIFACT_ID,
+          ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+          title: "Jira Tickets",
+          managed: true,
+          currentCodeRevisionId: "22222222-2222-4222-8222-222222222222",
+          currentDataSnapshotId: "33333333-3333-4333-8333-333333333333",
+          generation: 1,
+          keptAt: "2026-11-01T00:00:00.000Z",
+          createdAt: "2026-11-01T00:00:00.000Z",
+          updatedAt: "2026-11-01T00:00:00.000Z",
+          pinnedAt: null,
+          origin: {
+            ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+            lineageDir: "l",
+            sessionId: null,
+            runtimeKey: null,
+            toolCallId: null,
+            sourceHash: "a".repeat(64),
+            createdAt: "2026-11-01T00:00:00.000Z",
+          },
+          originContext: { kind: "project", label: "one", path: PROJECT },
+          sourceDraftId: "44444444-4444-4444-8444-444444444444",
+        },
+      ],
+      nextCursor: null,
+      libraryBytesUsed: 0,
+      totalCount: 1,
+      pendingReviewCount: 0,
+      pendingReviewPreview: [],
+      origins: [],
+    });
+    backendMock.artifactDescribe.mockResolvedValue({
+      artifact: {
+        artifactId: ARTIFACT_ID,
+        ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+        title: "Jira Tickets",
+        managed: true,
+        currentCodeRevisionId: "22222222-2222-4222-8222-222222222222",
+        currentDataSnapshotId: "33333333-3333-4333-8333-333333333333",
+        generation: 1,
+        keptAt: "2026-11-01T00:00:00.000Z",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        updatedAt: "2026-11-01T00:00:00.000Z",
+        pinnedAt: null,
+        origin: {
+          ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+          lineageDir: "l",
+          sessionId: null,
+          runtimeKey: null,
+          toolCallId: null,
+          sourceHash: "a".repeat(64),
+          createdAt: "2026-11-01T00:00:00.000Z",
+        },
+        originContext: { kind: "project", label: "one", path: PROJECT },
+        sourceDraftId: "44444444-4444-4444-8444-444444444444",
+      },
+      code: {
+        artifactId: ARTIFACT_ID,
+        codeRevisionId: "22222222-2222-4222-8222-222222222222",
+        revisionNumber: 1,
+        baseRevisionId: null,
+        definition: { protocolVersion: 1, stateSchema: "s-v1", datasets: [{ id: "tickets", title: "Tickets", schema: "t-v1" }] },
+        source: {
+          ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+          lineageDir: "l",
+          sessionId: null,
+          runtimeKey: null,
+          toolCallId: null,
+          sourceHash: "a".repeat(64),
+          createdAt: "2026-11-01T00:00:00.000Z",
+        },
+        createdAt: "2026-11-01T00:00:00.000Z",
+      },
+      snapshot: { artifactId: ARTIFACT_ID, dataSnapshotId: "33333333-3333-4333-8333-333333333333", stateRevision: 0, cause: "initial", createdAt: "2026-11-01T00:00:00.000Z", datasets: [] },
+      revisions: [],
+      snapshots: [],
+      references: [],
+      captures: [],
+      refreshRequests: [],
+      candidates: [],
+      retainedBytes: 512,
+      libraryBytesUsed: 512,
+      thumbnails: { dark: null, light: null },
+    });
+    const existing = routine({ mode: "plan", artifact: null });
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        artifactLibraryEnabled: true,
+        projects: [{
+          project: {
+            path: PROJECT,
+            name: "one",
+            addedAt: "2026-11-01T00:00:00.000Z",
+            lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
+            lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
+            browserClock: false,
+            councilRoster: null,
+            knowledgeHome: null,
+            repositoryKey: null,
+            icon: null,
+          },
+          sessions: [],
+        }],
+      }),
+      routinesState: routinesState({ routines: [existing] }),
+      routinesInstanceId: null,
+      refreshRoutines: vi.fn(async () => {}),
+      loadRoutineToolCatalog: vi.fn(async () => CATALOG),
+      readChatModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+    });
+
+    render();
+    await settle();
+    await openEditor(existing.id);
+
+    const modeButtons = () => {
+      const group = document.querySelector('[role="group"][aria-label="Mode"]')!;
+      const buttons = [...group.querySelectorAll("button")];
+      return {
+        build: buttons.find((b) => b.textContent === "Build")!,
+        plan: buttons.find((b) => b.textContent === "Plan")!,
+      };
+    };
+    expect(modeButtons().plan.getAttribute("aria-pressed")).toBe("true");
+    expect(modeButtons().plan.disabled).toBe(false);
+
+    const select = document.querySelector<HTMLSelectElement>("[data-routine-artifact-select]")!;
+    const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+    await act(async () => {
+      selectSetter.call(select, ARTIFACT_ID);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+
+    expect(modeButtons().build.getAttribute("aria-pressed")).toBe("true");
+    expect(modeButtons().plan.disabled).toBe(true);
+    expect(modeButtons().plan.title).toContain("Build mode");
+
+    await act(async () => {
+      selectSetter.call(select, "");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+
+    expect(modeButtons().plan.disabled).toBe(false);
+  });
+
+  it("surfaces validation alert and blocks Save for a remote routine in legacy Plan mode with an artifact until switched to Build", async () => {
+    const remoteProject = "/remote/proj";
+    const legacyRemote = routine({
+      id: "p".repeat(22),
+      name: "Legacy remote refresh",
+      mode: "plan",
+      destination: { projectCwd: remoteProject, workspace: "worktree" },
+      artifact: { artifactId: ARTIFACT_ID, datasetIds: ["tickets"], autoApply: false },
+    });
+    const remote = remoteInstance({
+      id: "inst-studio",
+      nickname: "studio",
+      url: "https://studio.tailnet:4677",
+      status: "joined",
+      routinesEnabled: true,
+      projects: [{
+        project: {
+          path: remoteProject,
+          name: "Studio Repo",
+          addedAt: "t",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+          browserClock: false,
+          councilRoster: null,
+          knowledgeHome: null,
+          repositoryKey: null,
+          icon: null,
+        },
+        sessions: [],
+      }],
+    });
+    useStore.setState({
+      state: backendState({ routinesEnabled: true, remoteInstances: [remote] }),
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: {
+        "inst-studio": routinesState({ machineLabel: "studio", routines: [legacyRemote] }),
+      },
+      routinesLoadError: {},
+      routinesLoading: {},
+      loadRoutineToolCatalog: vi.fn(async () => CATALOG),
+      readChatModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+    });
+    render();
+    await settle();
+    await openEditor(legacyRemote.id);
+
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Artifact refresh routines must run in Build mode");
+    expect(buttonNamed("Save routine").disabled).toBe(true);
+
+    const group = document.querySelector('[role="group"][aria-label="Mode"]')!;
+    const buildBtn = [...group.querySelectorAll("button")].find((b) => b.textContent === "Build")!;
+    const planBtn = [...group.querySelectorAll("button")].find((b) => b.textContent === "Plan")!;
+    expect(planBtn.disabled).toBe(true);
+    expect(buildBtn.disabled).toBe(false);
+
+    act(() => buildBtn.click());
+    await settle();
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(buttonNamed("Save routine").disabled).toBe(false);
   });
 });

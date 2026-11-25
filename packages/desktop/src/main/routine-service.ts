@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  assertRoutineModeArtifactCompatible,
   compileRoutineToolPolicy,
   nextRunAfter,
   resolveRoutineTimeoutMinutes,
@@ -193,6 +194,7 @@ export class RoutineService {
   async create(input: RoutineInput): Promise<RoutineRecord> {
     this.assertEnabled();
     this.assertProject(input.destination.projectCwd);
+    assertRoutineModeArtifactCompatible(input.mode, input.artifact);
     const nowMs = this.now();
     const record: RoutineRecord = {
       id: randomBytes(16).toString("base64url"),
@@ -216,6 +218,7 @@ export class RoutineService {
     if (current === null) throw new Error(`unknown routine ${id}`);
     const next = { ...current, ...patch };
     if (patch.destination !== undefined) this.assertProject(patch.destination.projectCwd);
+    assertRoutineModeArtifactCompatible(next.mode, next.artifact);
     const nowMs = this.now();
     const changes: Partial<RoutineRecord> = { ...patch };
     if (patch.toolPolicy !== undefined) {
@@ -295,6 +298,7 @@ export class RoutineService {
       nextFireAtMs: input.enabled ? nextRunAfter(input.schedule, input.timeZone, this.now()) : null,
       compiled: compileRoutineToolPolicy(input.toolPolicy, catalog, {
         allowAgentNotify: routineAllowsAgentNotification(input.notifications),
+        allowArtifactCapture: input.artifact !== null,
       }),
       warnCostUsd: input.spend.warnUsd ?? this.deps.defaultWarnCostUsd(),
       maxCostUsd: input.spend.maxUsd ?? this.deps.defaultMaxCostUsd(),

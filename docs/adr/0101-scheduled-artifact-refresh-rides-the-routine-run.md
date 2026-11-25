@@ -34,3 +34,17 @@ still validate through `parseArtifactBinding` on both paths — artifact UUID,
 (preflight, store fences on `autoApply` apply) is unchanged. The renderer
 picker remains the human route; strict unknown-key rejection still refuses a
 malformed binding.
+
+## Addendum (2026-11-25, #1361): Build mode required while bound
+
+Plan mode excludes `omp-ui_artifact_capture` from omp's enabled tool roster, so
+an artifact-bound routine saved in Plan mode spends tokens gathering data and
+fails at capture submission. `assertRoutineModeArtifactCompatible` in
+`packages/core/src/routine.ts` enforces that `mode === "plan"` and
+`artifact !== null` cannot be saved across all parsers, `RoutineStore`,
+`RoutineService`, `RoutineEditor`, and both agent host tools
+(`omp-ui_routines_create` / `omp-ui_routines_update`). `RoutineStore.load()`
+migrates any pre-existing on-disk `plan` + `artifact` record once in place to
+`mode: "build"` instead of dropping the routine. `RoutineService.dryRun` also
+passes `allowArtifactCapture: input.artifact !== null` to
+`compileRoutineToolPolicy` so dry-run previews match fire-time policy.

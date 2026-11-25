@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_ROUTINE_NOTIFICATIONS,
+  ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
   ROUTINE_DEFAULT_TIMEOUT_MINUTES,
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
@@ -737,7 +738,7 @@ describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 am
   });
 
   it("patches an artifact binding and clears it with explicit null (#1311)", () => {
-    const current = currentRecord();
+    const current = { ...currentRecord(), mode: "build" as const };
     const binding = {
       artifactId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
       datasetIds: ["rows"],
@@ -927,7 +928,7 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
   const binding = { artifactId: ARTIFACT_ID, datasetIds: ["scores", "roster"], autoApply: true };
 
   it("parses a binding on input and patch, defaults omitted to null, and rejects malformed shapes", () => {
-    expect(parseRoutineInput({ ...sampleInput(), artifact: binding }).artifact).toEqual(binding);
+    expect(parseRoutineInput({ ...sampleInput(), mode: "build", artifact: binding }).artifact).toEqual(binding);
     expect(parseRoutineInput(sampleInput()).artifact).toBeNull();
     expect(parseRoutinePatch({ artifact: binding }).artifact).toEqual(binding);
     expect(parseRoutinePatch({ artifact: null }).artifact).toBeNull();
@@ -987,7 +988,7 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
       "2026-11-23T00:00:00.000Z",
     ).artifact).toBeNull();
     expect(routinePatchFromAgentUpdate(
-      { ...sampleRecord(), artifact: binding },
+      { ...sampleRecord(), mode: "build", artifact: binding },
       parseRoutineAgentUpdateArgs({ id: VALID_ID, name: "Rename keeps binding out of the patch" }),
       "2026-11-23T00:00:00.000Z",
     ).artifact).toBeUndefined();
@@ -1037,5 +1038,69 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
       staleCatalog: false,
     };
     expect(isRoutineRunRow(row)).toBe(true);
+  });
+
+  it("rejects Plan mode combined with an artifact binding across all parsers (#1361)", () => {
+    expect(() => parseRoutineInput({ ...sampleInput(), mode: "plan", artifact: binding })).toThrow(
+      ROUTINE_ARTIFACT_PLAN_MODE_ERROR,
+    );
+    expect(parseRoutineInput({ ...sampleInput(), mode: "build", artifact: binding }).mode).toBe("build");
+    expect(parseRoutineInput({ ...sampleInput(), mode: "plan", artifact: null }).mode).toBe("plan");
+
+    expect(() => parseRoutinePatch({ mode: "plan", artifact: binding })).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(parseRoutinePatch({ mode: "plan", artifact: null })).toEqual({ mode: "plan", artifact: null });
+    expect(parseRoutinePatch({ mode: "plan" })).toEqual({ mode: "plan" });
+    expect(parseRoutinePatch({ artifact: binding })).toEqual({ artifact: binding });
+
+    expect(() =>
+      parseRoutineAgentCreateArgs({
+        name: "Refresh",
+        instructions: "x",
+        schedule: { kind: "cron", expr: "@daily" },
+        timeZone: "UTC",
+        projectCwd: "/repo",
+        mode: "plan",
+        allow: ["read"],
+        artifact: binding,
+      }),
+    ).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+
+    expect(() =>
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "plan", artifact: binding }),
+    ).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "plan", artifact: null })).toMatchObject({
+      mode: "plan",
+      artifact: null,
+    });
+
+    const now = "2026-11-25T00:00:00.000Z";
+    expect(() =>
+      routinePatchFromAgentUpdate(
+        { ...sampleRecord(), mode: "build", artifact: binding },
+        parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "plan" }),
+        now,
+      ),
+    ).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(() =>
+      routinePatchFromAgentUpdate(
+        { ...sampleRecord(), mode: "plan", artifact: null },
+        parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: binding }),
+        now,
+      ),
+    ).toThrow(ROUTINE_ARTIFACT_PLAN_MODE_ERROR);
+    expect(
+      routinePatchFromAgentUpdate(
+        { ...sampleRecord(), mode: "build", artifact: binding },
+        parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "plan", artifact: null }),
+        now,
+      ),
+    ).toMatchObject({ mode: "plan", artifact: null });
+    expect(
+      routinePatchFromAgentUpdate(
+        { ...sampleRecord(), mode: "plan", artifact: null },
+        parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "build", artifact: binding }),
+        now,
+      ),
+    ).toMatchObject({ mode: "build", artifact: binding });
   });
 });
