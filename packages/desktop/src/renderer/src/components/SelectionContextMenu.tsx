@@ -21,7 +21,7 @@ import { Panel } from "./ui";
  */
 
 /** Identical to the sidebar terminal menu's item — one menu convention. */
-const MENU_ITEM_CLASS =
+export const MENU_ITEM_CLASS =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
 
 export function SelectionContextMenu({

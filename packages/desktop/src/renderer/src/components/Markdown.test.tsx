@@ -979,6 +979,74 @@ describe("owner-loopback transcript links (#1023)", () => {
   });
 });
 
+describe("transcript link context menu (issue #1359)", () => {
+  it("right-clicking a link opens a Copy link menu that writes the href to the clipboard", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { el, root } = render("see [the site](https://example.com/page)");
+    const anchor = el.querySelector('a[role="link"]')!;
+    let event!: MouseEvent;
+    act(() => {
+      event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      anchor.dispatchEvent(event);
+    });
+    // Chromium's own menu must not fire: these anchors carry no href (#101).
+    expect(event.defaultPrevented).toBe(true);
+    const menu = document.body.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    const item = menu!.querySelector('[role="menuitem"]')!;
+    expect(item.textContent).toBe("Copy link");
+    act(() => {
+      item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(writeText).toHaveBeenCalledWith("https://example.com/page");
+    // Selecting the item closes the menu.
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    act(() => root.unmount());
+    el.remove();
+  });
+
+  it("a second right-click toggles the menu closed", () => {
+    const { el, root } = render("see [the site](https://example.com/page)");
+    const anchor = el.querySelector('a[role="link"]')!;
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    act(() => root.unmount());
+    el.remove();
+  });
+
+  it("stops propagation so a live selection elsewhere does not open the selection menu too", () => {
+    // TranscriptView's selection menu lives on an ancestor's React
+    // onContextMenu; the anchor must stop the synthetic event there.
+    const containerMenu = vi.fn();
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => {
+      root.render(
+        <div onContextMenu={containerMenu}>
+          <Markdown text="see [the site](https://example.com/page)" />
+        </div>,
+      );
+    });
+    act(() => {
+      el.querySelector('a[role="link"]')!.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(containerMenu).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => root.unmount());
+    el.remove();
+  });
+});
+
 describe("Markdown routine review links (ADR-0100 amendment)", () => {
   const ID = "AbCdEfGhIjKlMnOpQrStUv";
 
