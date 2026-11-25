@@ -67,7 +67,7 @@ export function AgentPrewalkAutoSection({
         {layerBadge(entry.layer)}
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        Per-agent entries for task.agentPrewalkAuto (omp 18.22+): on asks the native judge per assignment whether to prewalk, handing off to prewalk.autoTarget at the first edit; off skips the judgment; any other text is a model pattern. A per-agent task.agentPrewalk entry or the agent's own prewalk frontmatter arms unconditionally and beats this. Empty clears the agent's entry. Edits write the global layer.
+        Per-agent entries for task.agentPrewalkAuto (omp 18.22+): on asks the native judge per assignment whether to prewalk, handing off to prewalk.autoTarget at the first edit; off skips the judgment; any other text is a model pattern. A per-agent task.agentPrewalk entry or the agent's own prewalk frontmatter arms unconditionally and beats this. Empty clears the agent's entry. The 19.2 escalate mode and the @initial target live on the session-level prewalk.auto and prewalk.autoTarget rows (Context section), not here: an "escalate" entry in this record is not recognized and reads as a model pattern that matches nothing. Edits write the global layer.
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {agents.map((agent) => (

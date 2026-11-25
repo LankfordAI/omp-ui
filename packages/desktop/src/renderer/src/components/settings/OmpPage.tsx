@@ -42,6 +42,13 @@ const ROW_HINTS: Partial<Record<string, string>> = {
   textVerbosity: "How long omp's written answers run. omp 18.17 flipped the default to low, and it now applies to Codex too — shorter answers that finish sooner. medium restores the previous answer length. Changes apply to sessions started afterwards.",
   "task.workerThreads": "Caps the worker THREADS subagents run on (default 4), not how many subagents may run at once. Up to 8 concurrent subagents stay on the main thread; a worker joins at 9 and one more at each doubling (18, 36, 72). 0 keeps every subagent on the main thread — it does not mean unlimited. Changes apply to sessions started afterwards.",
   "edit.mode": "Selects the edit tool's dialect. magic takes described changes — Markdown bullets of what to change, per file — and a fast model writes and applies the patch; pick its model on the edit.magic.model row (empty = the smol role). none removes only the edit tool; bash stays available and is force-enabled even when bash.enabled is off. This is not a read-only or safety mode. With none, whole-file rewrites via write carry no structured diff, so change receipts and diff cards degrade; review depends on later repository diffs. Changes apply to sessions started afterwards.",
+  // omp 19.2 (issue #1338): the escalate/@initial interaction — which row
+  // means what for escalation — is spread over three keys and an upstream
+  // doc; the per-row descriptions cannot carry it.
+  "prewalk.auto":
+    "Ask the native judge, per task, whether to prewalk. escalate (omp 19.2+) plans a judge-confirmed task on the prewalk.from model — memory recall, hooks and auto thinking all run there — then hands off from it; when prewalk.from already is the active model this behaves like on. Needs a native judge; without one nothing is classified. Changes apply to sessions started afterwards.",
+  "prewalk.autoTarget":
+    "Model or role the automatic hand-off goes to at the first edit/write (default @smol). @initial (omp 19.2+, escalate only) hands back to the model and thinking level the task started on; under on it warns once and hands off to @smol instead. Changes apply to sessions started afterwards.",
   // omp's own description cannot say this is transport, not live steering.
   "providers.openaiResponsesWebsockets":
     "Sends catalog-supported standard Responses traffic over WebSockets instead of HTTP/SSE, falling back to HTTP/SSE automatically when a connection fails. This is TRANSPORT only — it is not live steering, which stays on its own row. A model or request that sets it false is unaffected. Changes apply to sessions started afterwards.",

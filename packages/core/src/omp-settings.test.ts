@@ -1018,6 +1018,20 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("admits the omp 19.2 prewalk escalation keys to the write boundary (#1338)", async () => {
+    const calls: string[][] = [];
+    const run = async (args: readonly string[]): Promise<string> => {
+      calls.push([...args]);
+      return "";
+    };
+    await writeOmpSetting({ ompPath: OMP, key: "prewalk.auto", value: "escalate" }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "prewalk.autoTarget", value: "@initial" }, run);
+    expect(calls).toEqual([
+      ["config", "set", "prewalk.auto", "escalate", "--json"],
+      ["config", "set", "prewalk.autoTarget", "@initial", "--json"],
+    ]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
