@@ -8,6 +8,7 @@ import {
 import {
   ROUTINE_REASON_LABEL,
   type RoutinePostScriptStatus,
+  type RoutineRecord,
   type RoutineRunOutcome,
   type RoutineRunReasonCode,
   type RoutineRunRow,
@@ -116,6 +117,74 @@ export const POST_SCRIPT_TONE: Record<RoutinePostScriptStatus, Tone> = {
 /** A routine's runs, newest fire first. */
 export function runsOf(runs: readonly RoutineRunRow[], routineId: string): RoutineRunRow[] {
   return runs.filter((r) => r.routineId === routineId).sort((a, b) => b.firedAtMs - a.firedAtMs);
+}
+
+/** The gallery's filter pill; "waiting" means a run of the routine paused on an Approval card. */
+export type RoutineFilter = "all" | "enabled" | "paused" | "waiting" | "refresh";
+/** The gallery's sort selector: next scheduled fire, name, or newest fire. */
+export type RoutineSort = "next" | "name" | "lastrun";
+
+export interface RoutineGalleryQuery {
+  query: string;
+  filter: RoutineFilter;
+  sort: RoutineSort;
+}
+
+/** Routines whose latest state matches the gallery query, in the sorted display order. */
+export function visibleRoutines(
+  routines: readonly RoutineRecord[],
+  runs: readonly RoutineRunRow[],
+  q: RoutineGalleryQuery,
+): RoutineRecord[] {
+  const needle = q.query.trim().toLowerCase();
+  // Routines with at least one waiting-approval run; the attention strip and
+  // the "Waiting approval" pill share this predicate.
+  const waitingIds = new Set(
+    runs.filter((r) => r.outcome === "waiting-approval").map((r) => r.routineId),
+  );
+  const lastFired = new Map<string, number>();
+  for (const run of runs) {
+    const prev = lastFired.get(run.routineId);
+    if (prev === undefined || run.firedAtMs > prev) lastFired.set(run.routineId, run.firedAtMs);
+  }
+  const matched = routines.filter((routine) => {
+    if (needle !== "") {
+      const haystack = `${routine.name}\n${routine.destination.projectCwd}\n${describeSchedule(routine.schedule)}`.toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+    switch (q.filter) {
+      case "all":
+        return true;
+      case "enabled":
+        return routine.enabled;
+      case "paused":
+        return !routine.enabled;
+      case "waiting":
+        return waitingIds.has(routine.id);
+      case "refresh":
+        return routine.artifact !== null;
+    }
+  });
+  const byName = (a: RoutineRecord, b: RoutineRecord): number => a.name.localeCompare(b.name);
+  if (q.sort === "name") return matched.sort(byName);
+  if (q.sort === "lastrun") {
+    return matched.sort((a, b) => {
+      const fa = lastFired.get(a.id) ?? -1;
+      const fb = lastFired.get(b.id) ?? -1;
+      if (fa !== fb) return fb - fa;
+      return byName(a, b);
+    });
+  }
+  // "next": enabled routines with a scheduled fire first, ascending; everything
+  // else (paused, or enabled-but-never-scheduled) last, alphabetically.
+  return matched.sort((a, b) => {
+    const na = a.enabled && a.nextRunAtMs !== null ? a.nextRunAtMs : null;
+    const nb = b.enabled && b.nextRunAtMs !== null ? b.nextRunAtMs : null;
+    if (na !== null && nb !== null) return na - nb || byName(a, b);
+    if (na !== null) return -1;
+    if (nb !== null) return 1;
+    return byName(a, b);
+  });
 }
 
 export function formatUsd(value: number): string {

@@ -714,7 +714,7 @@ describe("Routines desktop sidebar takeover & TitleBar (issue #1284)", () => {
     defaultMaxCostUsd: 5,
   });
 
-  it("replaces the app Sidebar with RoutinesView on desktop, updates TitleBar host label, hides collapsed New session button, and restores Sidebar on close", () => {
+  it("keeps the app Sidebar mounted while RoutinesView is open on desktop, updates TitleBar host label, hides collapsed New session button, and keeps RoutinesView mounted", () => {
     compact = false;
     useStore.setState({
       state: backendState({ routinesEnabled: true }),
@@ -729,7 +729,8 @@ describe("Routines desktop sidebar takeover & TitleBar (issue #1284)", () => {
 
     act(() => useStore.setState({ routinesOpen: true }));
 
-    expect(document.body.querySelector("[data-sidebar-mock]")).toBeNull();
+    // Like Artifacts, Routines no longer replaces the app Sidebar.
+    expect(document.body.querySelector("[data-sidebar-mock]")).not.toBeNull();
     expect(document.body.querySelector("[data-routines-view-mock]")).not.toBeNull();
     expect(document.body.querySelector("header")?.textContent).toContain("Routines on work-laptop");
 

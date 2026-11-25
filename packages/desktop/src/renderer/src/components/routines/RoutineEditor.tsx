@@ -207,7 +207,6 @@ export function RoutineEditor({
   onSaved,
   onDeleted,
   onOpenSession,
-  onBackToSessions,
 }: {
   routine: RoutineRecord | null;
   artifactSeed?: { nonce: number; artifactId: string; datasetIds: string[]; projectCwd: string | null; title: string } | null;
@@ -218,7 +217,6 @@ export function RoutineEditor({
   onSaved: (routine: RoutineRecord) => void;
   onDeleted: () => void;
   onOpenSession: () => void;
-  onBackToSessions?: () => void;
 }) {
   const isRemote = instanceId !== null;
   const projects = useStore((s) =>
@@ -595,11 +593,6 @@ export function RoutineEditor({
       {/* Single-row frosted header */}
       <div className="shrink-0 border-b border-line chrome-void backdrop-glass px-4 py-2.5 sm:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
-          {onBackToSessions !== undefined && (
-            <Button size="xs" variant="ghost" onClick={onBackToSessions} className="shrink-0">
-              ← Sessions
-            </Button>
-          )}
           <input
             type="text"
             value={draft.name}
