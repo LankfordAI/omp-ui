@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProviderKeys, type OwnedSessionRecord } from "@omp-ui/core";
 import { machineKeyProtector, openLiteKeyCipher } from "./credentials";
-import { toCoreCipher, withPlacementGates } from "./production-sessions";
+import { resolveOmp, toCoreCipher, withPlacementGates } from "./production-sessions";
 import type { LiteSessions } from "./seams";
 
 const dirs: string[] = [];
@@ -128,5 +128,29 @@ describe("cipher bridge through core's ProviderKeys store (issue #1010)", () => 
     const keys = new ProviderKeys(file, none, {});
     expect(() => keys.setKey("OPENAI_API_KEY", "sk-test123")).toThrow(/credential store .* available|saved securely/i);
     expect(fs.existsSync(file)).toBe(false);
+  });
+});
+
+describe("resolveOmp (#1368)", () => {
+  it("resolves omp on PATH when OMP_UI_LITE_OMP is unset and honors explicit override", () => {
+    const dir = tempDir();
+    const fakeHome = path.join(dir, "home");
+    const fakeXdg = path.join(dir, "xdg");
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const binName = process.platform === "win32" ? "omp.cmd" : "omp";
+    const fakeOmp = path.join(binDir, binName);
+    fs.writeFileSync(fakeOmp, "#!/bin/sh\necho 19.0.1\n", { mode: 0o755 });
+
+    const isolatedEnv = {
+      PATH: binDir,
+      HOME: fakeHome,
+      OMP_UI_INSTALL_DIR: path.join(dir, "no-managed-omp"),
+      XDG_DATA_HOME: fakeXdg,
+      LOCALAPPDATA: fakeXdg,
+    };
+    expect(resolveOmp(isolatedEnv)).toBe(fakeOmp);
+    expect(resolveOmp({ ...isolatedEnv, OMP_UI_LITE_OMP: "   " })).toBe(fakeOmp);
+    expect(resolveOmp({ ...isolatedEnv, OMP_UI_LITE_OMP: "/custom/omp" })).toBe("/custom/omp");
   });
 });

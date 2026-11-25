@@ -1,7 +1,5 @@
-import { spawnSync } from "node:child_process";
 import * as path from "node:path";
-import type { Registry } from "@omp-ui/core";
-import { ProviderKeys } from "@omp-ui/core";
+import { ProviderKeys, ProviderOAuth, resolveOmpBinary, type Registry } from "@omp-ui/core";
 import { loadSessionBundle } from "./bundle-artifact";
 import type { LiteKeyCipher, LiteSessions } from "./seams";
 
@@ -19,6 +17,8 @@ export interface ProductionSessionsDeps {
   registry: Registry;
   dataDir: string;
   version: string;
+  /** Member's stable instance id (`<dataDir>/instance-id`), forwarded to routine dispatchers. */
+  instanceId?: string;
   /**
    * S3's codec; ProviderKeys speaks core's Buffer-based `KeyCipher`, adapted
    * below. Null = keys from env only (writes refused). Boot passes the concrete
@@ -59,13 +59,10 @@ export function toCoreCipher(lite: LiteKeyCipher & { backend: string }) {
 }
 
 /** `omp` on PATH unless overridden; null makes spawns refuse with the desktop's message. */
-function resolveOmp(env: NodeJS.ProcessEnv): string | null {
+export function resolveOmp(env: NodeJS.ProcessEnv): string | null {
   const override = env.OMP_UI_LITE_OMP?.trim();
-  if (override !== "") return override || null;
-  const finder = process.platform === "win32" ? "where" : "which";
-  const probe = spawnSync(finder, ["omp"], { encoding: "utf8", timeout: 5_000 });
-  const line = probe.status === 0 ? probe.stdout.split(/\r?\n/)[0]?.trim() : "";
-  return line === "" ? null : line;
+  if (override !== undefined && override !== "") return override;
+  return resolveOmpBinary(env);
 }
 
 /**
@@ -98,10 +95,23 @@ export async function createProductionSessions(deps: ProductionSessionsDeps): Pr
       : toCoreCipher(deps.cipher);
   const providerKeys = new ProviderKeys(path.join(deps.dataDir, "provider-keys.json"), keyCipher, env);
   const ompPath = resolveOmp(env);
+  const providerOAuth = new ProviderOAuth({
+    getOmpPath: () => ompPath,
+    scratchDir: path.join(deps.dataDir, "oauth-probe"),
+    send: () => {},
+  });
+  if (ompPath !== null) {
+    void providerOAuth.refresh().catch((err: unknown) => {
+      console.warn(`[host-lite] oauth provider probe failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
   const created = bundle.createSessionBundle({
     registry: deps.registry,
     registryFile: path.join(deps.dataDir, "registry.json"),
     providerKeys,
+    ...(deps.instanceId === undefined ? {} : { instanceId: deps.instanceId }),
+    env,
+    hasOAuthProvider: () => providerOAuth.hasModelAccount(),
     getOmpPath: () => ompPath,
     getSessionsRoot: () => path.join(deps.dataDir, "sessions"),
     getArchiveRoot: () => path.join(deps.dataDir, "archive"),
@@ -119,5 +129,12 @@ export async function createProductionSessions(deps: ProductionSessionsDeps): Pr
       stateDir: () => path.join(deps.dataDir, "agent-device"),
     },
   });
-  return withPlacementGates(created, deps.registry);
+  const gated = withPlacementGates(created, deps.registry);
+  return {
+    ...gated,
+    dispose: async () => {
+      providerOAuth.dispose();
+      await gated.dispose();
+    },
+  };
 }

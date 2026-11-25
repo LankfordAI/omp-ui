@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CH, Registry, type RemoteState } from "@omp-ui/core";
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
 import { electronAppDataDir, ensureInstanceId, ensureLiteHome, resolveLiteHome } from "./config";
-import { startLiteFleetMember, seedMemberDefaults, type LiteInstance } from "./serve";
+import { DataDirLockedError, dataDirLockPath } from "./data-dir-lock";
+import { applyRoutinesEnvOverride, startLiteFleetMember, seedMemberDefaults, type LiteInstance } from "./serve";
 import type { LiteSessions } from "./seams";
 import type { BackendState } from "@omp-ui/core";
 
@@ -259,16 +260,98 @@ describe("lite member remote settings channels (issue #1010)", () => {
     expect(reopened.getSetting("remoteToken")).toBe(token);
   });
 
-  it("pins routinesEnabled false in broadcastSettings and registers zero routines:* channels (U12)", async () => {
+  it("defaults routinesEnabled false, reflects true when enabled, and keeps settings:setRoutines* off the LAN WS table (#1368)", async () => {
     const instance = await bootMember();
+    const client = await connectInstanceClient(
+      `http://127.0.0.1:${instance.remote.state.port}`,
+      instance.registry.getSetting("remoteToken"),
+    );
+    clients.push(client);
+
+    const initial = await client.request<BackendState>(CH.getState, []);
+    expect(initial.routinesEnabled).toBe(false);
+    expect(initial.artifactLibraryEnabled).toBe(false);
+
+    // Direct authenticated WS client must get `unknown channel` for host-local routine settings setters.
+    await expect(client.request(CH.setRoutinesEnabled, [true])).rejects.toThrow(/unknown channel/);
+    await expect(client.request(CH.setRoutineSpendDefaults, [{ warnUsd: 1, maxUsd: 2 }])).rejects.toThrow(
+      /unknown channel/,
+    );
+    expect(instance.registry.getSetting("routinesEnabled")).toBe(false);
+
+    // Enabling locally reflects through state:get without pinning to false.
     instance.registry.setSetting("routinesEnabled", true);
-    const state = await instance.backend.handlers().request[CH.getState]!();
-    expect(state.routinesEnabled).toBe(false);
-    const table = instance.backend.handlers();
-    const routineChannels = [
-      ...Object.keys(table.request),
-      ...Object.keys(table.notify),
-    ].filter((ch) => ch.startsWith("routines:"));
-    expect(routineChannels).toEqual([]);
+    const enabledState = await client.request<BackendState>(CH.getState, []);
+    expect(enabledState.routinesEnabled).toBe(true);
+    expect(enabledState.artifactLibraryEnabled).toBe(false);
+  });
+});
+
+describe("OMP_UI_LITE_ROUTINES env override & data-dir lock (#1368)", () => {
+  it("applyRoutinesEnvOverride parses 1/true/0/false, ignores unset/blank, and rejects invalid values", () => {
+    const dir = tempDir();
+    const registry = Registry.load(path.join(dir, "registry.json"));
+    expect(applyRoutinesEnvOverride(registry, {})).toBeNull();
+    expect(applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "   " })).toBeNull();
+    expect(registry.getSetting("routinesEnabled")).toBe(false);
+
+    expect(applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "1" })).toBe(true);
+    expect(registry.getSetting("routinesEnabled")).toBe(true);
+    expect(applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "false" })).toBe(false);
+    expect(registry.getSetting("routinesEnabled")).toBe(false);
+    expect(applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "TRUE" })).toBe(true);
+    expect(registry.getSetting("routinesEnabled")).toBe(true);
+    expect(applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "0" })).toBe(false);
+    expect(registry.getSetting("routinesEnabled")).toBe(false);
+
+    expect(() => applyRoutinesEnvOverride(registry, { OMP_UI_LITE_ROUTINES: "yes" })).toThrow(
+      /OMP_UI_LITE_ROUTINES/,
+    );
+  });
+
+  it("rejects a second startLiteFleetMember against a locked dataDir before buildSessions, and recovers stale PID locks", async () => {
+    const dir = tempDir();
+    const first = await startLiteFleetMember({
+      dataDir: dir,
+      version: "0.0.0",
+      sessions: noSessions,
+      listen: false,
+      log: () => {},
+    });
+    instances.push(first);
+
+    let buildSessionsCalled = false;
+    await expect(
+      startLiteFleetMember({
+        dataDir: dir,
+        version: "0.0.0",
+        listen: false,
+        log: () => {},
+        buildSessions: async () => {
+          buildSessionsCalled = true;
+          return noSessions;
+        },
+      }),
+    ).rejects.toBeInstanceOf(DataDirLockedError);
+    expect(buildSessionsCalled).toBe(false);
+
+    await first.stop();
+    expect(fs.existsSync(dataDirLockPath(dir))).toBe(false);
+
+    // Write a stale PID lock (guaranteed dead high PID) and confirm clean recovery.
+    fs.writeFileSync(
+      dataDirLockPath(dir),
+      `${JSON.stringify({ pid: 999_999_999, startedAt: "2026-01-01T00:00:00.000Z" })}\n`,
+      { mode: 0o600 },
+    );
+    const recovered = await startLiteFleetMember({
+      dataDir: dir,
+      version: "0.0.0",
+      sessions: noSessions,
+      listen: false,
+      log: () => {},
+    });
+    instances.push(recovered);
+    expect(recovered.dataDir).toBe(dir);
   });
 });

@@ -101,6 +101,7 @@ import {
   type PlanAnswerResult,
   type PlanRenderResult,
   type PlanReviewVerdict,
+  type PlanFormat,
   type ProviderKeys,
   type Registry,
   resolveSessionLocation,
@@ -465,11 +466,15 @@ export interface SessionManagerDependencies {
   /**
    * Builds the Routines per-run timer owner (ADR-0100 §7.2), registered right
    * after the dialog gates so it reads the same open-card state. Absent on
-   * hosts without Routines (Host Lite, focused tests).
+   * focused tests without Routines.
    */
   routineLifecycle?: (access: RoutineLifecycleAccess) => RoutineLifecycleObserver;
   /** The routine authoring tool's answerer (ADR-0100 amendment); absent = the tool answers as unavailable. */
   routines?: HostBridgeDeps["routines"];
+  /** Forces the plan proposal format regardless of registry setting (Host Lite pins "md"). */
+  planFormatOverride?: PlanFormat;
+  /** Controls whether vault host tools may register (default true; Host Lite passes false). */
+  vaultsEnabled?: boolean;
   /** Notifies MainBackend when a watched lineage dir vanishes so it can drop its disk memo (#1286). */
   onLineageVanished?: (tabId: string) => void;
 }
@@ -1867,7 +1872,7 @@ export class SessionManager {
       initialCommands.push({
         type: "prompt",
         id: `omp-ui-initial-mode-${randomUUID()}`,
-        message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
+        message: planMessage(planMode, this.deps.planFormatOverride ?? this.deps.registry.getSetting("planFormat")),
       });
     }
     if (bridgeLoaded.capabilities) {
@@ -2306,7 +2311,7 @@ export class SessionManager {
       const scopeArm = bridgeLoaded.projectScope ? this.projectScopeArm(current, entry.fleetToolAccess) : null;
       const commands = [...initialCommands];
       const tools = this.artifactHostTools.initial(entry, {
-        vault: this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
+        vault: this.deps.vaultsEnabled !== false && this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
         fleet: fleetToolsRegistered(entry.fleetToolAccess),
         device: this.deps.registry.getSetting("deviceAgentAccess") &&
           !isOutsideSenderKind(current.fleet?.requestedBy.kind),

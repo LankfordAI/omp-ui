@@ -31,10 +31,13 @@ import type { FleetLegsHandle } from "./fleet-legs";
  *     does — registry order, chats never in a group, favorites from the
  *     registry rather than whatever the sessions seam reported.
  *
- * Everything else the desktop table answers (sessions, providers, vaults,
- * updates, …) is ABSENT from the table, never stubbed with an error: the
- * transport's own `unknown channel …` rejection is what a joiner sees, which
- * is the same contract the desktop gives an older client.
+ * Everything else the desktop table answers (desktop-only settings setters,
+ * providers, vaults, artifacts, updates, …) is ABSENT from the table, never
+ * stubbed with an error: the transport's own `unknown channel …` rejection is
+ * what a joiner sees, which is the same contract the desktop gives an older
+ * client. Routines channels come from the session bundle; host-local settings
+ * setters (`settings:setRoutinesEnabled`, `settings:setRoutineSpendDefaults`)
+ * stay off this table and mutate only through the OS-local control endpoint.
  */
 
 /** The live remote-access listener, owned by serve.ts; mirrors RemoteServerManager's surface. */
@@ -118,7 +121,6 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     ...broadcast,
     fleetGrants: redactFleetGrants(broadcast.fleetGrants),
     artifactLibraryEnabled: false,
-    routinesEnabled: false,
   };
 }
 

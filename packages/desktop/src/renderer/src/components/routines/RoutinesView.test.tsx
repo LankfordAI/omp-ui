@@ -1050,7 +1050,7 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     act(() => buttonNamed("Reconnect").click());
     expect(reconnectRemoteInstance).toHaveBeenCalledWith("inst-studio");
 
-    // Unsupported (Host Lite / older omp-ui): unknown channel routines:getState.
+    // Unsupported (older omp-ui): unknown channel routines:getState.
     act(() =>
       useStore.setState({
         state: backendState({
@@ -1064,6 +1064,7 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     );
     await settle();
     expect(document.querySelector("[data-routines-unsupported]")?.textContent).toContain("lite does not support Routines");
+    expect(document.querySelector("[data-routines-unsupported]")?.textContent).not.toContain("Host Lite does not run Routines");
 
     // Routines disabled on remote host.
     act(() =>
@@ -1079,6 +1080,7 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     );
     await settle();
     expect(document.querySelector("[data-routines-disabled]")?.textContent).toContain("Routines are off on gpu-box");
+    expect(document.querySelector("[data-routines-disabled]")?.textContent).toContain("omp-ui-lite routines enable");
   });
 });
 

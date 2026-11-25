@@ -340,6 +340,12 @@ export class RoutineService {
     cancelAllRoutineScripts();
   }
 
+  /** Disposes timers and hooks, then drains any in-flight dispatches before killAll(). */
+  async disposeAsync(): Promise<void> {
+    this.dispose();
+    await this.scheduler.drain();
+  }
+
   /**
    * Attended "Test script" editor action (#1283): runs one command on demand
    * and returns capped tails. Writes nothing — no store, row, or notice — and

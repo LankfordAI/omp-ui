@@ -693,4 +693,67 @@ describe("RoutineScheduler notifications (#1294)", () => {
     expect(h.dispatches[0]!.routine.artifact).toBeUndefined();
     h.scheduler.dispose();
   });
+
+  it("aborts without dispatching when gate turns off or drain() runs while listCatalog is in flight (#1368)", async () => {
+    const store = new RoutineStore(path.join(dir, "routines-race.json"));
+    store.add(routine(ID_A, { nextRunAtMs: T0 }));
+    const history = new RoutineRunHistory(path.join(dir, "routine-runs-race.json"));
+    const dispatches: unknown[] = [];
+    const enabled = { value: true };
+    const firstProbe = Promise.withResolvers<RoutineCatalogSnapshot>();
+    const secondProbe = Promise.withResolvers<RoutineCatalogSnapshot>();
+    let callCount = 0;
+
+    const scheduler = new RoutineScheduler({
+      store,
+      history,
+      isEnabled: () => enabled.value,
+      defaultWarnCostUsd: () => 2,
+      defaultMaxCostUsd: () => 5,
+      hasProject: () => true,
+      sessions: () => [],
+      isLive: () => false,
+      isTurnRunning: () => false,
+      awaitingHumanAnswer: () => false,
+      listCatalog: () => {
+        callCount += 1;
+        return callCount === 1 ? firstProbe.promise : secondProbe.promise;
+      },
+      artifactRefreshBlocked: () => null,
+      dispatch: async (req) => {
+        dispatches.push(req);
+        return {
+          batchId: null,
+          outcomes: [{ dispatchId: "d", machineKey: "local", projectCwd: "/proj", status: "started", tabId: "tab-1", choice: null }],
+        } as unknown as FleetDispatchResult;
+      },
+      runScript: async () => ({ kind: "ok" }),
+      postRunning: () => false,
+      onRunStarted: () => {},
+      publish: () => {},
+      now: () => T0,
+    });
+
+    // 1. Gate turns off while listCatalog is in flight.
+    const run1 = scheduler.runNow(ID_A);
+    enabled.value = false;
+    firstProbe.resolve(CATALOG);
+    expect(await run1).toEqual({ tabId: "", runId: "" });
+    expect(dispatches).toHaveLength(0);
+
+    // 2. drain() called while listCatalog is in flight: waits for completion and never dispatches.
+    enabled.value = true;
+    const run2 = scheduler.runNow(ID_A);
+    let drained = false;
+    const draining = scheduler.drain().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    secondProbe.resolve(CATALOG);
+    await draining;
+    expect(drained).toBe(true);
+    expect(await run2).toEqual({ tabId: "", runId: "" });
+    expect(dispatches).toHaveLength(0);
+  });
 });

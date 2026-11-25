@@ -55,7 +55,17 @@ type BundleExports = {
       browserPaneEnsure(tabId: string): Promise<Record<string, unknown>>;
       /** Public desktop field (BrowserPaneHost); the shim-path proof drives it. */
       browserPanes: { ensure(tabId: string): Promise<Record<string, unknown>> };
+      modelProviderReady(projectCwd: string): boolean;
       killAll(): void;
+    };
+    routines: {
+      state(): Record<string, unknown>;
+    };
+    routinesControl: {
+      state(): Record<string, unknown>;
+      enable(caps?: { warnUsd?: number; maxUsd?: number }): Promise<Record<string, unknown>>;
+      disable(): Promise<Record<string, unknown>>;
+      setSpendDefaults(caps: { warnUsd?: number; maxUsd?: number }): Promise<Record<string, unknown>>;
     };
     state(): Promise<
       Record<string, unknown> & { projects: Array<{ project: { name: string }; sessions: unknown[] }> }
@@ -64,7 +74,13 @@ type BundleExports = {
     dispose(): Promise<void>;
   };
   CH: Record<string, string>;
-  Registry: { load(file: string): { setSetting(key: string, value: unknown): void } & Record<string, never> };
+  Registry: {
+    load(file: string): {
+      setSetting(key: string, value: unknown): void;
+      getSetting(key: string): unknown;
+      sessions: Array<Record<string, unknown>>;
+    } & Record<string, never>;
+  };
   ProviderKeys: new (file: string, cipher: unknown, env: NodeJS.ProcessEnv) => unknown;
   SessionManager: unknown;
 };
@@ -315,13 +331,324 @@ describe("session bundle", () => {
       /electron-drift-gate/,
     );
   });
+
+  it("registers the 8 routines:* channels, models:readChat, and plan:read, while keeping settings:setRoutines* absent (#1368)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-routines-ch-"));
+    try {
+      const { deps, registry } = fakeDeps(bundle, base);
+      const lite = bundle.createSessionBundle(deps);
+      const CH = bundle.CH;
+
+      for (const ch of [
+        "getRoutinesState",
+        "createRoutine",
+        "updateRoutine",
+        "removeRoutine",
+        "runRoutineNow",
+        "testRoutineScript",
+        "dryRunRoutine",
+        "listRoutineToolCatalog",
+        "readChatModels",
+        "readPlanFile",
+      ]) {
+        expect(lite.handlers[CH[ch] as string], ch).toBeTypeOf("function");
+      }
+
+      // Host-local settings setters MUST stay absent from the public channel table.
+      expect(lite.handlers[CH.setRoutinesEnabled as string]).toBeUndefined();
+      expect(lite.handlers[CH.setRoutineSpendDefaults as string]).toBeUndefined();
+
+      // artifactLibraryEnabled stays pinned false even if persisted true in registry.
+      registry.setSetting("artifactLibraryEnabled", true);
+      const st = await lite.state();
+      expect(st.artifactLibraryEnabled).toBe(false);
+
+      // Gate-off refuses routines:create with ROUTINES_DISABLED_ERROR.
+      const createRoutine = lite.handlers[CH.createRoutine as string] as (input: unknown) => Promise<unknown>;
+      await expect(
+        createRoutine(sampleRoutineInput(path.join(base, "proj"))),
+      ).rejects.toThrow("Routines is disabled in Settings → Routines");
+
+      await lite.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces headless boundaries: vaults disabled, artifact refresh refused, OAuth/models.yml providerReady, and atomic enable caps (#1368)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-routines-bounds-"));
+    try {
+      const projectCwd = path.join(base, "proj");
+      const { deps, registry } = fakeDeps(bundle, base);
+      // Populate vaultRegistry to prove Host Lite still withholds vault tools uniformly.
+      registry.setSetting("vaultRegistry", {
+        vaults: [{ name: "Vault", rootPath: path.join(base, "vault"), homeFolder: "omp-ui" }],
+        defaultVault: "Vault",
+      });
+      // Empty providerKeys + OAuth / models.yml override proves headless providerReady works without API key env vars.
+      const cipher = {
+        available: true,
+        backend: "test",
+        encrypt: (plain: string) => Buffer.from(plain),
+        decrypt: (blob: Buffer) => blob.toString("utf8"),
+      };
+      deps.providerKeys = new bundle.ProviderKeys(path.join(base, "empty-keys.json"), cipher, {});
+      deps.hasOAuthProvider = () => true;
+      deps.hasConfiguredModelsFileProvider = () => false;
+
+      const lite = bundle.createSessionBundle(deps);
+      expect(lite.sessions.modelProviderReady(projectCwd)).toBe(true);
+
+      // Enable atomically with spend caps via routinesControl.
+      const enabled = await lite.routinesControl.enable({ warnUsd: 1.25, maxUsd: 3.5 });
+      expect(enabled.enabled).toBe(true);
+      expect(enabled.defaultWarnCostUsd).toBe(1.25);
+      expect(enabled.defaultMaxCostUsd).toBe(3.5);
+
+      // Vault tools stay absent from catalog even with vaultRegistry populated.
+      const listCatalog = lite.handlers[bundle.CH.listRoutineToolCatalog as string] as (
+        cwd: string,
+      ) => Promise<{ tools: Array<{ key: string }> }>;
+      const cat = await listCatalog(projectCwd);
+      expect(cat.tools.some((t) => t.key.startsWith("omp-ui_vault_"))).toBe(false);
+
+      // Artifact-bound routine refuses runNow with "The artifact library is disabled" and records artifact-missing.
+      const createRoutine = lite.handlers[bundle.CH.createRoutine as string] as (
+        input: unknown,
+      ) => Promise<{ id: string }>;
+      const runNow = lite.handlers[bundle.CH.runRoutineNow as string] as (id: string) => Promise<unknown>;
+      const getRoutinesState = lite.handlers[bundle.CH.getRoutinesState as string] as () => {
+        runs: Array<{ outcome: string; reasonCode: string | null; tabId: string | null }>;
+      };
+      const created = await createRoutine(
+        sampleRoutineInput(projectCwd, {
+          name: "Artifact refresher",
+          artifact: {
+            artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b",
+            datasetIds: ["rows"],
+            autoApply: false,
+          },
+        }),
+      );
+      await expect(runNow(created.id)).rejects.toThrow("The artifact library is disabled");
+      expect(getRoutinesState().runs[0]).toMatchObject({
+        outcome: "failed",
+        reasonCode: "artifact-missing",
+        tabId: null,
+      });
+
+      await lite.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("fires routines end-to-end against a fake omp (runNow, pinned model, Plan-mode md + plan:read, overdue clock fire with atomic caps, and restart recovery) (#1368)", { skip: process.platform === "win32", timeout: 30_000 }, async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-routines-e2e-"));
+    try {
+      const projectCwd = path.join(base, "proj");
+      const fakeOmp = writeFakeOmpScript(base);
+      const catalogSnapshot = {
+        tools: [
+          { key: "read", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "Read" },
+          { key: "bash", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "Bash" },
+        ],
+        staleServers: [],
+        enumerationError: null,
+        capturedAt: new Date().toISOString(),
+      };
+      const chatModelsSnapshot = {
+        models: [
+          {
+            provider: "openrouter",
+            id: "google/gemini-4-neon",
+            name: "Gemini 4 Neon",
+            thinking: { efforts: ["low", "medium", "high"] },
+          },
+        ],
+        discovered: true,
+        error: null,
+      };
+
+      const { deps, registry } = fakeDeps(bundle, base);
+      deps.getOmpPath = () => fakeOmp;
+      deps.routineCatalog = { list: async () => catalogSnapshot };
+      deps.readChatModels = async () => chatModelsSnapshot;
+      // Even if user registry says "html", Host Lite pins planFormatOverride: "md".
+      registry.setSetting("planFormat", "html");
+
+      const lite = bundle.createSessionBundle(deps);
+      const CH = bundle.CH;
+      const waiters: Array<() => void> = [];
+      lite.on(() => {
+        for (const fn of waiters.splice(0)) fn();
+      });
+      const waitForEvent = (predicate: () => boolean): Promise<void> => {
+        if (predicate()) return Promise.resolve();
+        const deferred = Promise.withResolvers<void>();
+        const check = (): void => {
+          if (predicate()) deferred.resolve();
+          else waiters.push(check);
+        };
+        waiters.push(check);
+        return deferred.promise;
+      };
+      await lite.routinesControl.enable({ warnUsd: 1.5, maxUsd: 4.5 });
+      const readChatModels = lite.handlers[CH.readChatModels as string] as () => Promise<{ models: unknown[] }>;
+      expect((await readChatModels()).models).toHaveLength(1);
+
+      const createRoutine = lite.handlers[CH.createRoutine as string] as (
+        input: unknown,
+      ) => Promise<{ id: string }>;
+      const runNow = lite.handlers[CH.runRoutineNow as string] as (
+        id: string,
+      ) => Promise<{ tabId: string; runId: string }>;
+      const getRoutinesState = lite.handlers[CH.getRoutinesState as string] as () => {
+        routines: Array<{ id: string }>;
+        runs: Array<{ id: string; outcome: string; tabId: string | null }>;
+      };
+      const readPlanFile = lite.handlers[CH.readPlanFile as string] as (
+        tabId: string,
+        absPath: string,
+      ) => Promise<string | null>;
+
+      // 1. Run now with pinned model + Plan mode: verifies private session, overlays,
+      //    pinned model choice via readModelCatalog, Markdown plan format, plan:read confinement,
+      //    and RoutineRunRow running -> on-time lifecycle transition.
+      const planRoutine = await createRoutine(
+        sampleRoutineInput(projectCwd, {
+          name: "Plan triage",
+          mode: "plan",
+          model: "openrouter/google/gemini-4-neon",
+          thinkingLevel: "medium",
+          destination: { projectCwd, workspace: "checkout" },
+        }),
+      );
+      const fired = await runNow(planRoutine.id);
+      expect(fired.tabId).toBeTruthy();
+
+      // Wait for fake omp to emit agent_start -> agent_end and finalize run row to on-time
+      // via real routines:state sink events (no wall-clock polling).
+      await waitForEvent(() => {
+        const row = getRoutinesState().runs.find((r) => r.id === fired.runId);
+        return row?.outcome === "on-time";
+      });
+
+      const rec = registry.sessions.find((s) => s.tabId === fired.tabId) as
+        | {
+            tabId: string;
+            lineageDir: string;
+            private: boolean;
+            model: string | null;
+            thinkingLevel: string | null;
+            routine: { id: string; warnCostUsd: number; maxCostUsd: number } | null;
+          }
+        | undefined;
+      expect(rec).toBeDefined();
+      expect(rec!.private).toBe(true);
+      expect(rec!.model).toBe("openrouter/google/gemini-4-neon");
+      expect(rec!.thinkingLevel).toBe("medium");
+      expect(rec!.routine).toMatchObject({ id: planRoutine.id, warnCostUsd: 1.5, maxCostUsd: 4.5 });
+
+      // Verify Plan-mode Markdown proposal is readable via lineage-confined plan:read,
+      // while paths outside the lineage dir are refused (null).
+      const lineagePath = path.join(base, "sessions", rec!.lineageDir);
+      const planFile = path.join(lineagePath, "proposal.md");
+      fs.writeFileSync(planFile, "# Plan\n\n- step 1\n", "utf8");
+      expect(await readPlanFile(fired.tabId, planFile)).toBe("# Plan\n\n- step 1\n");
+      expect(await readPlanFile(fired.tabId, path.join(base, "registry.json"))).toBeNull();
+      // Confirm the fake omp received planFormat "md" (not "html") in its initial plan command.
+      const recordedCmds = fs.readFileSync(path.join(base, "fake-omp-cmds.log"), "utf8");
+      expect(recordedCmds).toContain("md");
+      expect(recordedCmds).not.toContain("format html");
+
+      // 2. Overdue clock fire on atomic enable: disable, seed an overdue routine in routines.json,
+      //    re-enable with tightened caps, and verify the due fire runs with the NEW caps.
+      await lite.routinesControl.disable();
+      const routinesJsonPath = path.join(base, "routines.json");
+      const rawStore = JSON.parse(fs.readFileSync(routinesJsonPath, "utf8")) as {
+        schemaVersion: number;
+        routines: Array<Record<string, unknown>>;
+      };
+      rawStore.routines[0]!.nextRunAtMs = Date.now() - 5_000;
+      fs.writeFileSync(routinesJsonPath, JSON.stringify(rawStore, null, 2));
+      await lite.dispose();
+
+      // Reboot with gate OFF: verifies persisted recovery (disabled restart settles dormant unsettled
+      // routine runs and interrupts any running history rows without firing the overdue routine).
+      const runsPath = path.join(base, "routine-runs.json");
+      const rawRuns = JSON.parse(fs.readFileSync(runsPath, "utf8")) as {
+        schemaVersion: number;
+        runs: Array<Record<string, unknown>>;
+      };
+      rawRuns.runs.unshift({
+        id: "pre-crash-run",
+        routineId: planRoutine.id,
+        routineName: "Plan triage",
+        firedAtMs: Date.now() - 10_000,
+        scheduledForMs: null,
+        trigger: "clock",
+        outcome: "running",
+        tabId: "dead-tab",
+        reasonCode: null,
+        missed: 0,
+        pruned: false,
+        staleCatalog: false,
+      });
+      fs.writeFileSync(runsPath, JSON.stringify(rawRuns, null, 2));
+
+      const reg2 = bundle.Registry.load(path.join(base, "registry.json"));
+      const lite2 = bundle.createSessionBundle({
+        ...deps,
+        registry: reg2,
+      });
+      const stateAfterDisabledBoot = (lite2.handlers[CH.getRoutinesState as string] as () => {
+        enabled: boolean;
+        runs: Array<{ id: string; outcome: string; reasonCode: string | null }>;
+      })();
+      expect(stateAfterDisabledBoot.enabled).toBe(false);
+      expect(stateAfterDisabledBoot.runs.find((r) => r.id === "pre-crash-run")).toMatchObject({
+        outcome: "failed",
+        reasonCode: "interrupted",
+      });
+      // Dormant unsettled routine run from first boot was stamped settled at boot.
+      const settledRec = reg2.sessions.find((s) => s.tabId === fired.tabId) as { settledAtMs?: number | null } | undefined;
+      expect(typeof settledRec?.settledAtMs).toBe("number");
+      // Atomic enable with tightened caps arms the overdue routine immediately with the NEW caps.
+      const dueSpawned = Promise.withResolvers<void>();
+      const hasDueSession = (): boolean =>
+        reg2.sessions.some(
+          (s) => (s as { routine?: { id?: string } | null }).routine?.id === planRoutine.id && s.tabId !== fired.tabId,
+        );
+      lite2.on(() => {
+        if (hasDueSession()) dueSpawned.resolve();
+      });
+      await lite2.routinesControl.enable({ warnUsd: 0.75, maxUsd: 2.25 });
+      if (!hasDueSession()) await dueSpawned.promise;
+      const dueRec = reg2.sessions.find(
+        (s) => (s as { routine?: { id?: string } | null }).routine?.id === planRoutine.id && s.tabId !== fired.tabId,
+      ) as { routine: { warnCostUsd: number; maxCostUsd: number } } | undefined;
+      expect(dueRec?.routine).toMatchObject({ warnCostUsd: 0.75, maxCostUsd: 2.25 });
+
+      await lite2.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 /** Fake deps copied from packages/desktop/src/main/session-manager.test.ts setup(): the same seams lite ships without a real omp or window. */
 function fakeDeps(
   bundle: BundleExports,
   base: string,
-): { deps: Record<string, unknown>; registry: { setSetting(key: string, value: unknown): void } } {
+): {
+  deps: Record<string, unknown>;
+  registry: {
+    setSetting(key: string, value: unknown): void;
+    getSetting(key: string): unknown;
+    sessions: Array<Record<string, unknown>>;
+  };
+} {
   const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
   const SESSION_ID = "01931d8a-6f7e-7000-8000-0000000000aa";
   const PROJECT = path.join(base, "proj");
@@ -392,4 +719,64 @@ function fakeDeps(
       // shim — so pane paths prove the swap end-to-end.
     },
   };
+}
+
+function sampleRoutineInput(projectCwd: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: "Morning check",
+    instructions: "Report build health.",
+    schedule: { kind: "cron", expr: "0 8 * * *" },
+    timeZone: "UTC",
+    destination: { projectCwd, workspace: "checkout" },
+    mode: "build",
+    model: null,
+    thinkingLevel: null,
+    spend: { warnUsd: null, maxUsd: null },
+    toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: "2026-11-25T00:00:00.000Z", reviewedCatalog: ["read", "bash"] },
+    scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
+    notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+    artifact: null,
+    enabled: true,
+    ...overrides,
+  };
+}
+
+function writeFakeOmpScript(baseDir: string): string {
+  const scriptPath = path.join(baseDir, "fake-omp.mjs");
+  const logPath = path.join(baseDir, "fake-omp-cmds.log");
+  fs.writeFileSync(
+    scriptPath,
+    `#!${process.execPath}
+import * as fs from "node:fs";
+import * as readline from "node:readline";
+const logPath = ${JSON.stringify(logPath)};
+if (process.argv[2] === "config") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+const emit = (obj) => process.stdout.write(JSON.stringify(obj) + "\\n");
+emit({ type: "ready" });
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  fs.appendFileSync(logPath, line + "\\n");
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  if (msg.type === "set_host_tools" || msg.type === "set_event_filter" || msg.type === "set_ask_dialog" || msg.type === "set_host_uri_schemes") {
+    emit({ type: "response", id: msg.id, command: msg.type, success: true });
+    return;
+  }
+  if (msg.type === "prompt") {
+    emit({ type: "response", id: msg.id, command: "prompt", success: true });
+    if (typeof msg.id === "string" && msg.id.startsWith("omp-ui-fleet-prompt-")) {
+      emit({ type: "agent_start" });
+      emit({ type: "agent_end", messages: [{ role: "assistant", content: "Done." }] });
+    }
+  }
+});
+`,
+    { mode: 0o755 },
+  );
+  return scriptPath;
 }

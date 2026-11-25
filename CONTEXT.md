@@ -1262,8 +1262,9 @@ pre and post **run hooks** (host-authored shell commands that bracket each
 **Routine run** outside the tool policy, #1283), which
 together start one fresh **Routine run** at each fire. It lives in the
 **Routines** view — a full-pane view opened from the sidebar footer, gated
-behind **Settings → Routines** on each host, opt-in, off by default, Host
-Lite reporting false — never on a session record. Each host owns and runs its
+behind **Settings → Routines** on desktop (or `omp-ui-lite routines enable` /
+`OMP_UI_LITE_ROUTINES=1` on Host Lite, #1368), opt-in and off by default on
+every host — never on a session record. Each host owns and runs its
 own routines independently (never copied or coordinated across hosts), and the
 **Routines** view's top-bar host dropdown (`Routines on [host ▾]`) lets you
 view, edit, toggle, dry-run, test hooks, delete, and **Run now** on this
