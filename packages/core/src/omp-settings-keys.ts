@@ -208,12 +208,21 @@ export const LIVE_VOICE_SETTING_GROUP: OmpSettingGroup = {
  *  refs/omp/discarded, since omp 18.14 (issue #973). */
 export const BASH_GIT_GUARD_KEY = "bash.gitGuard";
 
-/** Git safety for the bash tool. A plain boolean row; the worktree default
+/** Background-process hygiene for the bash tool (omp 19.2.1, issue #1364):
+ *  on, processes a session started in the background are detected when the
+ *  agent stops so they can be registered as services or terminated, and `&`
+ *  jobs are cleaned up at session end. RPC mode does not reap — omp-ui native
+ *  transcript sessions run in RPC mode, so this row matters mainly for PTY
+ *  tabs and users sharing one omp config across both; OmpPage.tsx's row hint
+ *  carries that caveat. */
+export const BASH_REAP_BACKGROUND_KEY = "bash.reapBackground";
+
+/** Git safety for the bash tool. Plain boolean rows; the worktree default
  *  lives in git-guard-overlay.ts, so an unconfigured worktree session boots
  *  guarded while an explicit user value always wins. */
 export const GIT_SETTING_GROUP: OmpSettingGroup = {
   title: "Git",
-  keys: [BASH_GIT_GUARD_KEY],
+  keys: [BASH_GIT_GUARD_KEY, BASH_REAP_BACKGROUND_KEY],
 };
 
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */

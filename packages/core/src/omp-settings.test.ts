@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveOmpBinary } from "./paths";
 import {
   BASH_GIT_GUARD_KEY,
+  BASH_REAP_BACKGROUND_KEY,
   execOmpConfigRunner,
   parseEnumOptions,
   readOmpCompactionMethods,
@@ -874,6 +875,18 @@ describe("writeOmpSetting", () => {
       },
     );
     expect(seen).toEqual(["config", "set", BASH_GIT_GUARD_KEY, "false", "--json"]);
+  });
+
+  it("admits bash.reapBackground to the write boundary (#1364)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: BASH_REAP_BACKGROUND_KEY, value: true },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", BASH_REAP_BACKGROUND_KEY, "true", "--json"]);
   });
 
   it("admits advisor.continueSeverity to the write boundary (#882)", async () => {

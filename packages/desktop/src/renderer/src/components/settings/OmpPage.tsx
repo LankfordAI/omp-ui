@@ -52,6 +52,11 @@ const ROW_HINTS: Partial<Record<string, string>> = {
   // omp's own description cannot say this is transport, not live steering.
   "providers.openaiResponsesWebsockets":
     "Sends catalog-supported standard Responses traffic over WebSockets instead of HTTP/SSE, falling back to HTTP/SSE automatically when a connection fails. This is TRANSPORT only — it is not live steering, which stays on its own row. A model or request that sets it false is unaffected. Changes apply to sessions started afterwards.",
+  // omp 19.2.1 (issue #1364): the reaper does not run in RPC mode, and
+  // omp-ui's native transcript sessions are RPC — omp's own copy does not say
+  // which surfaces the row actually affects.
+  "bash.reapBackground":
+    "Detects background processes a session started with the bash tool when the agent stops, so they can be registered as services or terminated, and cleans up `&` jobs at session end. RPC mode does not reap — omp-ui's native transcript tabs run in RPC mode, so this affects PTY/terminal tabs and any omp run outside RPC (for example a shared config used from the terminal). Changes apply to sessions started afterwards.",
 };
 
 export function OmpPage({
