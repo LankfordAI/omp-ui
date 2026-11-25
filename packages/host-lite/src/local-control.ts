@@ -1,8 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { RoutinesState } from "@omp-ui/core";
+import { ensureLiteHome } from "./config";
 import type { LiteRoutinesControl } from "./seams";
 
 /**
@@ -215,6 +218,17 @@ export async function startLocalControlServer(opts: {
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     const metaPath = controlMetadataPath(opts.dataDir);
     fs.writeFileSync(metaPath, `${JSON.stringify({ port, secret: winSecret })}\n`, { mode: 0o600 });
+    // On Windows, POSIX mode bits do not set NTFS ACLs; restrict the secret
+    // file to the current user via icacls so other local users cannot read it.
+    try {
+      const username = os.userInfo().username;
+      execFileSync("icacls", [metaPath, "/inheritance:r", "/grant:r", `${username}:(R,W)`], {
+        stdio: "ignore",
+        timeout: 5_000,
+      });
+    } catch (err) {
+      console.warn(`[host-lite] failed to harden NTFS ACL on ${metaPath}:`, err);
+    }
     let closed = false;
     return {
       endpoint: `http://127.0.0.1:${port}`,
@@ -235,6 +249,10 @@ export async function startLocalControlServer(opts: {
     };
   }
 
+  // Ensure the parent data dir is 0700 BEFORE binding control.sock so no other
+  // local user can traverse into the dir during socket creation, and tighten
+  // umask around listen() so the socket is created 0600 atomically.
+  ensureLiteHome(opts.dataDir);
   const sockPath = controlSocketPath(opts.dataDir);
   try {
     fs.unlinkSync(sockPath);
@@ -244,11 +262,16 @@ export async function startLocalControlServer(opts: {
 
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(sockPath, () => {
-    server.off("error", listening.reject);
-    listening.resolve();
-  });
-  await listening.promise;
+  const prevUmask = process.umask(0o177);
+  try {
+    server.listen(sockPath, () => {
+      server.off("error", listening.reject);
+      listening.resolve();
+    });
+    await listening.promise;
+  } finally {
+    process.umask(prevUmask);
+  }
   fs.chmodSync(sockPath, 0o600);
 
   let closed = false;

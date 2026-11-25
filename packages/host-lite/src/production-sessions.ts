@@ -101,7 +101,9 @@ export async function createProductionSessions(deps: ProductionSessionsDeps): Pr
     send: () => {},
   });
   if (ompPath !== null) {
-    void providerOAuth.refresh().catch(() => {});
+    void providerOAuth.refresh().catch((err: unknown) => {
+      console.warn(`[host-lite] oauth provider probe failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
   }
   const created = bundle.createSessionBundle({
     registry: deps.registry,

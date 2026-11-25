@@ -73,11 +73,25 @@ function isPidAlive(pid: number): boolean {
 }
 
 function writeExclusiveLock(lockPath: string, payload: LockPayload): void {
-  const fd = fs.openSync(lockPath, "wx", 0o600);
+  // Write payload to a private temp file first and hard-link atomically onto
+  // `lockPath` (`fs.linkSync` fails with EEXIST if `lockPath` already exists).
+  // That guarantees any observer seeing `lockPath` reads a complete PID payload,
+  // eliminating the empty-file race between `open(wx)` and `write()`.
+  const tmpPath = `${lockPath}.${process.pid}.${Date.now()}.tmp`;
+  const fd = fs.openSync(tmpPath, "wx", 0o600);
   try {
     fs.writeFileSync(fd, `${JSON.stringify(payload)}\n`, "utf8");
   } finally {
     fs.closeSync(fd);
+  }
+  try {
+    fs.linkSync(tmpPath, lockPath);
+  } finally {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Best-effort cleanup of temp path.
+    }
   }
 }
 

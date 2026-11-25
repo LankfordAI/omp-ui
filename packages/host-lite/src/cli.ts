@@ -358,9 +358,13 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
     }
     try {
       const registryFile = path.join(dataDir, "registry.json");
-      const fresh = !fs.existsSync(registryFile);
+      // On a fresh data dir, routines are already off by default; avoid
+      // creating/seeding remote-access settings from `routines disable`.
+      if (!fs.existsSync(registryFile)) {
+        deps.io.stdout("routines: disabled — daemon offline");
+        return LITE_EXIT.OK;
+      }
       const registry = Registry.load(registryFile);
-      seedMemberDefaults(registry, fresh);
       registry.setSetting("routinesEnabled", false);
       registry.flush();
       deps.io.stdout("routines: disabled — daemon offline");
@@ -407,9 +411,13 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
     }
     try {
       const registryFile = path.join(dataDir, "registry.json");
-      const fresh = !fs.existsSync(registryFile);
+      // On a fresh data dir, routines are off by default; refuse without
+      // creating/seeding registry.json or enabling remote access.
+      if (!fs.existsSync(registryFile)) {
+        deps.io.stderr(`omp-ui-lite routines spend: ${ROUTINES_DISABLED_MESSAGE}`);
+        return LITE_EXIT.OPERATIONAL;
+      }
       const registry = Registry.load(registryFile);
-      seedMemberDefaults(registry, fresh);
       if (!registry.getSetting("routinesEnabled")) {
         deps.io.stderr(`omp-ui-lite routines spend: ${ROUTINES_DISABLED_MESSAGE}`);
         return LITE_EXIT.OPERATIONAL;
