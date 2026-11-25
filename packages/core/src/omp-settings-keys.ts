@@ -403,6 +403,20 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     ],
   },
   {
+    // omp 19.2 (issue #1335): the Vim rework (upstream PR #20037) adds three
+    // TUI input keys. tui.vimStartMode is an enum insert|normal (default
+    // insert, the mode each prompt and Vim-mode dialog starts in), whose
+    // options ride in from `omp config list` via parseEnumOptions like every
+    // other enum row; tui.vimShowCommand (boolean, default true) echoes a
+    // half-typed command in the status line; tui.vimYankToClipboard (boolean,
+    // default false) makes every yank copy to the system clipboard — with the
+    // rework, plain `y` no longer does unless this is on, which is exactly the
+    // silent default flip these rows exist to soften. An older binary
+    // publishes none of them, so the per-key skip rule hides the section.
+    title: "Terminal (Vim)",
+    keys: ["tui.vimStartMode", "tui.vimShowCommand", "tui.vimYankToClipboard"],
+  },
+  {
     // omp 18.17.0 (issue #1069): edit dialect, including none, which removes
     // only edit and force-enables bash even when bash.enabled is off.
     // Options ride in from `omp config list` via parseEnumOptions, so older
@@ -466,8 +480,13 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
     // Python for the eval tool (#671). An omp that publishes neither key
     // renders no section — readOmpSettings' per-key rule already covers it.
+    // omp 19.2 (issue #1335) adds eval.tools.enabled: eval cells define tools
+    // (@tool in Python, tool(fn) in JS) subagents can call only when this is
+    // on — a default flip to false shipped with 19.2, so agents that relied
+    // on eval-defined tools lose them silently without this row. A plain
+    // boolean Switch row.
     title: "Python",
-    keys: [PYTHON_INTERPRETER_KEY, "python.kernelMode"],
+    keys: [PYTHON_INTERPRETER_KEY, "python.kernelMode", "eval.tools.enabled"],
   },
   {
     // Per-call LSP request/diagnostic timeout. `lsp.requestTimeout` is an
@@ -507,6 +526,12 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       // without them nothing is judged. Plain enum row; options ride in via
       // parseEnumOptions.
       "task.autoParallel",
+      // omp 19.2 (issue #1335): task.crossInstance (boolean, default true)
+      // lets other omp instances in the same folder read agent outputs and
+      // send messages that can wake agents. The enabled-by-default shipped
+      // with 19.2, so fleet users who want isolation get this row instead of
+      // a hand-edited config.yaml. A plain boolean Switch row.
+      "task.crossInstance",
     ],
   },
   GIT_SETTING_GROUP,
