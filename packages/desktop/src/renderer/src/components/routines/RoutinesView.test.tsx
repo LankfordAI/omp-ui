@@ -136,6 +136,14 @@ function routineTab(tab: "config" | "policy" | "history"): HTMLButtonElement {
   return found;
 }
 
+/** Wide-mode drill-down: row click opens the drawer, Edit opens the full editor. */
+async function openEditor(id = "a".repeat(22)): Promise<void> {
+  act(() => document.querySelector<HTMLElement>(`[data-routine-row="${id}"]`)!.click());
+  await settle();
+  await act(async () => buttonNamed("Edit full routine →").click());
+  await settle();
+}
+
 beforeEach(() => {
   // Wide shell: split list + editor.
   Object.defineProperty(window, "matchMedia", {
@@ -192,15 +200,15 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(host.querySelector("header")?.textContent).toContain("work-laptop");
   });
 
-  it("lists each routine with its schedule, next run, and last outcome", async () => {
+  it("lists each routine with its schedule and last outcome", async () => {
     useStore.setState({ routinesState: routinesState({ runs: [run({ outcome: "skipped", reasonCode: "host-lane-busy" })] }) });
     const host = render();
     await settle();
     const row = host.querySelector(`[data-routine-row="${"a".repeat(22)}"]`)!;
     expect(row.textContent).toContain("Morning overview");
     expect(row.textContent).toContain("Weekdays at 08:00");
-    expect(row.textContent).toContain("Next:");
     expect(row.textContent).toContain("Skipped");
+    expect(row.textContent).toContain("Another routine was running");
   });
 
   it("shows main's Run now refusal verbatim and starts nothing", async () => {
@@ -209,6 +217,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     );
     render();
     await settle();
+    await openEditor();
     await act(async () => buttonNamed("Run now").click());
     await settle();
     expect(runRoutineNow).toHaveBeenCalledWith("a".repeat(22), null);
@@ -243,6 +252,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
     await settle();
+    await openEditor();
     await act(async () => buttonNamed("Dry run").click());
     await settle();
     expect(dryRunRoutine).toHaveBeenCalledWith({ kind: "saved", id: "a".repeat(22) }, null);
@@ -256,6 +266,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
   it("marks a tool added since the review, and warns when a shell is allowed", async () => {
     render();
     await settle();
+    await openEditor();
     act(() => routineTab("policy").click());
     const sendRow = document.querySelector('[data-tool-row="mcp__gmail_send"]')!;
     expect(sendRow.textContent).toContain("Added later · not allowed");
@@ -279,6 +290,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     });
     render();
     await settle();
+    await openEditor();
     act(() => routineTab("history").click());
     const history = document.querySelector("[data-run-history]")!;
     expect(history.textContent).toContain("Previous run still open");
@@ -333,6 +345,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
     await settle();
+    await openEditor();
     act(() => routineTab("policy").click());
     await act(async () => buttonNamed("Dry run").click());
     await settle();
@@ -365,6 +378,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     useStore.setState({ updateRoutine });
     render();
     await settle();
+    await openEditor();
 
     // Unpinned project with draft.model === null hides the thinking slider (no fallback ladder).
     expect(document.querySelector("[data-thinking-track]")).toBeNull();
@@ -415,6 +429,10 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       null,
     );
 
+    // Saving returns to the gallery with the drawer open; drill back in.
+    expect(document.querySelector("[data-routine-inspector]")).not.toBeNull();
+    await openEditor();
+
     // Pick Project default from the palette and verify model returns to null.
     act(() => document.querySelector<HTMLButtonElement>('button[aria-label="Model"]')!.click());
     const projDefaultBtn = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
@@ -431,7 +449,8 @@ describe("RoutinesView review-link focus (ADR-0100 amendment)", () => {
     useStore.setState({ routinesState: routinesState({ routines: [routine(), second] }), routineFocusId: second.id });
     const host = render();
     await settle();
-    expect(host.querySelector('[aria-label="Name"]')?.getAttribute("value")).toBe("Gmail triage");
+    // The focus request opens the drawer over the gallery for that routine.
+    expect(host.querySelector("[data-routine-inspector]")?.textContent).toContain("Gmail triage");
     expect(useStore.getState().routineFocusId).toBeNull();
   });
 
@@ -440,6 +459,89 @@ describe("RoutinesView review-link focus (ADR-0100 amendment)", () => {
     render();
     await settle();
     expect(useStore.getState().routineFocusId).toBeNull();
+  });
+});
+
+describe("RoutinesView inspector drawer", () => {
+  it("row click opens the drawer, Escape closes it, and the switch toggles via updateRoutine", async () => {
+    const updateRoutine = vi.fn(async (_id: string, patch: unknown) => ({ ...routine(), ...(patch as Partial<RoutineRecord>) }));
+    useStore.setState({ updateRoutine });
+    const host = render();
+    await settle();
+    expect(host.querySelector("[data-routine-inspector]")).toBeNull();
+
+    act(() => document.querySelector<HTMLElement>(`[data-routine-row="${"a".repeat(22)}"]`)!.click());
+    await settle();
+    const drawer = host.querySelector("[data-routine-inspector]")!;
+    expect(drawer.textContent).toContain("Morning overview");
+    expect(drawer.textContent).toContain("Weekdays at 08:00");
+
+    // The switch inside the drawer routes through updateRoutine.
+    const toggle = drawer.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+    act(() => toggle.click());
+    expect(updateRoutine).toHaveBeenCalledWith("a".repeat(22), { enabled: false }, null);
+
+    // Escape closes the drawer.
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await settle();
+    expect(host.querySelector("[data-routine-inspector]")).toBeNull();
+  });
+
+  it("Edit full routine drills to the editor and ← All routines reopens the drawer", async () => {
+    const host = render();
+    await settle();
+    await openEditor();
+    expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
+    expect(host.querySelector("[data-routine-inspector]")).toBeNull();
+
+    await act(async () => buttonNamed("← All routines").click());
+    await settle();
+    expect(host.querySelector("[data-routine-editor]")).toBeNull();
+    expect(host.querySelector("[data-routine-inspector]")?.getAttribute("data-routine-inspector")).toBe(
+      "a".repeat(22),
+    );
+  });
+
+  it("a waiting-approval run raises the attention strip and its button inspects that routine", async () => {
+    const second = routine({ id: "b".repeat(22), name: "Gmail triage" });
+    useStore.setState({
+      routinesState: routinesState({
+        routines: [routine(), second],
+        runs: [run({ routineId: second.id, outcome: "waiting-approval" })],
+      }),
+    });
+    const host = render();
+    await settle();
+    const strip = host.querySelector("[data-routines-attention-strip]")!;
+    expect(strip.textContent).toContain("1 run waiting on an Approval card");
+    const jump = [...strip.querySelectorAll("button")].find((b) => b.textContent?.includes("Gmail triage"))!;
+    await act(async () => jump.click());
+    await settle();
+    expect(host.querySelector("[data-routine-inspector]")?.getAttribute("data-routine-inspector")).toBe(
+      "b".repeat(22),
+    );
+  });
+
+  it("search and filter pills narrow the table", async () => {
+    const second = routine({ id: "b".repeat(22), name: "Gmail triage", enabled: false });
+    useStore.setState({ routinesState: routinesState({ routines: [routine(), second] }) });
+    const host = render();
+    await settle();
+    expect(host.querySelectorAll("[data-routine-row]")).toHaveLength(2);
+
+    act(() => {
+      const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(search, "triage");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Search is debounced 150 ms; wait a real beat past it.
+    const { promise: beat, resolve: done } = Promise.withResolvers<void>();
+    setTimeout(done, 220);
+    await act(async () => beat);
+    await settle();
+    expect(host.querySelectorAll("[data-routine-row]")).toHaveLength(1);
+    expect(host.querySelector("[data-routine-row]")?.textContent).toContain("Gmail triage");
   });
 });
 
@@ -466,6 +568,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     useStore.setState({ updateRoutine });
     render();
     await settle();
+    await openEditor(saved.id);
 
     expect(textareaByLabel("Run shell before starting").value).toBe("git fetch --all");
     expect(textareaByLabel("Run shell after the run ends").value).toBe("notify-done");
@@ -486,6 +589,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     useStore.setState({ routinesState: routinesState({ routines: [saved] }), routineFocusId: saved.id });
     render();
     await settle();
+    await openEditor(saved.id);
     expect(document.body.textContent).toContain("Run hooks execute as you, unattended");
     expect(document.body.textContent).not.toContain("No shell tool allowed");
   });
@@ -517,6 +621,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     });
     render();
     await settle();
+    await openEditor(saved.id);
     await act(async () => buttonNamed("Dry run").click());
     await settle();
     expect(document.querySelector("[data-dry-run-hook='post']")?.textContent).toContain("npm test");
@@ -529,6 +634,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     runRoutineNow.mockResolvedValueOnce({ tabId: "", runId: "run-x" });
     render();
     await settle();
+    await openEditor(saved.id);
     await act(async () => buttonNamed("Run now").click());
     await settle();
     expect(document.querySelector("[data-routine-skipped-now]")?.textContent).toContain("Nothing to do");
@@ -537,41 +643,40 @@ describe("RoutinesView run hooks (#1283)", () => {
 });
 
 describe("RoutinesView Variant B layout and Flight check (#1284)", () => {
-  it("closes Routines from the sidebar ← Sessions button and renders on studio-stage", async () => {
+  it("closes Routines from the header ← Sessions button and renders on studio-stage", async () => {
     const host = render();
     await settle();
     const view = host.querySelector("[data-routines-view]")!;
     expect(view.classList.contains("studio-stage")).toBe(true);
     expect(view.classList.contains("stage-void")).toBe(false);
 
-    const sidebar = host.querySelector("[data-routines-sidebar]")!;
-    const backButton = [...sidebar.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
+    // The routines-specific inner sidebar is gone: the gallery fills the pane.
+    expect(host.querySelector("[data-routines-sidebar]")).toBeNull();
+    const header = host.querySelector("header")!;
+    expect(header.textContent).toContain("Routines on work-laptop");
+    const backButton = [...header.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
     expect(backButton).toBeDefined();
     await act(async () => backButton!.click());
     expect(closeRoutines).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the left routine rail when sidebarCollapsed is true while keeping ← Sessions in the editor", async () => {
+  it("keeps the header host label and return path while sidebarCollapsed is true", async () => {
     useStore.setState({ sidebarCollapsed: true });
     const host = render();
     await settle();
-    expect(host.querySelector("[data-routines-sidebar]")).toBeNull();
-
-    const editor = host.querySelector("[data-routine-editor]")!;
-    const backButton = [...editor.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
+    const header = host.querySelector("header")!;
+    expect(header.textContent).toContain("Routines on work-laptop");
+    const backButton = [...header.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
     expect(backButton).toBeDefined();
     await act(async () => backButton!.click());
     expect(closeRoutines).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the host-named header and ← Sessions return path in the collapsed empty state", async () => {
-    useStore.setState({
-      sidebarCollapsed: true,
-      routinesState: routinesState({ routines: [] }),
-    });
+  it("keeps the host-named header and ← Sessions return path in the empty state", async () => {
+    useStore.setState({ routinesState: routinesState({ routines: [] }) });
     const host = render();
     await settle();
-    expect(host.querySelector("[data-routines-sidebar]")).toBeNull();
+    expect(host.textContent).toContain("No routines on this host");
     const header = host.querySelector("header")!;
     expect(header.textContent).toContain("Routines on work-laptop");
     const backButton = [...header.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
@@ -583,6 +688,7 @@ describe("RoutinesView Variant B layout and Flight check (#1284)", () => {
   it("renders the integrated Flight check bar in Configuration and links to Tool policy", async () => {
     const host = render();
     await settle();
+    await openEditor();
     expect(host.querySelector('aside[aria-label="Flight check"]')).toBeNull();
 
     const bar = host.querySelector('[aria-label="Flight check"]')!;
@@ -608,21 +714,19 @@ describe("RoutinesView Variant B layout and Flight check (#1284)", () => {
     useStore.setState({ routinesState: routinesState({ routines: [withBash] }) });
     const host = render();
     await settle();
+    await openEditor();
     const bar = host.querySelector('[aria-label="Flight check"]')!;
     expect(bar.textContent).toContain("Shell bypass enabled");
     expect(bar.textContent).not.toContain("Policy enforced");
   });
 
-  it("opens the new-routine editor from the main-stage empty card New routine button", async () => {
+  it("opens the new-routine editor from the filter bar New routine button", async () => {
     useStore.setState({ routinesState: routinesState({ routines: [] }) });
     const host = render();
     await settle();
     expect(host.querySelector("[data-routine-editor]")).toBeNull();
 
-    const emptyCard = host.querySelector(".studio-card")!;
-    const newButton = [...emptyCard.querySelectorAll("button")].find((b) => b.textContent?.trim() === "New routine");
-    expect(newButton).toBeDefined();
-    await act(async () => newButton!.click());
+    await act(async () => buttonNamed("New routine").click());
     await settle();
     expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
   });
@@ -651,6 +755,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     useStore.setState({ updateRoutine });
     render();
     await settle();
+    await openEditor();
 
     expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("30 min");
     expect(timeoutInput()?.value).toBe("");
@@ -662,6 +767,9 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     await settle();
     expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }), null);
 
+    // Save returns to the gallery with the drawer open; drill back in for the next edit.
+    await openEditor();
+
     // Switch to Unlimited -> Flight check shows Unlimited, lane warning appears, saves timeoutMinutes: 0.
     act(() => buttonNamed("Unlimited").click());
     expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("Unlimited");
@@ -670,6 +778,8 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     await act(async () => buttonNamed("Save routine").click());
     await settle();
     expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }), null);
+
+    await openEditor();
 
     // Switch back to Limit -> resets to default (timeoutMinutes: null).
     act(() => buttonNamed("Limit").click());
@@ -683,6 +793,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
   it("surfaces validation error and disables Save for invalid timeout values", async () => {
     render();
     await settle();
+    await openEditor();
 
     for (const bad of ["-5", "1.5", "1441"]) {
       typeInto(timeoutInput()!, bad);
@@ -722,6 +833,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     dryRunRoutine.mockResolvedValueOnce(baseDryRun);
     render();
     await settle();
+    await openEditor();
     await act(async () => buttonNamed("Dry run").click());
     await settle();
     expect(document.querySelector("[data-dry-run]")?.textContent).toContain("timeout 2 h");
@@ -752,6 +864,7 @@ describe("RoutinesView notifications (#1294)", () => {
     useStore.setState({ updateRoutine });
     render();
     await settle();
+    await openEditor();
 
     for (const label of ["When routine starts", "When approval is needed", "When routine completes", "Let agent write completion message", "When routine fails"]) {
       expect(checkbox(label).checked).toBe(false);
@@ -778,6 +891,7 @@ describe("RoutinesView notifications (#1294)", () => {
     useStore.setState((s) => ({ state: { ...s.state!, desktopNotifications: false }, openSettings }));
     render();
     await settle();
+    await openEditor();
     const note = document.querySelector("[data-routine-notifications-disabled-note]");
     expect(note?.textContent).toContain("Desktop notifications are off in Settings → General.");
     act(() => buttonNamed("Open Settings").click());
@@ -809,6 +923,7 @@ describe("RoutinesView notifications (#1294)", () => {
     } satisfies RoutineDryRunResult);
     render();
     await settle();
+    await openEditor();
     await act(async () => buttonNamed("Dry run").click());
     await settle();
     expect(document.querySelector("[data-dry-run-notifications]")?.textContent).toBe(
@@ -827,7 +942,8 @@ describe("RoutinesView notifications (#1294)", () => {
     act(() => useStore.setState({ routinesState: routinesState({ routines: [routine(), second] }) }));
     await settle();
     expect(useStore.getState().routineFocusId).toBeNull();
-    expect((document.querySelector('input[aria-label="Name"]') as HTMLInputElement).value).toBe("Evening digest");
+    // The focus request opens the gallery drawer on that routine.
+    expect(document.querySelector("[data-routine-inspector]")?.textContent).toContain("Evening digest");
   });
 });
 
@@ -883,6 +999,7 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     });
     render();
     await settle();
+    await openEditor("r".repeat(22));
 
     expect(document.body.textContent).toContain("Remote · studio");
     expect(readChatModels).toHaveBeenCalledWith("inst-studio");
@@ -927,7 +1044,9 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     expect(document.querySelector("[data-routines-disconnected-banner]")?.textContent).toContain(
       "studio is not connected — viewing cached snapshot",
     );
-    expect(buttonNamed("Run now").disabled).toBe(true);
+    // Read-only cached snapshot: the gallery renders no row Run/Inspect actions.
+    const readOnlyRow = document.querySelector(`[data-routine-row="${"a".repeat(22)}"]`)!;
+    expect([...readOnlyRow.querySelectorAll("button")].some((b) => b.textContent?.includes("Run"))).toBe(false);
     act(() => buttonNamed("Reconnect").click());
     expect(reconnectRemoteInstance).toHaveBeenCalledWith("inst-studio");
 

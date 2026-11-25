@@ -386,11 +386,17 @@ off later pauses schedules without stopping a live run or deleting anything.
 Open it from the **Routines** button in the sidebar footer or **Open Routines**
 in the command palette. The header reads "Routines on {machine}", naming the
 host whose schedules you are editing. The footer button carries a count of
-runs waiting on an Approval card. Wide windows show the list beside the
-editor; below 900 px the list drills down into the editor with **← All
-routines**.
+runs waiting on an Approval card. Wide windows show a gallery — a routine
+table (default) or countdown tiles via **Grid | List** — over a search box,
+filter pills, and a sort selector; the Sessions sidebar stays visible beside
+it. Clicking a row opens an inspector drawer over the gallery with the
+routine's schedule, resolved configuration, artifact binding, and recent
+runs, plus its enable switch and **▶ Run now**; **Edit full routine →** opens
+the full editor, and **← All routines** returns to the gallery with the
+drawer reopened. Below 900 px the list drills down into the editor with
+**← All routines**.
 
-Each list row shows the name, schedule, next run (or **Paused**), the last
+Each table row shows the name, schedule, next run (or **Paused**), the last
 outcome, and an enable switch. A paused routine never fires on its schedule but
 stays editable.
 
