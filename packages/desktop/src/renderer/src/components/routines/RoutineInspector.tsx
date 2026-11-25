@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoutineRecord, RoutineRunRow } from "@omp-ui/core/routine";
 import { backend } from "../../backend";
-import { cn } from "../../lib/cn";
 import { useDismissal } from "../../lib/use-dismissal";
 import { useStore } from "../../store";
 import { Button, Chip, IconButton, IconClose, Switch } from "../ui";
 import { RunHistoryList } from "./RunHistoryList";
 import {
-  OUTCOME_LABEL,
-  OUTCOME_TONE,
   describeSchedule,
   formatTimeout,
   formatUsd,

@@ -1,4 +1,13 @@
-import { createContext, Fragment, useContext, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import katex from "katex";
 import type { ThemedToken } from "shiki/core";
 import { isLoopbackHost } from "@omp-ui/core/browser-pane";
@@ -14,6 +23,8 @@ import { useTheme } from "../lib/themes";
 import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan, type MdTableTail } from "../lib/markdown";
 import { isHtmlPlanDocument } from "@omp-ui/core/plan";
 import { PlanDocument } from "./PlanDocumentView";
+import { LinkContextMenu } from "./LinkContextMenu";
+import { copyFallback } from "../lib/clipboard";
 import { CopyButton } from "./ui";
 
 export const ObsidianNoteLinkContext = createContext<
@@ -118,6 +129,29 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
   const machine = useTabMachine();
   const ownerLoopback = machine !== null && isLoopbackHost(safeHostname(href));
   const [explained, setExplained] = useState(false);
+  // Right-click → "Copy link" (issue #1359): the anchor carries no href
+  // attribute (#101), so this component is the only place the URL lives.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const openMenu = (e: ReactMouseEvent): void => {
+    e.preventDefault();
+    // A live selection elsewhere must not also open the selection menu.
+    e.stopPropagation();
+    // Second right-click toggles closed, like the transcript's selection menu.
+    if (menuAt !== null) {
+      setMenuAt(null);
+      return;
+    }
+    setMenuAt({ x: e.clientX, y: e.clientY });
+  };
+  const copyLink = (): void => {
+    if (typeof navigator.clipboard?.writeText === "function")
+      void navigator.clipboard.writeText(href).catch(() => copyFallback(href));
+    else copyFallback(href);
+  };
+  const menu =
+    menuAt !== null ? (
+      <LinkContextMenu x={menuAt.x} y={menuAt.y} onCopy={copyLink} onClose={() => setMenuAt(null)} />
+    ) : null;
   if (ownerLoopback) {
     return (
       <span className="inline">
@@ -126,6 +160,7 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
           tabIndex={0}
           title={`lives on ${machine}: this loopback address only resolves there, not on this computer`}
           onClick={() => setExplained(true)}
+          onContextMenu={openMenu}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -145,25 +180,30 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
             {`this address only resolves on ${machine} — open it there, or use the session’s browser pane`}
           </span>
         )}
+        {menu}
       </span>
     );
   }
   return (
-    <a
-      role="link"
-      tabIndex={0}
-      title={href}
-      onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          window.open(href, "_blank", "noopener,noreferrer");
-        }
-      }}
-      className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
-    >
-      {children}
-    </a>
+    <>
+      <a
+        role="link"
+        tabIndex={0}
+        title={href}
+        onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
+        onContextMenu={openMenu}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            window.open(href, "_blank", "noopener,noreferrer");
+          }
+        }}
+        className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
+      >
+        {children}
+      </a>
+      {menu}
+    </>
   );
 }
 
