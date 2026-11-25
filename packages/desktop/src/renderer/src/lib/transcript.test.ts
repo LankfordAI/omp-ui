@@ -501,6 +501,19 @@ describe("reduceEvent message lifecycle", () => {
       text: "Soft tool requirement 'task' was not satisfied after 3 forced turns; aborting to avoid an unbounded force loop.",
     });
   });
+
+  it("replays the agent-loop-stop notice after the message's tool cards, as the live path streamed it", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "t1", name: "bash", arguments: {} }],
+        stopReason: "error",
+        errorMessage: "Soft tool requirement 'bash' was not satisfied after 3 forced turns.",
+        errorFromAgentLoop: true,
+      },
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["assistant", "tool", "notice"]);
+  });
 });
 
 describe("reduceEvent tool executions", () => {

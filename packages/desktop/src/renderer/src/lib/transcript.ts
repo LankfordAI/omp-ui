@@ -1787,11 +1787,6 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         streaming: false,
         ...meta,
       });
-      // A persisted agent-loop stop replays with the same notice (issue #1337).
-      if (meta.errorFromAgentLoop === true) {
-        const notice = agentLoopStopNotice(raw);
-        if (notice !== null) items.push(notice);
-      }
       for (const block of contentBlocks(raw.content)) {
         if (block.type === "toolCall") {
           const toolCallId = str(block.id) ?? `tool-${++counter}`;
@@ -1807,6 +1802,13 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
             timestamp: numField(raw, "timestamp"),
           });
         }
+      }
+      // A persisted agent-loop stop replays with the same notice (issue #1337),
+      // after the message's tool-call cards — the live path appends it at the
+      // end of the array too, so reopen order matches what the turn streamed as.
+      if (meta.errorFromAgentLoop === true) {
+        const notice = agentLoopStopNotice(raw);
+        if (notice !== null) items.push(notice);
       }
       continue;
     }
