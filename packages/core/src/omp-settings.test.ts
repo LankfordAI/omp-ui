@@ -1018,6 +1018,26 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("admits the omp 19.2 vim, eval-tools and cross-instance keys to the write boundary (#1335)", async () => {
+    const calls: string[][] = [];
+    const run = async (args: readonly string[]): Promise<string> => {
+      calls.push([...args]);
+      return "";
+    };
+    await writeOmpSetting({ ompPath: OMP, key: "tui.vimStartMode", value: "normal" }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "tui.vimShowCommand", value: false }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "tui.vimYankToClipboard", value: true }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "eval.tools.enabled", value: true }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "task.crossInstance", value: false }, run);
+    expect(calls).toEqual([
+      ["config", "set", "tui.vimStartMode", "normal", "--json"],
+      ["config", "set", "tui.vimShowCommand", "false", "--json"],
+      ["config", "set", "tui.vimYankToClipboard", "true", "--json"],
+      ["config", "set", "eval.tools.enabled", "true", "--json"],
+      ["config", "set", "task.crossInstance", "false", "--json"],
+    ]);
+  });
+
   it("admits the omp 19.2 prewalk escalation keys to the write boundary (#1338)", async () => {
     const calls: string[][] = [];
     const run = async (args: readonly string[]): Promise<string> => {
