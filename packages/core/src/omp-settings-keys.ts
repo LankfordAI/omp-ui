@@ -358,6 +358,17 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "compaction.reserveTokens",
       // omp 18.11 (issue #871): pre-walks the context before the first turn.
       "prewalk.enabled",
+      // omp 19.2 (issue #1338): auto-prewalk vocabulary. prewalk.auto is an
+      // enum off|suggest|on|escalate whose options ride in from `omp config
+      // list` via parseEnumOptions, so `escalate` — plan a judge-confirmed
+      // task on the prewalk.from model, then hand off — appears on 19.2
+      // binaries and not on older ones; prewalk.autoTarget (string, default
+      // @smol) picks the hand-off target and gains the "@initial" value,
+      // returning to the model AND thinking level that began an escalated
+      // task. OmpPage.tsx's row hints carry the interaction notes omp's own
+      // copy cannot. Both absent on older binaries — the per-key skip rule.
+      "prewalk.auto",
+      "prewalk.autoTarget",
       // omp 18.14 (issue #972): the planning model /prewalk restart returns to
       // (default @default) and the model or role prewalk hands off to at the
       // first edit (default @smol). Plain strings: model selector or @role.
