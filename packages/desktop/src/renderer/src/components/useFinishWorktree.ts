@@ -165,6 +165,8 @@ export interface FinishController {
   discarded: DiscardedChange[];
   /** Re-applies one save into the worktree with `git stash apply --index`. */
   restoreDiscarded(commit: string): Promise<void>;
+  /** True when the merge outcome is blocked for the current destination. */
+  mergeBlocked: boolean;
   /** null disables the primary button. */
   primaryLabel: string | null;
 }
@@ -755,9 +757,14 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (returnSession) {
       setPhase({ s: "working", step: "returning" });
       const switchTo = checkoutBlockedByBusy ? null : checkoutTarget;
+      // When a worktree is checked out directly on the destination branch
+      // (e.g. `main` onto `main`, #1363), nothing is merged and the branch
+      // itself must survive reclamation.
+      const sameBranch = outcome === "merge" && target === branch;
+      const keepBranch = outcome === "keep" || sameBranch;
       const release = await releaseWorktreeSession(tabId, {
-        keepBranch: outcome === "keep",
-        mergedInto: outcome === "merge" ? target : null,
+        keepBranch,
+        mergedInto: outcome === "merge" && !sameBranch ? target : null,
         checkoutOnReturn: switchTo,
       });
       if (release === null) {
@@ -767,10 +774,9 @@ export function useFinishWorktree(tabId: string): FinishController {
       }
       appendNotice(
         tabId,
-        releaseNoticeText(release, outcome === "merge" ? mergedCommits : null, outcome === "keep"),
+        releaseNoticeText(release, outcome === "merge" ? mergedCommits : null, keepBranch),
         releaseNoticeLevel(release),
       );
-      // Withheld on purpose, so say so: the finish is not silently half-done.
       if (checkoutTarget !== null && switchTo === null) {
         appendNotice(
           tabId,
@@ -959,13 +965,16 @@ export function useFinishWorktree(tabId: string): FinishController {
   // branch never lives in any checkout before the merge. The dirty overlap
   // (#1050) joins them only for a merge that runs in the project checkout:
   // enabling the button would hand git a refusal it already predicted.
+  // Already-merged finishes skip `git merge` completely (#1363), so
+  // destination-checkout blockers never prevent returning an already-landed
+  // worktree (including a worktree checked out directly on `main`).
   const mergeBlocked =
     newBranch === null &&
     status !== null &&
+    !status.alreadyMerged &&
     (status.destinationCheckout === "other" ||
       (status.destinationCheckout === "project" &&
         (status.mergeInProgress || destinationDirty)));
-
   // If merge is blocked on open and the user hasn't picked an outcome yet,
   // fall back to Push & PR (keep branch) automatically.
   useEffect(() => {
@@ -1050,6 +1059,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     openPullRequest,
     discarded,
     restoreDiscarded,
+    mergeBlocked,
     primaryLabel,
   };
 }

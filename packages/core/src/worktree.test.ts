@@ -1661,6 +1661,20 @@ describe("removeWorktreeBranch", () => {
       (await git(dir, ["branch", "--format=%(refname:short)", "--list", branch])).trim(),
     ).toBe(branch);
   });
+
+  it("never deletes a branch when the only destination candidate is the branch itself (#1363)", async () => {
+    const dir = await tmpRepo();
+    // Move project checkout off main so main can be held by a worktree, then removed.
+    await git(dir, ["checkout", "-q", "-b", "other"]);
+    const wt = path.join(dir, "wt", "main");
+    await addWorktreeForBranch(dir, wt, "main");
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, "main", ["main"]);
+    expect(result).toEqual({ kind: "kept-no-destination" });
+    expect(
+      (await git(dir, ["branch", "--format=%(refname:short)", "--list", "main"])).trim(),
+    ).toBe("main");
+  });
 });
 
 describe("removeWorktree", () => {
@@ -2001,5 +2015,11 @@ describe("isEmptyCleanWorktree (Slice 3.2)", () => {
 
     // Unreadable path -> false (fail-safe)
     expect(await isEmptyCleanWorktree(dir, { path: path.join(dir, "missing"), branch: "feat/empty", base: "main" })).toBe(false);
+
+    // Worktree checked out directly on main (branch === resolved base): never treated as empty/deletable (#1363).
+    await git(dir, ["checkout", "-q", "-b", "topic"]);
+    const mainWtPath = path.join(wtParent, "wt-main");
+    await addWorktreeForBranch(dir, mainWtPath, "main");
+    expect(await isEmptyCleanWorktree(dir, { path: mainWtPath, branch: "main", base: "main" })).toBe(false);
   });
 });
