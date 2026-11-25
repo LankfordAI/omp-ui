@@ -84,6 +84,14 @@ export interface AssistantItem {
   /** OMP-reported routed provider behind an aggregator. */
   upstreamProvider?: string;
   stopReason?: string;
+  /**
+   * True when the terminal error on this message came from omp's agent loop
+   * itself — an unmet soft tool requirement, not a failed provider request
+   * (omp ≥ 19.2 `AssistantMessage.errorFromAgentLoop`, issue #1337). Absent
+   * on older binaries and on every non-error turn; the transcript appends a
+   * distinct notice instead of bare error styling when set.
+   */
+  errorFromAgentLoop?: boolean;
   durationMs?: number;
   ttftMs?: number;
   /** When the turn completed — epoch ms off the assistant message. */
@@ -786,10 +794,32 @@ function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem>
     responseId: strField(message, "responseId"),
     upstreamProvider: strField(message, "upstreamProvider"),
     stopReason: strField(message, "stopReason"),
+    // Only a true flag is carried: absent covers older binaries and every
+    // ordinary turn, so no consumer distinguishes false from missing.
+    ...(boolField(message, "errorFromAgentLoop") === true ? { errorFromAgentLoop: true } : {}),
     durationMs: numField(message, "duration"),
     ttftMs: numField(message, "ttft"),
     timestamp: numField(message, "timestamp"),
   };
+}
+
+/**
+ * The distinct notice for an assistant turn omp's agent loop stopped itself
+ * (issue #1337, omp ≥ 19.2 `AssistantMessage.errorFromAgentLoop`) — most
+ * commonly a soft tool requirement the model kept missing. This is not a
+ * failed provider request: it reads as actionable, in omp's own words when
+ * it carried any. Null for every ordinary message, including provider-error
+ * ones, which keep today's bare error styling.
+ */
+function agentLoopStopNotice(message: Record<string, unknown>): NoticeItem | null {
+  if (boolField(message, "errorFromAgentLoop") !== true) return null;
+  const errorMessage = strField(message, "errorMessage")?.trim();
+  return noticeItem(
+    errorMessage && errorMessage !== ""
+      ? errorMessage
+      : "turn stopped by the agent loop: a required tool call never satisfied its requirement",
+    "warn",
+  );
 }
 
 /**
@@ -1394,21 +1424,30 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             );
           }
         }
-        return replaceAt(items, idx, { ...settled, ...meta, streaming: false });
+        const settledItem = { ...settled, ...meta, streaming: false } as RenderItem;
+        // An agent-loop stop (issue #1337) is actionable, not a provider error:
+        // the notice carries omp's own text below the turn.
+        const loopNotice =
+          message !== null && meta.errorFromAgentLoop === true
+            ? agentLoopStopNotice(message)
+            : null;
+        return loopNotice === null
+          ? replaceAt(items, idx, settledItem)
+          : [...replaceAt(items, idx, settledItem), loopNotice];
       }
       // No streaming item (resumed mid-stream) — render the final message.
       if (message && str(message.role) === "assistant") {
-        return [
-          ...items,
-          {
-            kind: "assistant",
-            id: `assistant-${++counter}`,
-            text: textFromContent(message.content),
-            ...thinkingSplitFromContent(message.content),
-            streaming: false,
-            ...meta,
-          },
-        ];
+        const final: RenderItem = {
+          kind: "assistant",
+          id: `assistant-${++counter}`,
+          text: textFromContent(message.content),
+          ...thinkingSplitFromContent(message.content),
+          streaming: false,
+          ...meta,
+        };
+        const loopNotice =
+          meta.errorFromAgentLoop === true ? agentLoopStopNotice(message) : null;
+        return loopNotice === null ? [...items, final] : [...items, final, loopNotice];
       }
       return items;
     }
@@ -1738,6 +1777,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
     }
     if (role === "assistant") {
       const { thinking, narration } = thinkingSplitFromContent(raw.content);
+      const meta = assistantMeta(raw);
       items.push({
         kind: "assistant",
         id: `assistant-${++counter}`,
@@ -1745,8 +1785,13 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         thinking,
         narration,
         streaming: false,
-        ...assistantMeta(raw),
+        ...meta,
       });
+      // A persisted agent-loop stop replays with the same notice (issue #1337).
+      if (meta.errorFromAgentLoop === true) {
+        const notice = agentLoopStopNotice(raw);
+        if (notice !== null) items.push(notice);
+      }
       for (const block of contentBlocks(raw.content)) {
         if (block.type === "toolCall") {
           const toolCallId = str(block.id) ?? `tool-${++counter}`;
