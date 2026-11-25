@@ -1224,7 +1224,11 @@ export class SessionManager {
     const loc = await locate(source.lineageDir, source.sessionId);
     if (loc.where === "missing") return null;
     const summary = await renderSessionSummary(source, this.deps.registry.projects, locate);
-    return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath });
+    // The Ask chat runs on the host's omp; #1366 gates the budgeted-view deep
+    // dive on it publishing archive.transcript (≥ 19.2.1). Unknown stays V2.
+    const ompPath = this.deps.getOmpPath();
+    const ompVersion = ompPath === null ? null : await readInstalledOmpVersion(ompPath);
+    return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath, ompVersion });
   }
 
   /** Project scope guidance (#1226, #1227, ADR-0098): every native session gets it. */

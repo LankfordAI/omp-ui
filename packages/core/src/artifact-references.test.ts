@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactReference, ArtifactRefreshEntry } from "./artifacts";
 import { pageArtifactText } from "./artifacts";
-import { ARTIFACT_REFRESH_HINT, ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, splitArtifactRefreshContext, splitArtifactReferenceContext, splitLegacyArtifactRefreshRequest, withArtifactRefreshContext, withArtifactReferenceContext } from "./artifact-references";
+import { ARTIFACT_REFRESH_HINT, ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINT_V3, splitArtifactRefreshContext, splitArtifactReferenceContext, splitLegacyArtifactRefreshRequest, supportsArchiveTranscript, withArtifactRefreshContext, withArtifactReferenceContext } from "./artifact-references";
 
 const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const reference: ArtifactReference = { version: 1, referenceId: id(1), ownerInstanceId: id(2), artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), title: "Budget", machine: "desktop", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${id(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(1)}/definition` };
@@ -57,9 +57,27 @@ describe("artifact reference wire grammar", () => {
   it("admits both accepted session-reference hint forms (issue #1189)", () => {
     const artifact = withArtifactReferenceContext("<annotations>\nprose", [reference]);
     expect(parseArtifactPromptReferences(`${sessionV2}\n\n${artifact}`)).toEqual([reference]);
-    // A third, unknown hint line stays prose — the grammar is a closed set.
+    // A block under an unknown hint line stays prose — the grammar is a closed set.
     const lookalike = sessionV2.replace(SESSION_REFERENCE_HINT_V2, "Some other advice.");
     expect(parseArtifactPromptReferences(`${lookalike}\n\n${artifact}`)).toEqual([]);
+  });
+  it("parses blocks written under the budgeted-view hint (issue #1366)", () => {
+    const sessionV3 = sessionV2.replace(SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINT_V3);
+    const artifact = withArtifactReferenceContext("<annotations>\nprose", [reference]);
+    expect(parseArtifactPromptReferences(`${sessionV3}\n\n${artifact}`)).toEqual([reference]);
+  });
+});
+
+describe("archive.transcript capability gate (#1366)", () => {
+  it("opens at omp 19.2.1 and stays shut below or unknown", () => {
+    expect(supportsArchiveTranscript("19.2.1")).toBe(true);
+    expect(supportsArchiveTranscript("19.2.2")).toBe(true);
+    expect(supportsArchiveTranscript("20.0.0")).toBe(true);
+    expect(supportsArchiveTranscript("19.2.0")).toBe(false);
+    expect(supportsArchiveTranscript("19.1.1")).toBe(false);
+    // Unknown or unparseable never names an API the runtime may lack.
+    expect(supportsArchiveTranscript(null)).toBe(false);
+    expect(supportsArchiveTranscript("nightly")).toBe(false);
   });
 });
 
