@@ -1,4 +1,4 @@
-import type { BackendState, ChannelTable, RequestHandlers } from "@omp-ui/core";
+import type { BackendState, ChannelTable, RequestHandlers, RoutinesState } from "@omp-ui/core";
 
 /**
  * The two contracts the other #1010 slices implement against `@omp-ui/host-lite`.
@@ -57,4 +57,21 @@ export interface LiteSessions {
   providerReady?(cwd: string): boolean;
   /** Live-session/turn counts for `fleet:hostReport` activity; absent = zeros. */
   activity?(): { liveSessions: number; runningTurns: number };
+  /**
+   * Host-local Routines operator control surface (issue #1368, ADR-0100).
+   * Served exclusively over the OS-local control socket — never registered on
+   * the LAN WebSocket table. Absent on bare test fakes.
+   */
+  readonly routinesControl?: LiteRoutinesControl;
+}
+
+/**
+ * Atomic operator mutations for Routines on Host Lite. Called exclusively by
+ * `LocalControlServer` (never exposed over the LAN WebSocket channel table).
+ */
+export interface LiteRoutinesControl {
+  state(): RoutinesState;
+  enable(caps?: { warnUsd?: number; maxUsd?: number }): Promise<RoutinesState>;
+  disable(): Promise<RoutinesState>;
+  setSpendDefaults(caps: { warnUsd?: number; maxUsd?: number }): Promise<RoutinesState>;
 }

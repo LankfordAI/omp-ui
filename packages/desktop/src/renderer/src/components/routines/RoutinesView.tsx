@@ -262,7 +262,7 @@ export function RoutinesView() {
           <div className="studio-card flex max-w-md flex-col items-center gap-4 rounded-xl p-6 text-center">
             <Empty
               title={`Routines unavailable on ${hostLabel}`}
-              hint={`${hostLabel} does not support Routines (update omp-ui there, or Host Lite does not run Routines).`}
+              hint={`${hostLabel} does not support Routines (update omp-ui there).`}
             />
           </div>
         </div>
@@ -296,7 +296,7 @@ export function RoutinesView() {
               hint={
                 instanceId === null
                   ? "Turn on Settings → Routines to manage or run routines on this computer."
-                  : `Turn on Settings → Routines on ${hostLabel} to manage or run its routines.`
+                  : `Enable Routines on ${hostLabel} (Settings → Routines, or omp-ui-lite routines enable on Host Lite) to manage or run its routines.`
               }
             />
             {instanceId === null && (

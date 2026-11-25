@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { CH, Registry, type RemoteState } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import { ensureInstanceId, ensureLiteHome, resolveLiteHome } from "./config";
+import { acquireDataDirLock, type DataDirLock } from "./data-dir-lock";
+import { startLocalControlServer, type LocalControlServer } from "./local-control";
 import { LiteBackend, registryOnlySessions } from "./lite-backend";
 import { LiteRemoteServer } from "./remote-server";
 import type { FleetLegsHandle } from "./fleet-legs";
@@ -56,7 +58,12 @@ export interface LiteServeOptions {
    * is fatal — a member with no session machinery answers joins with an empty
    * backend, so the CLI's production boot lets the rejection surface.
    */
-  buildSessions?: (ctx: { registry: Registry; dataDir: string; version: string }) => Promise<LiteSessions>;
+  buildSessions?: (ctx: {
+    registry: Registry;
+    dataDir: string;
+    version: string;
+    instanceId: string;
+  }) => Promise<LiteSessions>;
   env?: NodeJS.ProcessEnv;
   /**
    * Skip bringing up the remote listener (status-style unit tests that assert
@@ -73,10 +80,12 @@ export interface LiteInstance {
   readonly registry: Registry;
   readonly backend: LiteBackend;
   readonly remote: LiteRemoteServer;
+  /** OS-local control endpoint (`control.sock` on POSIX; loopback HTTP + nonce on Windows). */
+  readonly localControl: LocalControlServer;
   /** S3's cipher when injected; null until the keyed store slice lands. */
   readonly cipher: LiteKeyCipher | null;
   readonly sessions: LiteSessions;
-  /** Stops the listener and disposes the sessions slice. Idempotent. */
+  /** Stops the listener, local control server, sessions, and releases the data-dir lock. Idempotent. */
   stop(): Promise<void>;
 }
 
@@ -95,115 +104,177 @@ export function seedMemberDefaults(registry: Registry, freshInstall: boolean): b
   return true;
 }
 
+/**
+ * Boot-time override for `routinesEnabled` via `OMP_UI_LITE_ROUTINES` (issue #1368).
+ * Unset or whitespace-only leaves the persisted setting untouched; `"1"`/`"true"`
+ * (case-insensitive) enables; `"0"`/`"false"` disables; any other value throws.
+ */
+export function applyRoutinesEnvOverride(registry: Registry, env: NodeJS.ProcessEnv): boolean | null {
+  const raw = env.OMP_UI_LITE_ROUTINES;
+  if (raw === undefined) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "") return null;
+  if (normalized === "1" || normalized === "true") {
+    registry.setSetting("routinesEnabled", true);
+    return true;
+  }
+  if (normalized === "0" || normalized === "false") {
+    registry.setSetting("routinesEnabled", false);
+    return false;
+  }
+  throw new Error(`OMP_UI_LITE_ROUTINES must be 1, true, 0, or false (got "${raw}")`);
+}
+
 export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise<LiteInstance> {
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((line: string) => console.log(line));
   const dataDir = ensureLiteHome(opts.dataDir ?? resolveLiteHome(env));
-  const registryFile = `${dataDir}/registry.json`;
-  // Fresh member (no persisted settings yet): seed the fleet-member defaults
-  // once. After that the user's `remote:*` choices are law, same as desktop.
-  const freshMember = !fs.existsSync(registryFile);
-  const registry = Registry.load(registryFile);
-  if (seedMemberDefaults(registry, freshMember)) {
-    log(`omp-ui-lite: first boot — remote access on ${MEMBER_DEFAULTS.remoteBind}`);
-  }
-  // Mint at boot so `status` and pairing always have a credential, even before the listener first runs.
-  if (registry.getSetting("remoteToken") === "") registry.setSetting("remoteToken", mintRemoteToken());
-  const instanceId = ensureInstanceId(dataDir, randomUUID);
+  // Exclusive ownership BEFORE loading Registry or RoutineRunHistory so a
+  // duplicate `serve` cannot rewrite persisted state or mark running rows
+  // interrupted while another daemon is live.
+  const lock: DataDirLock = acquireDataDirLock(dataDir);
 
-  // Sessions resolve before the backend (whose constructor subscribes to
-  // LiteSessions.on). Production builds the real cluster here through the one
-  // authoritative Registry serve just loaded; tests pass `sessions` directly.
-  const version = opts.version ?? PACKAGE_VERSION;
-  let sessions: LiteSessions;
-  if (opts.buildSessions !== undefined) {
-    sessions = await opts.buildSessions({ registry, dataDir, version });
-  } else {
-    sessions = opts.sessions ?? registryOnlySessions(registry);
-  }
-  // Fleet member legs (S4). A pre-built handle (tests) rides the backend's
-  // deps; production builds legs AFTER the backend exists — its terminal
-  // fan-out emits through `backend.emit` — and attaches them via a table
-  // rebuild BEFORE the listener starts, so a joined owner sees the fleet
-  // channels from its very first request. A build failure degrades to a
-  // legs-absent member (`unknown channel` on every fleet:*, exactly what an
-  // unupgraded desktop gives): broken exec must not stop the box joining.
-  // `liveFleet` is whichever handle became active; stop() disposes it.
+  let sessions: LiteSessions | null = null;
   let liveFleet: FleetLegsHandle | null = opts.fleet ?? null;
-  const remote = new LiteRemoteServer({
-    host: { handlers: () => backend.handlers(), addSink: (s) => backend.addSink(s) },
-    // A member carries no browser bundle unless one is staged beside it; "" serves transport only.
-    webRoot: env.OMP_UI_LITE_WEB_ROOT ?? "",
-    getSettings: () => ({
-      enabled: registry.getSetting("remoteEnabled"),
-      bind: registry.getSetting("remoteBind"),
-      port: registry.getSetting("remotePort"),
-      token: registry.getSetting("remoteToken"),
-      passwordHash: registry.getSetting("remotePasswordHash"),
-      passwordSalt: registry.getSetting("remotePasswordSalt"),
-    }),
-    setToken: (token) => registry.setSetting("remoteToken", token),
-    send: (state: RemoteState) => {
-      // Joined owners watch `remote:state` like the desktop renderer does.
-      backend.emit(CH.onRemoteState, [state]);
-    },
-    version,
-  });
-  const backend = new LiteBackend({
-    registry,
-    sessions,
-    instanceId,
-    version,
-    remote,
-    fleet: liveFleet ?? undefined,
-  });
-  // Production legs exist only after the backend (terminal fan-out needs its
-  // emit); build-then-attach lands them in the table before any listener runs.
-  if (opts.buildFleet !== undefined) {
-    try {
-      liveFleet = await opts.buildFleet({ backend, sessions, registry, dataDir, version });
-      backend.attachFleet(liveFleet);
-    } catch (err) {
-      log(`omp-ui-lite: fleet legs unavailable (${err instanceof Error ? err.message : String(err)}); fleet channels stay absent`);
+  let remote: LiteRemoteServer | null = null;
+  let localControl: LocalControlServer | null = null;
+  let registry: Registry | null = null;
+
+  try {
+    const registryFile = `${dataDir}/registry.json`;
+    // Fresh member (no persisted settings yet): seed the fleet-member defaults
+    // once. After that the user's `remote:*` choices are law, same as desktop.
+    const freshMember = !fs.existsSync(registryFile);
+    registry = Registry.load(registryFile);
+    if (seedMemberDefaults(registry, freshMember)) {
+      log(`omp-ui-lite: first boot — remote access on ${MEMBER_DEFAULTS.remoteBind}`);
     }
-  }
+    applyRoutinesEnvOverride(registry, env);
+    // Mint at boot so `status` and pairing always have a credential, even before the listener first runs.
+    if (registry.getSetting("remoteToken") === "") registry.setSetting("remoteToken", mintRemoteToken());
+    const instanceId = ensureInstanceId(dataDir, randomUUID);
 
-  if (opts.listen !== false) {
-    await remote.apply();
-  }
-  const live = remote.state;
-  if (live.status === "error") throw new Error(`remote listener failed: ${live.error}`);
-  if (opts.listen === false) {
-    // Boot wiring verified without a socket: nothing to listen on or report.
-  } else if (live.status !== "listening") {
-    log("omp-ui-lite: remote access is off; set remoteEnabled or use `remote:setEnabled`");
-  } else {
-    // Never log token-bearing URLs (in token-only mode `live.urls` equals
-    // `tokenUrls`): a token in journald outlives rotation. Read pairing URLs
-    // via the CLI `status` subcommand or `registry.json` (0600).
-    log(`omp-ui-lite: listening on ${live.bind} port ${live.port}; read pairing URLs with \`omp-ui-lite status\``);
-  }
+    // Sessions resolve before the backend (whose constructor subscribes to
+    // LiteSessions.on). Production builds the real cluster here through the one
+    // authoritative Registry serve just loaded; tests pass `sessions` directly.
+    const version = opts.version ?? PACKAGE_VERSION;
+    if (opts.buildSessions !== undefined) {
+      sessions = await opts.buildSessions({ registry, dataDir, version, instanceId });
+    } else {
+      sessions = opts.sessions ?? registryOnlySessions(registry);
+    }
+    // Fleet member legs (S4). A pre-built handle (tests) rides the backend's
+    // deps; production builds legs AFTER the backend exists — its terminal
+    // fan-out emits through `backend.emit` — and attaches them via a table
+    // rebuild BEFORE the listener starts, so a joined owner sees the fleet
+    // channels from its very first request. A build failure degrades to a
+    // legs-absent member (`unknown channel` on every fleet:*, exactly what an
+    // unupgraded desktop gives): broken exec must not stop the box joining.
+    // `liveFleet` is whichever handle became active; stop() disposes it.
+    const loadedRegistry = registry;
+    remote = new LiteRemoteServer({
+      host: { handlers: () => backend.handlers(), addSink: (s) => backend.addSink(s) },
+      // A member carries no browser bundle unless one is staged beside it; "" serves transport only.
+      webRoot: env.OMP_UI_LITE_WEB_ROOT ?? "",
+      getSettings: () => ({
+        enabled: loadedRegistry.getSetting("remoteEnabled"),
+        bind: loadedRegistry.getSetting("remoteBind"),
+        port: loadedRegistry.getSetting("remotePort"),
+        token: loadedRegistry.getSetting("remoteToken"),
+        passwordHash: loadedRegistry.getSetting("remotePasswordHash"),
+        passwordSalt: loadedRegistry.getSetting("remotePasswordSalt"),
+      }),
+      setToken: (token) => loadedRegistry.setSetting("remoteToken", token),
+      send: (state: RemoteState) => {
+        // Joined owners watch `remote:state` like the desktop renderer does.
+        backend.emit(CH.onRemoteState, [state]);
+      },
+      version,
+    });
+    const backend = new LiteBackend({
+      registry: loadedRegistry,
+      sessions,
+      instanceId,
+      version,
+      remote,
+      fleet: liveFleet ?? undefined,
+    });
+    // Production legs exist only after the backend (terminal fan-out needs its
+    // emit); build-then-attach lands them in the table before any listener runs.
+    if (opts.buildFleet !== undefined) {
+      try {
+        liveFleet = await opts.buildFleet({ backend, sessions, registry: loadedRegistry, dataDir, version });
+        backend.attachFleet(liveFleet);
+      } catch (err) {
+        log(`omp-ui-lite: fleet legs unavailable (${err instanceof Error ? err.message : String(err)}); fleet channels stay absent`);
+      }
+    }
 
-  let stopped = false;
-  return {
-    dataDir,
-    instanceId,
-    registry,
-    backend,
-    remote,
-    cipher: opts.cipher ?? null,
-    sessions,
-    stop: async () => {
-      if (stopped) return;
-      stopped = true;
-      await remote.stop();
-      // Legs first after the listener: cancel detached execs and end fleet
-      // terminals before the session machinery drains below them.
-      liveFleet?.dispose();
-      await sessions.dispose();
-      registry.flush();
-    },
-  };
+    localControl = await startLocalControlServer({
+      dataDir,
+      routinesControl: sessions.routinesControl,
+    });
+
+    if (opts.listen !== false) {
+      await remote.apply();
+    }
+    const live = remote.state;
+    if (live.status === "error") throw new Error(`remote listener failed: ${live.error}`);
+    if (opts.listen === false) {
+      // Boot wiring verified without a socket: nothing to listen on or report.
+    } else if (live.status !== "listening") {
+      log("omp-ui-lite: remote access is off; set remoteEnabled or use `remote:setEnabled`");
+    } else {
+      // Never log token-bearing URLs (in token-only mode `live.urls` equals
+      // `tokenUrls`): a token in journald outlives rotation. Read pairing URLs
+      // via the CLI `status` subcommand or `registry.json` (0600).
+      log(`omp-ui-lite: listening on ${live.bind} port ${live.port}; read pairing URLs with \`omp-ui-lite status\``);
+    }
+    if (loadedRegistry.getSetting("routinesEnabled")) {
+      const warn = loadedRegistry.getSetting("routineWarnCostUsd");
+      const max = loadedRegistry.getSetting("routineMaxCostUsd");
+      log(`omp-ui-lite: routines enabled (default spend warn=$${warn} max=$${max})`);
+    }
+
+    const activeRemote = remote;
+    const activeSessions = sessions;
+    const activeControl = localControl;
+    let stopped = false;
+    return {
+      dataDir,
+      instanceId,
+      registry: loadedRegistry,
+      backend,
+      remote: activeRemote,
+      localControl: activeControl,
+      cipher: opts.cipher ?? null,
+      sessions: activeSessions,
+      stop: async () => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          await activeRemote.stop();
+          await activeControl.close();
+          // Legs first after the listener: cancel detached execs and end fleet
+          // terminals before the session machinery drains below them.
+          liveFleet?.dispose();
+          await activeSessions.dispose();
+          loadedRegistry.flush();
+        } finally {
+          lock.release();
+        }
+      },
+    };
+  } catch (err) {
+    // Best-effort cleanup before releasing the exclusive lock.
+    await remote?.stop().catch(() => {});
+    await localControl?.close().catch(() => {});
+    liveFleet?.dispose();
+    await sessions?.dispose().catch(() => {});
+    registry?.flush();
+    lock.release();
+    throw err;
+  }
 }
 
 /** Read from this package's manifest at import time; tests override via options. */

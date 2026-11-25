@@ -16,15 +16,23 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CH,
+  ProviderKeys,
   Registry,
   RemoteInstanceStore,
   type FleetExecOutcome,
   type FleetHostReport,
   type KeyCipher,
+  type ModelCatalogSnapshot,
+  type RoutineDryRunResult,
+  type RoutineRecord,
+  type RoutinesState,
 } from "@omp-ui/core";
+import { connectInstanceClient } from "@omp-ui/server";
 // The owner's actual join client — zero Electron imports, same code the desktop runs.
 import { RemoteInstanceManager } from "../../desktop/src/main/remote-instance-manager";
+import { loadSessionBundle } from "./bundle-artifact";
 import { buildProductionFleetLegs } from "./production-legs";
+import { withPlacementGates } from "./production-sessions";
 import { startLiteFleetMember, type LiteInstance } from "./serve";
 import type { LiteSessions } from "./seams";
 
@@ -182,5 +190,206 @@ describe("owner-side join of a production-composed member (issue #1010)", () => 
     ])) as FleetExecOutcome;
     expect(outcome).toMatchObject({ status: "accepted", exitCode: 0 });
     if (outcome.status === "accepted") expect(outcome.stdout).toBe("owner-ok");
+  });
+
+  it("joins a real built session bundle with Routines enabled: CRUD, dryRun, models:readChat, live remote-routines:state, Run now with pinned model, and rejects setRoutinesEnabled", { skip: process.platform === "win32", timeout: 30_000 }, async () => {
+    const memberDir = tempDir("omp-lite-routines-member-");
+    const ownerDir = tempDir("omp-lite-routines-owner-");
+    const projectPath = tempDir("omp-lite-routines-proj-");
+
+    const fakeOmp = path.join(memberDir, "fake-omp.mjs");
+    fs.writeFileSync(
+      fakeOmp,
+      `#!${process.execPath}
+import * as readline from "node:readline";
+if (process.argv[2] === "config") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+const emit = (obj) => process.stdout.write(JSON.stringify(obj) + "\\n");
+emit({ type: "ready" });
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  if (msg.type === "set_host_tools" || msg.type === "set_event_filter" || msg.type === "set_ask_dialog" || msg.type === "set_host_uri_schemes") {
+    emit({ type: "response", id: msg.id, command: msg.type, success: true });
+    return;
+  }
+  if (msg.type === "prompt") {
+    emit({ type: "response", id: msg.id, command: "prompt", success: true });
+    if (typeof msg.id === "string" && msg.id.startsWith("omp-ui-fleet-prompt-")) {
+      emit({ type: "agent_start" });
+      emit({ type: "agent_end", messages: [{ role: "assistant", content: "Routine complete." }] });
+    }
+  }
+});
+`,
+      { mode: 0o755 },
+    );
+
+    const seeded = Registry.load(path.join(memberDir, "registry.json"));
+    seeded.setSettings({
+      remoteEnabled: true,
+      remoteBind: "localhost",
+      remotePort: await freePort(),
+      routinesEnabled: true,
+    });
+    seeded.addProject(projectPath);
+
+    const bundleMod = await loadSessionBundle<{
+      createSessionBundle(input: Record<string, unknown>): LiteSessions & {
+        sessions: {
+          isLive(tabId: string): boolean;
+          isTurnRunning(tabId: string): boolean;
+          modelProviderReady(cwd: string): boolean;
+        };
+      };
+    }>(artifact);
+
+    const instance = await startLiteFleetMember({
+      dataDir: memberDir,
+      version: "9.9.9-routines",
+      log: () => {},
+      buildSessions: async ({ registry, dataDir, version, instanceId }) => {
+        const providerKeys = new ProviderKeys(path.join(dataDir, "provider-keys.json"), storeCipher, {
+          OPENROUTER_API_KEY: "test-key",
+        });
+        const created = bundleMod.createSessionBundle({
+          registry,
+          registryFile: path.join(dataDir, "registry.json"),
+          providerKeys,
+          instanceId,
+          getOmpPath: () => fakeOmp,
+          getSessionsRoot: () => path.join(dataDir, "sessions"),
+          getArchiveRoot: () => path.join(dataDir, "archive"),
+          getWorktreesRoot: () => path.join(dataDir, "worktrees"),
+          getChatsRoot: () => path.join(dataDir, "chats"),
+          appVersion: version,
+          routineCatalog: {
+            list: async () => ({
+              tools: [
+                { key: "read", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "Read" },
+                { key: "bash", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "Bash" },
+              ],
+              staleServers: [],
+              enumerationError: null,
+              capturedAt: new Date().toISOString(),
+            }),
+          },
+          readChatModels: async (): Promise<ModelCatalogSnapshot> => ({
+            models: [
+              {
+                provider: "openrouter",
+                id: "google/gemini-4-neon",
+                name: "Gemini 4 Neon",
+                thinking: { efforts: ["low", "medium", "high"] },
+              },
+            ],
+            discovered: true,
+            error: null,
+          }),
+          devicePane: {
+            encodeJpeg: (): never => {
+              throw new Error("no device pane");
+            },
+            agentDeviceBin: async () => null,
+            stateDir: () => path.join(dataDir, "agent-device"),
+          },
+        });
+        return withPlacementGates(created, registry);
+      },
+    });
+    instances.push(instance);
+
+    const relayedStates: RoutinesState[] = [];
+    const runDone = Promise.withResolvers<RoutinesState>();
+    let watchedRunId: string | null = null;
+
+    const store = new RemoteInstanceStore(path.join(ownerDir, "remote-instances.json"), storeCipher);
+    const manager = new RemoteInstanceManager({
+      store,
+      localInstanceId: () => OWNER_ID,
+      localVersion: "9.9.9-owner",
+      send: (channel, args) => {
+        if (channel === CH.onRemoteRoutinesState) {
+          const st = args[1] as RoutinesState;
+          relayedStates.push(st);
+          if (watchedRunId !== null && st.runs.some((r) => r.id === watchedRunId && r.outcome === "on-time")) {
+            runDone.resolve(st);
+          }
+        }
+      },
+      sendToRenderers: () => {},
+      broadcast: async () => {},
+    });
+    managers.push(manager);
+
+    await manager.add({
+      url: `http://127.0.0.1:${instance.remote.state.port}`,
+      nickname: "homelab-lite",
+      secret: { kind: "token", value: instance.registry.getSetting("remoteToken") },
+    });
+
+    const row = manager.summaries()[0];
+    expect(row?.status).toBe("joined");
+    expect(row?.routinesEnabled).toBe(true);
+    const id = row!.id;
+
+    // models:readChat returns the member's catalog through the proxy.
+    const models = (await manager.request(id, CH.readChatModels, [])) as ModelCatalogSnapshot;
+    expect(models.models.map((m) => `${m.provider}/${m.id}`)).toEqual(["openrouter/google/gemini-4-neon"]);
+    // Create + dryRun + update + Run now with pinned model over the real owner join.
+    const created = (await manager.request(id, CH.createRoutine, [
+      {
+        name: "Nightly audit",
+        instructions: "Summarize repo status.",
+        schedule: { kind: "cron", expr: "0 3 * * *" },
+        timeZone: "UTC",
+        destination: { projectCwd: projectPath, workspace: "checkout" },
+        mode: "build",
+        model: "openrouter/google/gemini-4-neon",
+        thinkingLevel: "medium",
+        spend: { warnUsd: null, maxUsd: null },
+        toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: "2026-11-25T00:00:00.000Z", reviewedCatalog: ["read", "bash"] },
+        scripts: { pre: "", post: "" },
+        timeoutMinutes: null,
+        notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+        artifact: null,
+        enabled: true,
+      },
+    ])) as RoutineRecord;
+    expect(created.name).toBe("Nightly audit");
+
+    const dry = (await manager.request(id, CH.dryRunRoutine, [{ kind: "saved", id: created.id }])) as RoutineDryRunResult;
+    expect(dry.compiled.overlayEntries.read).toBe("allow");
+    expect(dry.compiled.overlayEntries.bash).toBe("deny");
+
+    const fired = (await manager.request(id, CH.runRoutineNow, [created.id])) as { tabId: string; runId: string };
+    expect(fired.tabId).toBeTruthy();
+    watchedRunId = fired.runId;
+
+    // Check if already relayed before watchedRunId was set, otherwise await live relay.
+    if (!relayedStates.some((st) => st.runs.some((r) => r.id === fired.runId && r.outcome === "on-time"))) {
+      const finalState = await runDone.promise;
+      expect(finalState.runs.find((r) => r.id === fired.runId)?.outcome).toBe("on-time");
+    }
+    expect(relayedStates.length).toBeGreaterThan(0);
+
+    // Both the joiner proxy AND a direct authenticated WS client reject setRoutinesEnabled.
+    await expect(manager.request(id, CH.setRoutinesEnabled, [false])).rejects.toThrow();
+    const direct = await connectInstanceClient(
+      `http://127.0.0.1:${instance.remote.state.port}`,
+      instance.registry.getSetting("remoteToken"),
+    );
+    try {
+      await expect(direct.request(CH.setRoutinesEnabled, [false])).rejects.toThrow(/unknown channel/);
+      await expect(direct.request(CH.setRoutineSpendDefaults, [{ warnUsd: 1, maxUsd: 2 }])).rejects.toThrow(
+        /unknown channel/,
+      );
+    } finally {
+      direct.close();
+    }
   });
 });

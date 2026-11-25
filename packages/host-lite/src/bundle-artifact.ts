@@ -17,14 +17,46 @@ import { isSea } from "node:sea";
  * production adapters declare seams everywhere else in this package.
  */
 
-/** Default artifact location beside the member: plain-Node runs resolve under
- * `dist/`; the SEA binary (whose import.meta.url lives inside the blob) falls
- * back to a session-bundle.mjs next to the executable — the adjacency node-pty
- * already relies on via NODE_PATH in packaging/omp-ui-lite.service. */
-export function defaultBundlePath(): string {
-  const candidates = [fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url))];
-  if (isSea()) candidates.push(path.join(path.dirname(process.execPath), "session-bundle.mjs"));
-  return candidates.find((p) => fs.existsSync(p)) ?? candidates[0]!;
+/**
+ * Default artifact location beside the member: plain-Node runs resolve under
+ * `dist/`; the SEA binary (whose import.meta.url lives inside the blob) checks
+ * `OMP_UI_LITE_BUNDLE`, the installed lib dir (`../lib/omp-ui-lite/session-bundle.mjs`
+ * beside `node_modules/`), any `NODE_PATH` entry's parent, and finally next to
+ * the executable.
+ */
+export function defaultBundlePath(opts?: {
+  sea?: boolean;
+  execPath?: string;
+  env?: NodeJS.ProcessEnv;
+  exists?: (p: string) => boolean;
+}): string {
+  const env = opts?.env ?? process.env;
+  const exists = opts?.exists ?? fs.existsSync;
+  const runningSea = opts?.sea ?? isSea();
+  const execPath = opts?.execPath ?? process.execPath;
+
+  const candidates: string[] = [];
+  const envOverride = env.OMP_UI_LITE_BUNDLE?.trim();
+  if (envOverride !== undefined && envOverride !== "") {
+    candidates.push(envOverride);
+  }
+  if (runningSea) {
+    const execDir = path.dirname(execPath);
+    // Installed layout (~/.local/bin/omp-ui-lite → ~/.local/lib/omp-ui-lite/session-bundle.mjs):
+    // keeps session-bundle.mjs adjacent to node_modules/ so ESM externals resolve natively.
+    candidates.push(path.resolve(execDir, "..", "lib", "omp-ui-lite", "session-bundle.mjs"));
+    const nodePath = env.NODE_PATH;
+    if (nodePath !== undefined && nodePath.trim() !== "") {
+      for (const entry of nodePath.split(path.delimiter)) {
+        const trimmed = entry.trim();
+        if (trimmed === "") continue;
+        candidates.push(path.join(path.dirname(trimmed), "session-bundle.mjs"));
+      }
+    }
+    candidates.push(path.join(execDir, "session-bundle.mjs"));
+  }
+  candidates.push(fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url)));
+  return candidates.find((p) => exists(p)) ?? candidates[0]!;
 }
 
 /** A missing bundle is an install/build error, never a silent empty member. */

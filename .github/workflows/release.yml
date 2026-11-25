@@ -112,9 +112,13 @@ jobs:
           stage="$(mktemp -d)"
           install -d "$stage/node_modules"
           # node-pty plus the bundle's runtime externals (bundle-session.mjs):
-          # ws and js-yaml stay external, and argparse rides js-yaml.
+          # ws and js-yaml stay external, and argparse rides js-yaml. Ship
+          # session-bundle.mjs right beside node_modules/ so install.sh unpacks
+          # both into ~/.local/lib/omp-ui-lite/ and Node ESM resolution finds
+          # all externals without relying on NODE_PATH.
+          cp packages/host-lite/dist/session-bundle.mjs "$stage/session-bundle.mjs"
           cp -R node_modules/node-pty node_modules/ws node_modules/js-yaml node_modules/argparse "$stage/node_modules/"
-          tar -czf host-lite-node-pty-linux-x64.tgz -C "$stage" node_modules
+          tar -czf host-lite-node-pty-linux-x64.tgz -C "$stage" session-bundle.mjs node_modules
           cp packages/host-lite/dist-sea/omp-ui-lite omp-ui-lite-linux-x64
           sha256sum omp-ui-lite-linux-x64 > omp-ui-lite-linux-x64.sha256
           gh release upload "$GITHUB_REF_NAME" --clobber \

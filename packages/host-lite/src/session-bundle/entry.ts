@@ -12,16 +12,28 @@
  * (#449): `dispatchRequest` rejects an absent request channel and
  * `dispatchNotify` ignores an absent notify channel.
  */
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   CH,
+  FLEET_LABEL_MAX,
+  RoutineRunHistory,
+  RoutineStore,
   formatModelRole,
   hydrateSessionFile,
   isInChatsRoot,
+  parseRoutineSpendDefaults,
+  providerKeyEnv,
+  readModelCatalog,
+  readModelsFileModelProviders,
   reclaimCheckouts,
   resolveProjectPath,
   resolveSessionLocation,
+  routineInputFromAgentCreate,
+  withoutProviderKeys,
   type ApprovalMode,
   type BackendState,
+  type CapabilitySnapshot,
   type ChannelTable,
   type CollabAccess,
   type ConsoleProgram,
@@ -29,9 +41,14 @@ import {
   type HeldPromptRequest,
   type ImageAttachment,
   type LiveState,
+  type ModelCatalogSnapshot,
   type OwnedSessionRecord,
   type PlanReviewVerdict,
   type ProjectGroup,
+  type RoutineDryRunRequest,
+  type RoutineInput,
+  type RoutinePatch,
+  type RoutineTestScriptRequest,
   type RpcFrame,
   type ScheduledPromptRequest,
   type ServiceTier,
@@ -42,34 +59,54 @@ import {
   type SubagentModelMap,
   type WorktreeReleaseOptions,
 } from "@omp-ui/core";
+import { readConfinedPlanFile } from "../../../desktop/src/main/plan-file";
+import { RoutineCatalogService } from "../../../desktop/src/main/routine-catalog";
+import { RoutineLifecycleManager } from "../../../desktop/src/main/routine-lifecycle";
+import { ROUTINES_DISABLED_ERROR } from "../../../desktop/src/main/routine-scheduler";
+import { runRoutineScript } from "../../../desktop/src/main/routine-scripts";
+import { RoutineService } from "../../../desktop/src/main/routine-service";
 import {
   SessionManager,
   type SessionManagerDependencies,
 } from "../../../desktop/src/main/session-manager";
 import { SnoozeClock } from "../../../desktop/src/main/snooze-clock";
-import type { LiteSessions } from "../seams";
+import type { LiteRoutinesControl, LiteSessions } from "../seams";
+import { createLocalRoutineDispatch } from "./local-routine-dispatch";
 
 /** One rebroadcast frame; the seam's sink signature (RemoteHost addSink). */
 type LiteSink = (channel: string, args: unknown[]) => void;
 
 /**
- * The seam shape plus the manager handle: `startLiteFleetMember({ sessions })`
+ * The seam shape plus the manager and routine handles: `startLiteFleetMember({ sessions })`
  * consumes it as a plain LiteSessions; the composition slice may reach the
- * real SessionManager behind it for its own getters.
+ * real SessionManager and RoutineService behind it for its own getters.
  */
 export interface LiteSessionBundle extends LiteSessions {
   readonly sessions: SessionManager;
+  readonly routines: RoutineService;
+  readonly routinesControl: LiteRoutinesControl;
 }
 
-// The bundle owns the two event seams every desktop caller injects: `send`
-// fans per-session frames into the sinks, `broadcast` rebuilds the state and
-// emits it. A caller-supplied pair would bypass (or double) that fan-out, so
-// the composition root passes everything EXCEPT these two.
+// The bundle owns the two event seams every desktop caller injects (`send`,
+// `broadcast`) and the host-internal routine hooks (`routineLifecycle`,
+// `routines`), so the composition root passes everything EXCEPT these four.
 export type LiteSessionBundleDependencies = Omit<
   SessionManagerDependencies,
-  "send" | "broadcast"
->;
-
+  "send" | "broadcast" | "routineLifecycle" | "routines"
+> & {
+  /** Member's stable instance id (<dataDir>/instance-id); defaults to registry instanceId. */
+  instanceId?: string;
+  /** Process env used for provider-probe commands; defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Override paths for routines.json / routine-runs.json (defaults beside registryFile). */
+  routinesFile?: string;
+  routineRunsFile?: string;
+  /** Host label shown in Routines header ("Routines on <machine>"); defaults to os.hostname(). */
+  machineLabel?: () => string;
+  /** Optional catalog/model-probe overrides for deterministic unit tests. */
+  routineCatalog?: Pick<RoutineCatalogService, "list">;
+  readChatModels?: () => Promise<ModelCatalogSnapshot>;
+};
 /** Settings `BackendState` must never carry (the BackendBroadcastSettings omit list). */
 const NON_BROADCAST_SETTINGS: readonly string[] = [
   "memoryDefaultsSeeded",
@@ -148,7 +185,29 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     return waiter.settle.promise;
   };
 
+  const baseEnv = input.env ?? process.env;
+  const dataDir = path.dirname(input.registryFile);
+  const routineHistory = new RoutineRunHistory(input.routineRunsFile ?? path.join(dataDir, "routine-runs.json"));
+  const machineLabel =
+    input.machineLabel ?? (() => [...os.hostname()].slice(0, FLEET_LABEL_MAX).join("") || "omp-ui");
+
+  const providerKeyOverlay = (): NodeJS.ProcessEnv =>
+    providerKeyEnv((envName) => input.providerKeys.rolloutValue(envName));
+  const providerProbeEnv = (): NodeJS.ProcessEnv => ({
+    ...withoutProviderKeys(baseEnv),
+    ...providerKeyOverlay(),
+  });
+  const readChatModels =
+    input.readModelCatalog ??
+    input.readChatModels ??
+    (() => readModelCatalog({ ompPath: input.getOmpPath(), env: providerProbeEnv() }));
+  const hasConfiguredModelsFileProvider =
+    input.hasConfiguredModelsFileProvider ?? (() => readModelsFileModelProviders().length > 0);
+
   let managerRef: SessionManager | null = null;
+  let routinesRef: RoutineService | null = null;
+  let routineLifecycle: RoutineLifecycleManager | null = null;
+
   const snoozeClock = new SnoozeClock({
     sessions: () => input.registry.sessions,
     updateSession: (tabId, patch) => {
@@ -166,14 +225,148 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     ...input,
     send: emit,
     broadcast,
+    readModelCatalog: readChatModels,
+    hasConfiguredModelsFileProvider,
+    planFormatOverride: input.planFormatOverride ?? "md",
+    vaultsEnabled: false,
     onSnoozeCleared: () => snoozeClock.sync(),
     browserPane: {
       ...input.browserPane,
       clearPartition: async () => {},
     },
+    routines: {
+      create: async (_tabId, args) => {
+        const record = await routinesRef!.create(routineInputFromAgentCreate(args, new Date().toISOString()));
+        return { id: record.id, name: record.name };
+      },
+      update: async (_tabId, args) => {
+        const { record, wasEnabled } = await routinesRef!.updateFromAgent(args, new Date().toISOString());
+        return { id: record.id, name: record.name, wasEnabled, enabled: record.enabled };
+      },
+      state: () => routinesRef!.state(),
+      remove: (id) => routinesRef!.remove(id),
+      runNow: (id) => routinesRef!.runNow(id),
+      dryRun: (req) => routinesRef!.dryRun(req),
+      toolCatalog: (projectCwd) => routinesRef!.toolCatalog(projectCwd),
+      testScript: (req) => routinesRef!.testScript(req),
+    },
+    routineLifecycle: (access) => {
+      routineLifecycle = new RoutineLifecycleManager({
+        ...access,
+        runDirectory: access.routineRunDirectory,
+        runScript: (command, cwd, env) => runRoutineScript(command, cwd, env),
+        history: routineHistory,
+        isEnabled: () => input.registry.getSetting("routinesEnabled"),
+        publish: () => routinesRef?.publish(),
+      });
+      return routineLifecycle;
+    },
   });
   managerRef = manager;
   snoozeClock.sync();
+
+  const liveRoutineCapabilities = (projectCwd: string): CapabilitySnapshot | null => {
+    let best: CapabilitySnapshot | null = null;
+    for (const s of input.registry.sessions) {
+      if (s.projectCwd !== projectCwd || s.chat) continue;
+      const snap = manager.capabilitySnapshot(s.tabId);
+      if (snap !== null && snap.tools.status === "available" && (best === null || snap.updatedAt > best.updatedAt)) {
+        best = snap;
+      }
+    }
+    return best;
+  };
+
+  const routines = new RoutineService({
+    store: new RoutineStore(input.routinesFile ?? path.join(dataDir, "routines.json")),
+    history: routineHistory,
+    catalog:
+      input.routineCatalog ??
+      new RoutineCatalogService({
+        hasVaults: () => false,
+        liveCapabilities: liveRoutineCapabilities,
+        getOmpPath: input.getOmpPath,
+        probeEnv: providerKeyOverlay,
+      }),
+    lifecycle: routineLifecycle!,
+    isEnabled: () => input.registry.getSetting("routinesEnabled"),
+    defaultWarnCostUsd: () => input.registry.getSetting("routineWarnCostUsd"),
+    defaultMaxCostUsd: () => input.registry.getSetting("routineMaxCostUsd"),
+    hasProject: (projectCwd) => input.registry.projects.some((p) => p.path === projectCwd),
+    sessions: () => input.registry.sessions,
+    clearSessionRoutine: (tabId) => input.registry.updateSession(tabId, { routine: null }),
+    markSessionSettled: (tabId, settledAtMs) =>
+      input.registry.updateSession(tabId, {
+        settledAtMs,
+        snoozed: false,
+        snoozedUntilMs: null,
+        reminderAtMs: null,
+      }),
+    isLive: (tabId) => manager.isLive(tabId),
+    isTurnRunning: (tabId) => manager.isTurnRunning(tabId),
+    awaitingHumanAnswer: (tabId) => manager.pendingAnswer(tabId),
+    deleteSession: (tabId, cascade) => manager.deleteSession(tabId, cascade),
+    dispatch: createLocalRoutineDispatch({
+      registry: input.registry,
+      instanceId: () => input.instanceId ?? input.registry.getSetting("instanceId"),
+      machineLabel,
+      providerReady: (cwd) => manager.modelProviderReady(cwd),
+      spawnLocal: (req) => manager.spawn(req),
+      settleOrphan: (tabId) => manager.settleSession(tabId),
+    }),
+    artifactRefreshBlocked: () => "The artifact library is disabled",
+    machineLabel,
+    send: (state) => emit(CH.onRoutinesState, state),
+    broadcast: () => void broadcast(),
+  });
+  routinesRef = routines;
+  routines.boot();
+
+  const routinesControl: LiteRoutinesControl = {
+    state: () => routines.state(),
+    enable: async (caps) => {
+      const patch: { routinesEnabled: boolean; routineWarnCostUsd?: number; routineMaxCostUsd?: number } = {
+        routinesEnabled: true,
+      };
+      if (caps !== undefined && (caps.warnUsd !== undefined || caps.maxUsd !== undefined)) {
+        const validated = parseRoutineSpendDefaults({
+          warnUsd: caps.warnUsd ?? input.registry.getSetting("routineWarnCostUsd"),
+          maxUsd: caps.maxUsd ?? input.registry.getSetting("routineMaxCostUsd"),
+        });
+        patch.routineWarnCostUsd = validated.warnUsd;
+        patch.routineMaxCostUsd = validated.maxUsd;
+      }
+      // Single atomic write BEFORE arming scheduler timers so an overdue fire
+      // immediately sees the new spend caps.
+      input.registry.setSettings(patch);
+      routines.onEnabledChanged(true);
+      await broadcast();
+      return routines.state();
+    },
+    disable: async () => {
+      input.registry.setSetting("routinesEnabled", false);
+      routines.onEnabledChanged(false);
+      await broadcast();
+      return routines.state();
+    },
+    setSpendDefaults: async (caps) => {
+      if (!input.registry.getSetting("routinesEnabled")) {
+        throw new Error(ROUTINES_DISABLED_ERROR);
+      }
+      const validated = parseRoutineSpendDefaults({
+        warnUsd: caps.warnUsd ?? input.registry.getSetting("routineWarnCostUsd"),
+        maxUsd: caps.maxUsd ?? input.registry.getSetting("routineMaxCostUsd"),
+      });
+      input.registry.setSettings({
+        routineWarnCostUsd: validated.warnUsd,
+        routineMaxCostUsd: validated.maxUsd,
+      });
+      routines.publish();
+      await broadcast();
+      return routines.state();
+    },
+  };
+
   const gate = input.spawnGate;
 
   const spawnGateState: SpawnGateState = {
@@ -270,6 +463,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     >;
     return {
       ...broadcastSettings,
+      artifactLibraryEnabled: false,
       telemetryThemesEnabled: false,
       projects: groups,
       chats,
@@ -283,17 +477,20 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   }
 
   // ---------------------------------------------------------------------------
-  // The handler subset: every `this.sessions.*` mapping of backend.ts
-  // `handlers()` that needs no window, copied with its argument shape. Omitted
-  // by rule, absent not denied: browserPane*/devicePane* (panes need a window),
+  // The handler subset: every `this.sessions.*` and `this.routines.*` mapping
+  // of backend.ts `handlers()` that needs no window, copied with its argument
+  // shape (plus `models:readChat` and lineage-confined `plan:read`). Omitted by
+  // rule, absent not denied: browserPane*/devicePane* (panes need a window),
   // reportStallCap/OS notifications (DesktopNotifier is an injected desktop
   // seam), the auth-bundle pick/import file channels (native dialogs),
   // app/omp update + restartForAppUpdate (electron-updater), project open /
   // vscode targets (window + OS integrations), fleetTerminal* / remoteInstance*
-  // (the owner side), auth carry/pack/ingest transfers and every settings /
-  // vault / stt / audio / diagnostics channel that is not session-cluster
-  // state. The fleet provenance rung on spawnSession is the index slice's
-  // gate (fleetServer), not the cluster's, so raw `spawn` rides here.
+  // (the owner side), auth carry/pack/ingest transfers, settings setters
+  // (including settings:setRoutinesEnabled and settings:setRoutineSpendDefaults,
+  // which remain strictly host-local off the LAN WebSocket table per ADR-0100),
+  // vault / artifact / stt / audio / diagnostics channels. The fleet provenance
+  // rung on spawnSession is the index slice's gate (fleetServer), not the
+  // cluster's, so raw `spawn` rides here.
   // ---------------------------------------------------------------------------
   const request = {
     [CH.getState]: () => buildState(),
@@ -454,8 +651,34 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.collabShare]: (tabId: string, access: CollabAccess) => manager.collabShare(tabId, access),
     [CH.collabStop]: (tabId: string) => manager.collabStop(tabId),
     [CH.collabLink]: (tabId: string, view: boolean) => manager.collabLink(tabId, view),
+    // Routines (ADR-0100, #1368): all 8 proxied routine channels ride here;
+    // settings:setRoutinesEnabled and settings:setRoutineSpendDefaults stay OFF
+    // the LAN WebSocket table and mutate only via LocalControlServer.
+    [CH.getRoutinesState]: () => routines.state(),
+    [CH.createRoutine]: (routineInput: RoutineInput) => routines.create(routineInput),
+    [CH.updateRoutine]: (id: string, patch: RoutinePatch) => routines.update(id, patch),
+    [CH.removeRoutine]: (id: string) => routines.remove(id),
+    [CH.runRoutineNow]: (id: string) => routines.runNow(id),
+    [CH.testRoutineScript]: (req: RoutineTestScriptRequest) => routines.testScript(req),
+    [CH.dryRunRoutine]: (req: RoutineDryRunRequest) => routines.dryRun(req),
+    [CH.listRoutineToolCatalog]: (projectCwd: string) => routines.toolCatalog(projectCwd),
+    [CH.readChatModels]: () => readChatModels(),
+    [CH.readPlanFile]: async (tabId: string, absPath: string): Promise<string | null> => {
+      const snapshot = manager.planSnapshotFor(tabId, absPath);
+      if (snapshot !== null) return snapshot.text;
+      const record = input.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) return null;
+      const root = path.resolve(sessionsRoot, record.lineageDir);
+      const read = await readConfinedPlanFile(root, absPath);
+      if (!read.ok) {
+        if (read.reason === "outside") {
+          console.warn("[plan] refusing to read outside the lineage dir:", absPath);
+        }
+        return null;
+      }
+      return read.text;
+    },
   } satisfies Partial<SessionBundleRequestHandlers>;
-
   const notify = {
     [CH.ptyWrite]: (tabId: string, data: string) => manager.ptyWrite(tabId, data),
     [CH.ptyResize]: (tabId: string, cols: number, rows: number) => manager.ptyResize(tabId, cols, rows),
@@ -475,6 +698,8 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     handlers: request,
     notify,
     sessions: manager,
+    routines,
+    routinesControl,
     state: buildState,
     on: (cb) => {
       sinks.add(cb);
@@ -484,6 +709,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     },
     dispose: async () => {
       snoozeClock.dispose();
+      await routines.disposeAsync();
       manager.killAll();
       sinks.clear();
     },

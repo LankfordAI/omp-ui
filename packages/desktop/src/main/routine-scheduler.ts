@@ -109,6 +109,8 @@ export class RoutineScheduler {
   private readonly inFlightByRoutine = new Set<string>();
   /** Total in-flight dispatches holding the host-wide active-turn lane during spawn. */
   private inFlightHostDispatches = 0;
+  /** All active dispatchRoutine() promises so drain() can wait for them before killAll(). */
+  private readonly inFlightDispatches = new Set<Promise<unknown>>();
 
   constructor(private readonly deps: RoutineSchedulerDeps) {
     this.now = deps.now ?? Date.now;
@@ -201,6 +203,13 @@ export class RoutineScheduler {
   dispose(): void {
     this.disposed = true;
     this.stopTimer();
+  }
+
+  /** Disposes the scheduler and waits for any in-flight dispatchRoutine() calls to finish. */
+  async drain(): Promise<void> {
+    this.dispose();
+    if (this.inFlightDispatches.size === 0) return;
+    await Promise.allSettled([...this.inFlightDispatches]);
   }
 
   /**
@@ -351,7 +360,24 @@ export class RoutineScheduler {
     return row;
   }
 
-  private async dispatchRoutine(
+  private dispatchRoutine(
+    routine: RoutineRecord,
+    trigger: RoutineRunTrigger,
+    firedAtMs: number,
+    scheduledForMs: number | null,
+    missed: number,
+    throwOnFailure: boolean,
+  ): Promise<{ tabId: string; runId: string }> {
+    const run = this.dispatchRoutineInner(routine, trigger, firedAtMs, scheduledForMs, missed, throwOnFailure);
+    this.inFlightDispatches.add(run);
+    const cleanup = (): void => {
+      this.inFlightDispatches.delete(run);
+    };
+    void run.then(cleanup, cleanup);
+    return run;
+  }
+
+  private async dispatchRoutineInner(
     routine: RoutineRecord,
     trigger: RoutineRunTrigger,
     firedAtMs: number,
@@ -361,7 +387,6 @@ export class RoutineScheduler {
   ): Promise<{ tabId: string; runId: string }> {
     this.inFlightByRoutine.add(routine.id);
     this.inFlightHostDispatches += 1;
-
     let staleCatalog = false;
     try {
       if (!this.deps.hasProject(routine.destination.projectCwd)) {
@@ -399,7 +424,7 @@ export class RoutineScheduler {
         // Re-check admission after the await: "gate off fires nothing"
         // (ADR-0100 §1) outranks an in-flight pre hook; a deleted routine
         // dispatches nothing either.
-        if (!this.deps.isEnabled() || this.deps.store.get(routine.id) === null) {
+        if (this.disposed || !this.deps.isEnabled() || this.deps.store.get(routine.id) === null) {
           return { tabId: "", runId: "" };
         }
         if (result.kind === "skip") {
@@ -446,6 +471,11 @@ export class RoutineScheduler {
         fallbackReviewedKeys: routine.toolPolicy.reviewedCatalog,
       });
       staleCatalog = catalog.staleServers.length > 0 || catalog.enumerationError !== null;
+      // Re-check admission after the catalog probe (up to 15 s): shutdown,
+      // gate-off, or deletion during the probe must never dispatch a session.
+      if (this.disposed || !this.deps.isEnabled() || this.deps.store.get(routine.id) === null) {
+        return { tabId: "", runId: "" };
+      }
 
       const allowAgentNotify = routineAllowsAgentNotification(routine.notifications);
       const compiled = compileRoutineToolPolicy(routine.toolPolicy, catalog, {
