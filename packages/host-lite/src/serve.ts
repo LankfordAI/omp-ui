@@ -132,7 +132,16 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   // Exclusive ownership BEFORE loading Registry or RoutineRunHistory so a
   // duplicate `serve` cannot rewrite persisted state or mark running rows
   // interrupted while another daemon is live.
-  const lock: DataDirLock = await acquireDataDirLockAsync(dataDir);
+  let stopFn: (() => Promise<void>) | null = null;
+  const lock: DataDirLock = await acquireDataDirLockAsync(dataDir, {
+    onLockLost: (reason) => {
+      log(`omp-ui-lite: fatal — lost exclusive data-dir lock (${reason}); shutting down to protect data integrity`);
+      const shutdown = stopFn ? stopFn() : Promise.resolve();
+      void shutdown.finally(() => {
+        process.kill(process.pid, "SIGTERM");
+      });
+    },
+  });
 
   let sessions: LiteSessions | null = null;
   let liveFleet: FleetLegsHandle | null = opts.fleet ?? null;
@@ -240,6 +249,22 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     const activeSessions = sessions;
     const activeControl = localControl;
     let stopped = false;
+    const stop = async (): Promise<void> => {
+      if (stopped) return;
+      stopped = true;
+      try {
+        await activeRemote.stop();
+        await activeControl.close();
+        // Legs first after the listener: cancel detached execs and end fleet
+        // terminals before the session machinery drains below them.
+        liveFleet?.dispose();
+        await activeSessions.dispose();
+        loadedRegistry.flush();
+      } finally {
+        await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
+      }
+    };
+    stopFn = stop;
     return {
       dataDir,
       instanceId,
@@ -249,21 +274,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       localControl: activeControl,
       cipher: opts.cipher ?? null,
       sessions: activeSessions,
-      stop: async () => {
-        if (stopped) return;
-        stopped = true;
-        try {
-          await activeRemote.stop();
-          await activeControl.close();
-          // Legs first after the listener: cancel detached execs and end fleet
-          // terminals before the session machinery drains below them.
-          liveFleet?.dispose();
-          await activeSessions.dispose();
-          loadedRegistry.flush();
-        } finally {
-          await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
-        }
-      },
+      stop,
     };
   } catch (err) {
     // Best-effort cleanup before releasing the exclusive lock.

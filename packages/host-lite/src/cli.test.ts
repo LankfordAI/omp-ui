@@ -525,6 +525,26 @@ describe("omp-ui-lite version, token, and kernel data-dir lock (#1372)", () => {
       );
       const recovered = await acquireDataDirLockAsync(dir);
       await recovered.releaseAsync?.();
+
+      // Legacy lock (no kernelLock) from a DIFFERENT hostname must not spuriously block on PID collision.
+      fs.writeFileSync(
+        dataDirLockPath(dir),
+        `${JSON.stringify({ pid: process.pid, hostname: "other-container-host", startedAt: new Date().toISOString() })}\n`,
+        { mode: 0o600 },
+      );
+      const crossHost = await acquireDataDirLockAsync(dir);
+      await crossHost.releaseAsync?.();
+
+      // Unexpected helper death fires onLockLost so a daemon fails closed instead of running unlocked.
+      const lost = Promise.withResolvers<string>();
+      const monitored = await acquireDataDirLockAsync(dir, {
+        onLockLost: (reason) => lost.resolve(reason),
+      });
+      expect(monitored.holderPid).toBeTypeOf("number");
+      process.kill(monitored.holderPid!, "SIGKILL");
+      const reason = await lost.promise;
+      expect(reason).toMatch(/exited unexpectedly/i);
+      await monitored.releaseAsync?.();
     }
   });
 });

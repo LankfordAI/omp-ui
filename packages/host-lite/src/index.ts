@@ -1,7 +1,7 @@
 export type { LiteKeyCipher, LiteRoutinesControl, LiteSessions } from "./seams";
 export { resolveLiteHome, electronAppDataDir, ensureLiteHome, ensureInstanceId } from "./config";
 export { acquireDataDirLock, acquireDataDirLockAsync, dataDirFlockPath, dataDirLockPath, DataDirLockedError } from "./data-dir-lock";
-export type { DataDirLock } from "./data-dir-lock";
+export type { AcquireDataDirLockOptions, DataDirLock } from "./data-dir-lock";
 export {
   controlMetadataPath,
   controlSocketPath,
