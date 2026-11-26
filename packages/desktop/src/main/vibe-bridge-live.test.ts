@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RpcClient,
@@ -12,6 +11,7 @@ import {
   writeVibeExtension,
 } from "@omp-ui/core";
 import { VIBE_STATUS_KEY, type VibeSnapshot } from "@omp-ui/core/vibe";
+import { LiveExitTracker, closeAwareSpawn, waitForOrExit } from "./test/live-exit";
 
 /**
  * Live proof for the vibe bridge on the REAL `omp --mode=rpc-ui` binary
@@ -68,6 +68,7 @@ interface Scope {
   frames: Frame[];
   client: RpcClient;
   exited: Promise<void>;
+  tracker: LiveExitTracker;
 }
 
 interface SpawnOptions {
@@ -106,6 +107,7 @@ function spawnScope(options: SpawnOptions): Scope {
     fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), CONFIG_YML);
   }
   const frames: Frame[] = [];
+  const tracker = new LiveExitTracker();
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
@@ -119,34 +121,23 @@ function spawnScope(options: SpawnOptions): Scope {
     ...(options.overlays !== undefined ? { configOverlays: options.overlays } : {}),
     ...(options.resumeSessionId !== undefined ? { resumeSessionId: options.resumeSessionId } : {}),
     initialCommands: [{ type: "prompt", message: vibeArmMessage() }],
-    ...(options.hermetic
-      ? {
-          spawnProcess: (bin: string, args: string[], extra: NodeJS.ProcessEnv) => {
-            const proc = spawn(bin, args, {
-              stdio: ["pipe", "pipe", "pipe"],
-              env: {
-                ...extra,
-                HOME: path.join(base, "home"),
-                XDG_CONFIG_HOME: path.join(base, "home", ".config"),
-                XDG_DATA_HOME: path.join(base, "home", ".local", "share"),
-              },
-            });
-            return {
-              stdin: proc.stdin,
-              stdout: proc.stdout,
-              stderr: proc.stderr,
-              kill: (signal?: NodeJS.Signals) => void proc.kill(signal),
-              onExit: (cb: (code: number | null) => void) => proc.on("exit", (code) => cb(code)),
-              onSpawnError: (cb: (error: Error) => void) => proc.on("error", cb),
-            };
-          },
-        }
-      : {}),
+    spawnProcess: closeAwareSpawn(
+      options.hermetic
+        ? {
+            HOME: path.join(base, "home"),
+            XDG_CONFIG_HOME: path.join(base, "home", ".config"),
+            XDG_DATA_HOME: path.join(base, "home", ".local", "share"),
+          }
+        : undefined,
+    ),
     onFrame: (frame) => frames.push(frame as Frame),
-    onExit: () => markExited(),
-    onError: () => {},
+    onExit: (code) => {
+      tracker.recordExit(code);
+      markExited();
+    },
+    onError: (msg) => tracker.recordError(msg),
   });
-  return { base, lineage, frames, client, exited };
+  return { base, lineage, frames, client, exited, tracker };
 }
 
 function latest(scope: Scope): VibeSnapshot | null {
@@ -221,6 +212,7 @@ async function ok(
 }
 
 async function killScope(scope: Scope, signal?: NodeJS.Signals): Promise<void> {
+  scope.tracker.markTestKilling();
   scope.client.kill(signal);
   const exitedNow = await Promise.race([
     scope.exited.then(() => true),
@@ -321,8 +313,9 @@ describe.skipIf(ompPath === null)("the vibe bridge on the real runtime", () => {
     const readyId = "vibe-ready-probe";
     scope.client.send({ type: "get_state", id: readyId });
     try {
-      await waitFor(
+      await waitForOrExit(
         () => (scope.frames.some((f) => f.type === "response" && f.id === readyId) ? true : undefined),
+        () => scope.tracker.state(),
         60_000,
         "oauth ready response",
       );

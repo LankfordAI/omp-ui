@@ -9,6 +9,7 @@ import {
   writeDefaultModelOverlay,
   writeSubagentModelOverlay,
 } from "@omp-ui/core";
+import { LiveExitTracker, closeAwareSpawn, waitForOrExit } from "./test/live-exit";
 
 /**
  * The load-bearing live proof for ADR-0031: omp re-reads the `--config`
@@ -185,6 +186,7 @@ interface Harness {
  */
 async function bootHarness(base: string, lineage: string, configOverlays: string[]): Promise<Harness> {
   const frames: Frame[] = [];
+  const tracker = new LiveExitTracker();
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
@@ -195,11 +197,14 @@ async function bootHarness(base: string, lineage: string, configOverlays: string
     // Callers skip on a missing binary first, same guard as advisor-stats-live.
     ompPath: ompPath!,
     configOverlays,
+    spawnProcess: closeAwareSpawn(),
     onFrame: (frame) => frames.push(frame as Frame),
-    onExit: () => markExited(),
-    onError: () => {},
+    onExit: (code) => {
+      tracker.recordExit(code);
+      markExited();
+    },
+    onError: (msg) => tracker.recordError(msg),
   });
-
   /** The response frame for one command id, or undefined while it is in flight. */
   const responseFor = (id: string): Frame | undefined =>
     frames.find((f) => f.type === "response" && f.id === id);
@@ -246,8 +251,15 @@ async function bootHarness(base: string, lineage: string, configOverlays: string
   // oauth readiness: any response frame at all. None in time = unavailable (#86).
   client.send({ type: "get_state", id: "ready-probe" });
   try {
-    await waitFor(() => (frames.some((f) => f.type === "response") ? true : undefined), READY_TIMEOUT_MS, "oauth ready response");
+    await waitForOrExit(
+      () => (frames.some((f) => f.type === "response") ? true : undefined),
+      () => tracker.state(),
+      READY_TIMEOUT_MS,
+      "oauth ready response",
+      100,
+    );
   } catch (error) {
+    tracker.markTestKilling();
     client.kill();
     throw new OauthUnavailable(`oauth session never became ready: ${String(error)}`);
   }
