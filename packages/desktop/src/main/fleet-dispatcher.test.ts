@@ -1410,6 +1410,7 @@ describe("FleetDispatcher Update all (issue #990)", () => {
   type Member = {
     rung: string;
     /** The member's gate refusal for every update call (master switch off, older omp-ui). */
+    packageFormat?: "container" | "appimage";
     gate?: string;
     omp: { installedVersion: string | null; latestVersion: string | null; updateAvailable: boolean; pinned?: boolean };
     /** The omp job's settle. */
@@ -1426,7 +1427,7 @@ describe("FleetDispatcher Update all (issue #990)", () => {
     let hold = false;
     const request = vi.fn(async (id: string, channel: string, args: unknown[]): Promise<unknown> => {
       const m = members[id]!;
-      if (channel === CH.fleetHostReport) return report([project()]);
+      if (channel === CH.fleetHostReport) return { ...report([project()]), ...(m.packageFormat !== undefined ? { packageFormat: m.packageFormat } : {}) };
       if (channel === CH.fleetGrantRung) return { rung: m.rung, ceiling: "full", execEnabled: true };
       const req = args[0] as { target: "omp" | "app"; action: string; allowLiveSessions?: boolean; jobId?: string };
       if (channel === CH.fleetUpdatePoll) {
@@ -1612,5 +1613,26 @@ describe("FleetDispatcher Update all (issue #990)", () => {
     // Staged and already armed: nothing is re-armed.
     expect(h.updates("r1")).toEqual(["omp/check", "omp/stage", "app/check"]);
     expect(await fleet({}).dispatcher.updateAll()).toEqual({ status: "refused", reason: "no fleet member is joined" });
+  });
+
+  it("skips containerized members before asking them anything (#1372)", async () => {
+    const h = fleet({
+      box: {
+        rung: "full",
+        packageFormat: "container",
+        omp: { ...current, pinned: true },
+        app: { currentVersion: "0.40.0", latestVersion: null, staged: false },
+      },
+    });
+    await h.dispatcher.updateAll();
+    const [member] = (await h.settled()).members;
+    expect(h.updates("box")).toEqual([]);
+    expect(member).toMatchObject({
+      machineKey: "box",
+      state: "skipped",
+      omp: null,
+      app: null,
+      reason: "runs in a container image; pull and redeploy the image to update it",
+    });
   });
 });

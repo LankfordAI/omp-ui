@@ -1,0 +1,17 @@
+.git
+.omp
+node_modules
+packages/*/node_modules
+packages/*/dist
+packages/*/dist-sea
+packages/*/out
+packages/desktop/release
+android
+bench
+*.log
+*.AppImage
+*.dmg
+*.zip
+*.exe
+*.apk
+.DS_Store

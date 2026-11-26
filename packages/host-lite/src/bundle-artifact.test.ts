@@ -35,3 +35,15 @@ describe("defaultBundlePath SEA resolution (#1368)", () => {
     expect(resolved).toBe(nodePathBundle);
   });
 });
+
+describe("defaultBundlePath flat container layout (#1372)", () => {
+  it("resolves sibling ./session-bundle.mjs before ../dist/session-bundle.mjs for plain-Node runs", () => {
+    const sibling = path.resolve(path.dirname(new URL("./bundle-artifact.ts", import.meta.url).pathname), "session-bundle.mjs");
+    const resolved = defaultBundlePath({
+      sea: false,
+      env: {},
+      exists: (p) => p === sibling,
+    });
+    expect(resolved).toBe(sibling);
+  });
+});

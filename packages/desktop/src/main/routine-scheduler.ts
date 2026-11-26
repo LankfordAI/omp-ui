@@ -521,10 +521,23 @@ export class RoutineScheduler {
         const reasonCode: RoutineRunReasonCode = !this.deps.hasProject(routine.destination.projectCwd)
           ? "project-missing"
           : "dispatch-failed";
+        const detail =
+          reasonCode === "dispatch-failed" && typeof outcome?.message === "string"
+            ? Array.from(outcome.message, (ch) => {
+                const code = ch.charCodeAt(0);
+                return code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? " " : ch;
+              })
+                .join("")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 240)
+            : "";
         const message =
           reasonCode === "project-missing"
             ? "Destination project unavailable"
-            : "Could not start session";
+            : detail !== ""
+              ? `Could not start session: ${detail}`
+              : "Could not start session";
         return this.handleDispatchFailure(
           routine,
           trigger,

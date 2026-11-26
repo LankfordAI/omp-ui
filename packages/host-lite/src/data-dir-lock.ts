@@ -1,4 +1,6 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { ensureLiteHome } from "./config";
 
@@ -12,7 +14,20 @@ import { ensureLiteHome } from "./config";
 export interface DataDirLock {
   readonly lockPath: string;
   readonly pid: number;
+  /** PID of the kernel flock helper child on Linux, when active. */
+  readonly holderPid?: number;
   release(): void;
+  /** Resolves once any kernel lock holder has finished exiting (no-op for file-only locks). */
+  releaseAsync?(): Promise<void>;
+}
+
+export interface AcquireDataDirLockOptions {
+  /**
+   * Invoked if the kernel flock helper exits unexpectedly while the lock is
+   * still held (never called on intentional release). Callers should fail
+   * closed (stop serving / exit) to avoid running without single-writer protection.
+   */
+  onLockLost?: (reason: string) => void;
 }
 
 export class DataDirLockedError extends Error {
@@ -33,16 +48,23 @@ export class DataDirLockedError extends Error {
 
 interface LockPayload {
   pid: number;
+  hostname?: string;
   startedAt: string;
+  kernelLock?: boolean;
 }
 
 const LOCK_FILENAME = "lite.lock";
+const FLOCK_FILENAME = "lite.flock";
 
 export function dataDirLockPath(dataDir: string): string {
   return path.join(dataDir, LOCK_FILENAME);
 }
 
-function parseLockPid(lockPath: string): number | null {
+export function dataDirFlockPath(dataDir: string): string {
+  return path.join(dataDir, FLOCK_FILENAME);
+}
+
+function parseLockPayload(lockPath: string): LockPayload | null {
   try {
     const raw = fs.readFileSync(lockPath, "utf8").trim();
     if (raw === "") return null;
@@ -50,13 +72,25 @@ function parseLockPid(lockPath: string): number | null {
     if (parsed !== null && typeof parsed === "object" && "pid" in parsed) {
       const { pid } = parsed;
       if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
-        return pid;
+        const hostname = "hostname" in parsed && typeof parsed.hostname === "string" ? parsed.hostname : undefined;
+        const startedAt = "startedAt" in parsed && typeof parsed.startedAt === "string" ? parsed.startedAt : "";
+        const kernelLock = "kernelLock" in parsed && parsed.kernelLock === true ? true : undefined;
+        return {
+          pid,
+          ...(hostname === undefined ? {} : { hostname }),
+          startedAt,
+          ...(kernelLock === undefined ? {} : { kernelLock }),
+        };
       }
     }
     return null;
   } catch {
     return null;
   }
+}
+
+function parseLockPid(lockPath: string): number | null {
+  return parseLockPayload(lockPath)?.pid ?? null;
 }
 
 function isPidAlive(pid: number): boolean {
@@ -152,6 +186,212 @@ export function acquireDataDirLock(dataDir: string): DataDirLock {
           console.warn(`[host-lite] failed to unlink lock ${lockPath}:`, err);
         }
       }
+    },
+  };
+}
+
+function writeMetadataFile(lockPath: string, payload: LockPayload): void {
+  const tmpPath = `${lockPath}.${process.pid}.${Date.now()}.tmp`;
+  const fd = fs.openSync(tmpPath, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(payload)}\n`, "utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+  try {
+    fs.renameSync(tmpPath, lockPath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Best-effort cleanup.
+    }
+    throw err;
+  }
+}
+
+type KernelFlockResult =
+  | { status: "acquired"; holderPid: number | undefined; release(): void; releaseAsync(): Promise<void> }
+  | { status: "locked" }
+  | { status: "unavailable" };
+
+function acquireKernelFlock(
+  flockPath: string,
+  onLockLost?: (reason: string) => void,
+): Promise<KernelFlockResult> {
+  if (process.platform !== "linux") {
+    return Promise.resolve({ status: "unavailable" });
+  }
+  try {
+    // Create the stable flock inode (0600) without unlinking it so concurrent
+    // openers across PID namespaces lock the exact same VFS inode.
+    const fd = fs.openSync(flockPath, "a", 0o600);
+    fs.closeSync(fd);
+  } catch {
+    return Promise.resolve({ status: "unavailable" });
+  }
+
+  const { promise, resolve } = Promise.withResolvers<KernelFlockResult>();
+  let settled = false;
+  let acquired = false;
+  const finish = (res: KernelFlockResult): void => {
+    if (settled) return;
+    settled = true;
+    resolve(res);
+  };
+
+  let child: ChildProcess;
+  try {
+    // `flock -n` opens and locks `flockPath`, then runs `sh -c "printf OK; exec cat"`.
+    // Closing stdin ends `cat` cleanly so `flock` releases the fd and exits; killing
+    // the parent with SIGKILL closes the pipe, ending `cat` and releasing the lock.
+    child = spawn("flock", ["-n", flockPath, "sh", "-c", "printf OK; exec cat"], {
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+  } catch {
+    finish({ status: "unavailable" });
+    return promise;
+  }
+
+  const { promise: exited, resolve: markExited } = Promise.withResolvers<void>();
+  let released = false;
+  const triggerRelease = (): void => {
+    if (released) return;
+    released = true;
+    try {
+      child.stdin?.end();
+    } catch {
+      // ignore
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      markExited();
+    }
+  };
+
+  const releaseAsync = (): Promise<void> => {
+    triggerRelease();
+    return exited;
+  };
+
+  let out = "";
+  child.stdout?.on("data", (chunk: Buffer | string) => {
+    out += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    if (out.includes("OK")) {
+      acquired = true;
+      child.unref();
+      finish({ status: "acquired", holderPid: child.pid, release: triggerRelease, releaseAsync });
+    }
+  });
+
+  child.once("error", () => {
+    markExited();
+    finish({ status: "unavailable" });
+  });
+
+  child.once("exit", (code, signal) => {
+    markExited();
+    if (!settled) {
+      // `flock -n` exits 1 when the lock is already held by another process/container.
+      finish(code === 1 ? { status: "locked" } : { status: "unavailable" });
+      return;
+    }
+    if (acquired && !released) {
+      const detail = signal !== null ? `signal ${signal}` : `exit code ${code ?? "unknown"}`;
+      onLockLost?.(`kernel flock helper exited unexpectedly (${detail}) for ${flockPath}`);
+    }
+  });
+  return promise;
+}
+
+/**
+ * Acquires an exclusive data-dir lock backed by a kernel `flock(2)` on Linux
+ * (`<dataDir>/lite.flock`) so two containers in separate PID namespaces cannot
+ * share a volume and a SIGKILLed container recovers cleanly on restart even
+ * when assigned the same PID. Falls back to `acquireDataDirLock` when `flock`
+ * is unavailable (macOS/Windows). Still honors pre-upgrade legacy `lite.lock`
+ * files without `kernelLock: true` while their PID is alive.
+ */
+export async function acquireDataDirLockAsync(
+  dataDir: string,
+  opts: AcquireDataDirLockOptions = {},
+): Promise<DataDirLock> {
+  ensureLiteHome(dataDir);
+  const lockPath = dataDirLockPath(dataDir);
+  const flockPath = dataDirFlockPath(dataDir);
+  const pid = process.pid;
+  const currentHostname = os.hostname();
+
+  const kernel = await acquireKernelFlock(flockPath, opts.onLockLost);
+  if (kernel.status === "unavailable") {
+    return acquireDataDirLock(dataDir);
+  }
+  if (kernel.status === "locked") {
+    throw new DataDirLockedError(lockPath, parseLockPid(lockPath));
+  }
+
+  // Backward compatibility: if an existing `lite.lock` was written by a legacy
+  // daemon (no `kernelLock: true`) whose PID is still alive on this same host
+  // (or with no recorded hostname), respect it. If a different hostname wrote
+  // the legacy file, the numeric PID belongs to another namespace/host and must
+  // not falsely block this container during an upgrade.
+  const existing = parseLockPayload(lockPath);
+  const sameHostOrLegacyUnlabeled =
+    existing?.hostname === undefined || existing.hostname === currentHostname;
+  if (
+    existing !== null &&
+    existing.kernelLock !== true &&
+    sameHostOrLegacyUnlabeled &&
+    isPidAlive(existing.pid)
+  ) {
+    await kernel.releaseAsync();
+    throw new DataDirLockedError(lockPath, existing.pid);
+  }
+
+  const payload: LockPayload = {
+    pid,
+    hostname: currentHostname,
+    startedAt: new Date().toISOString(),
+    kernelLock: true,
+  };
+  try {
+    writeMetadataFile(lockPath, payload);
+  } catch (err) {
+    await kernel.releaseAsync();
+    throw err;
+  }
+
+  let released = false;
+  const unlinkMetadata = (): void => {
+    try {
+      const current = parseLockPayload(lockPath);
+      if (current !== null && current.pid === pid && current.startedAt === payload.startedAt) {
+        fs.unlinkSync(lockPath);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn(`[host-lite] failed to unlink lock ${lockPath}:`, err);
+      }
+    }
+  };
+  return {
+    lockPath,
+    pid,
+    ...(kernel.holderPid === undefined ? {} : { holderPid: kernel.holderPid }),
+    release(): void {
+      if (released) return;
+      released = true;
+      try {
+        unlinkMetadata();
+      } finally {
+        kernel.release();
+      }
+    },
+    async releaseAsync(): Promise<void> {
+      if (!released) {
+        released = true;
+        unlinkMetadata();
+      }
+      await kernel.releaseAsync();
     },
   };
 }

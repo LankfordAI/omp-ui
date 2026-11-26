@@ -16,20 +16,27 @@ os="$(uname -s)"; arch="$(uname -m)"
 [ "$arch" = "x86_64" ] || fail "v1 ships linux-x64 only (detected $arch). Build from source as above."
 
 if [ -n "${OMP_UI_LITE_VERSION:-}" ]; then
-  version="$OMP_UI_LITE_VERSION"
+  if [ "$OMP_UI_LITE_VERSION" = "nightly" ]; then
+    tag="nightly"
+    version="nightly"
+  else
+    version="${OMP_UI_LITE_VERSION#v}"
+    tag="v${version}"
+  fi
 else
   if [ "$CHANNEL" = "nightly" ]; then
-    tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100" \
-      | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' | grep -- '-nightly' | head -1)" || true
+    tag="nightly"
+    version="nightly"
   else
     tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
       | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"\(v\{0,1\}[^"]*\)"$/\1/')" || true
+    [ -n "${tag:-}" ] || fail "could not resolve the latest ${CHANNEL} release; pin OMP_UI_LITE_VERSION"
+    version="${tag#v}"
+    tag="v${version}"
   fi
-  [ -n "${tag:-}" ] || fail "could not resolve the latest ${CHANNEL} release; pin OMP_UI_LITE_VERSION"
-  version="${tag#v}"
 fi
 
-base="https://github.com/${REPO}/releases/download/v${version}"
+base="https://github.com/${REPO}/releases/download/${tag}"
 echo "Installing omp-ui-lite ${version} (${os}-${arch})"
 mkdir -p "${HOME}/.local/bin" "$LIB_DIR"
 curl -fsSL "${base}/${BIN_NAME}-linux-x64" -o "${DEST_BIN}.tmp"

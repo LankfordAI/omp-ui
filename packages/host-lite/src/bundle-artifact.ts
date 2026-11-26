@@ -55,6 +55,7 @@ export function defaultBundlePath(opts?: {
     }
     candidates.push(path.join(execDir, "session-bundle.mjs"));
   }
+  candidates.push(fileURLToPath(new URL("./session-bundle.mjs", import.meta.url)));
   candidates.push(fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url)));
   return candidates.find((p) => exists(p)) ?? candidates[0]!;
 }

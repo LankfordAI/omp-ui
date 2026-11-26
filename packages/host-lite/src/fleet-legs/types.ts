@@ -13,11 +13,13 @@
  * in `adapters-node.ts` (the single TODO_INTEGRATION file).
  */
 import type {
+  AppPackageFormat,
   ChannelTable,
   FleetAuditEntry,
   FleetDetachedExecStartOutcome,
   FleetExecOutcome,
   FleetExecPollOutcome,
+  FleetUpdateCheck,
   FleetFinishOutcome,
   FleetFinishRequest,
   FleetSessionRequest,
@@ -164,8 +166,21 @@ export interface FleetHostReportLegs {
   ompVersion?(): Promise<string | null>;
   /** The resolved omp binary path; null when none (placement refuses to spawn there). */
   ompPath?(): string | null;
-  /** True when OMP_UI_OMP_PATH pins omp away from the managed copy. */
+  /** True when OMP_UI_OMP_PATH or OMP_UI_LITE_OMP pins omp away from the managed copy. */
   ompPinned?(): boolean;
+  /** Package format reported to fleet owners ("container" inside the official container image, null on bare metal). */
+  packageFormat?: AppPackageFormat | null;
+}
+
+/**
+ * Member-side version-update legs (`fleet:updateMember`, `fleet:updatePoll`).
+ * Wired only for containerized Host Lite so owners see honest immutable-image
+ * status (`format: "container"`, `pinned: true`) and clear redeploy refusals.
+ */
+export interface FleetUpdateLegs {
+  check(target: "omp" | "app"): Promise<FleetUpdateCheck>;
+  refuseMutation(target: "omp" | "app", action: "stage" | "apply"): string;
+  pollRefusal(): string;
 }
 
 /**
@@ -202,6 +217,7 @@ export interface FleetLegsDeps {
   project?: FleetProjectLegs;
   sessions?: FleetSessionLegs;
   providerKeys?: FleetProviderKeyLegs;
+  update?: FleetUpdateLegs;
   host: FleetHostReportLegs;
   /** One call per audit entry, ring order preserved by the wiring; adapters persist it. */
   auditSink?: (entry: FleetAuditEntry) => void;

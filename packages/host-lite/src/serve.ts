@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { CH, Registry, type RemoteState } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import { ensureInstanceId, ensureLiteHome, resolveLiteHome } from "./config";
-import { acquireDataDirLock, type DataDirLock } from "./data-dir-lock";
+import { acquireDataDirLockAsync, type DataDirLock } from "./data-dir-lock";
 import { startLocalControlServer, type LocalControlServer } from "./local-control";
 import { LiteBackend, registryOnlySessions } from "./lite-backend";
 import { LiteRemoteServer } from "./remote-server";
@@ -132,7 +132,16 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   // Exclusive ownership BEFORE loading Registry or RoutineRunHistory so a
   // duplicate `serve` cannot rewrite persisted state or mark running rows
   // interrupted while another daemon is live.
-  const lock: DataDirLock = acquireDataDirLock(dataDir);
+  let stopFn: (() => Promise<void>) | null = null;
+  const lock: DataDirLock = await acquireDataDirLockAsync(dataDir, {
+    onLockLost: (reason) => {
+      log(`omp-ui-lite: fatal — lost exclusive data-dir lock (${reason}); shutting down to protect data integrity`);
+      const shutdown = stopFn ? stopFn() : Promise.resolve();
+      void shutdown.finally(() => {
+        process.kill(process.pid, "SIGTERM");
+      });
+    },
+  });
 
   let sessions: LiteSessions | null = null;
   let liveFleet: FleetLegsHandle | null = opts.fleet ?? null;
@@ -228,7 +237,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       // Never log token-bearing URLs (in token-only mode `live.urls` equals
       // `tokenUrls`): a token in journald outlives rotation. Read pairing URLs
       // via the CLI `status` subcommand or `registry.json` (0600).
-      log(`omp-ui-lite: listening on ${live.bind} port ${live.port}; read pairing URLs with \`omp-ui-lite status\``);
+      log(`omp-ui-lite: listening on ${live.bind} port ${live.port}; check health with \`omp-ui-lite status\` or read the join token with \`omp-ui-lite token\``);
     }
     if (loadedRegistry.getSetting("routinesEnabled")) {
       const warn = loadedRegistry.getSetting("routineWarnCostUsd");
@@ -240,6 +249,22 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     const activeSessions = sessions;
     const activeControl = localControl;
     let stopped = false;
+    const stop = async (): Promise<void> => {
+      if (stopped) return;
+      stopped = true;
+      try {
+        await activeRemote.stop();
+        await activeControl.close();
+        // Legs first after the listener: cancel detached execs and end fleet
+        // terminals before the session machinery drains below them.
+        liveFleet?.dispose();
+        await activeSessions.dispose();
+        loadedRegistry.flush();
+      } finally {
+        await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
+      }
+    };
+    stopFn = stop;
     return {
       dataDir,
       instanceId,
@@ -249,21 +274,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       localControl: activeControl,
       cipher: opts.cipher ?? null,
       sessions: activeSessions,
-      stop: async () => {
-        if (stopped) return;
-        stopped = true;
-        try {
-          await activeRemote.stop();
-          await activeControl.close();
-          // Legs first after the listener: cancel detached execs and end fleet
-          // terminals before the session machinery drains below them.
-          liveFleet?.dispose();
-          await activeSessions.dispose();
-          loadedRegistry.flush();
-        } finally {
-          lock.release();
-        }
-      },
+      stop,
     };
   } catch (err) {
     // Best-effort cleanup before releasing the exclusive lock.
@@ -272,23 +283,49 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     liveFleet?.dispose();
     await sessions?.dispose().catch(() => {});
     registry?.flush();
-    lock.release();
+    await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
     throw err;
   }
 }
 
-/** Read from this package's manifest at import time; tests override via options. */
-const PACKAGE_VERSION: string = (() => {
+declare const __OMP_UI_LITE_VERSION__: string | undefined;
+
+function readManifestVersion(url: URL): string | null {
   try {
-    // new URL against import.meta.url keeps this correct under tsx, vitest, and a bundle.
-    const raw = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    const raw = fs.readFileSync(url, "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (parsed !== null && typeof parsed === "object" && "version" in parsed) {
       const version: unknown = parsed.version;
-      if (typeof version === "string") return version;
+      if (typeof version === "string" && version.trim() !== "") return version.trim();
     }
   } catch {
-    // Fall through: an unreadable manifest only costs the reported version string.
+    // Fall through to next candidate.
   }
+  return null;
+}
+
+/**
+ * Resolve the host-lite package version with strict precedence:
+ * 1. Compile-time esbuild define (`__OMP_UI_LITE_VERSION__`), when non-empty and not "0.0.0".
+ * 2. Sibling `./package.json` (flat container/install layout beside `cli.js`).
+ * 3. Parent `../package.json` (workspace `src/` or `dist/` layout).
+ * 4. Fallback `"0.0.0"`.
+ */
+export function resolveLitePackageVersion(
+  metaUrl: string = import.meta.url,
+  injectedVersion: string | undefined = typeof __OMP_UI_LITE_VERSION__ === "string" ? __OMP_UI_LITE_VERSION__ : undefined,
+): string {
+  const trimmedInjected = injectedVersion?.trim();
+  if (trimmedInjected !== undefined && trimmedInjected !== "" && trimmedInjected !== "0.0.0") {
+    return trimmedInjected;
+  }
+  const sibling = readManifestVersion(new URL("./package.json", metaUrl));
+  if (sibling !== null && sibling !== "0.0.0") return sibling;
+  const parent = readManifestVersion(new URL("../package.json", metaUrl));
+  if (parent !== null) return parent;
+  if (sibling !== null) return sibling;
   return "0.0.0";
-})();
+}
+
+/** Read from compile-time define or manifest at import time; tests override via options. */
+export const PACKAGE_VERSION: string = resolveLitePackageVersion(import.meta.url);

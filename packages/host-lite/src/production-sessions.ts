@@ -1,5 +1,6 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
-import { ProviderKeys, ProviderOAuth, resolveOmpBinary, type Registry } from "@omp-ui/core";
+import { ompPinActive, ProviderKeys, ProviderOAuth, resolveOmpBinary, type Registry } from "@omp-ui/core";
 import { loadSessionBundle } from "./bundle-artifact";
 import type { LiteKeyCipher, LiteSessions } from "./seams";
 
@@ -63,6 +64,22 @@ export function resolveOmp(env: NodeJS.ProcessEnv): string | null {
   const override = env.OMP_UI_LITE_OMP?.trim();
   if (override !== undefined && override !== "") return override;
   return resolveOmpBinary(env);
+}
+
+/** True when omp is pinned by either OMP_UI_OMP_PATH (desktop/container) or OMP_UI_LITE_OMP (host-lite). */
+export function isLiteOmpPinned(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (p: string) => boolean = fs.existsSync,
+): boolean {
+  if (ompPinActive(env, exists)) return true;
+  const override = env.OMP_UI_LITE_OMP?.trim();
+  return override !== undefined && override !== "" && exists(override);
+}
+
+/** True when running inside the official Host Lite container image (immutable image semantics). */
+export function isLiteContainerized(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.OMP_UI_LITE_CONTAINER?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
 }
 
 /**

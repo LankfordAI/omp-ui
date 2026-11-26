@@ -41,6 +41,7 @@ permissions:
   contents: write
   issues: read
   pull-requests: read
+  packages: write
 
 concurrency:
   # The publish job deletes and recreates the rolling `nightly` release; two
@@ -168,6 +169,88 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Build host-lite session bundle and SEA binary
+        env:
+          HOST_LITE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          npm run bundle -w @omp-ui/host-lite
+          npm run sea -w @omp-ui/host-lite
+      - name: Stage host-lite nightly assets
+        shell: bash
+        env:
+          HOST_LITE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          install -d "$stage/node_modules" host-lite-nightly
+          node -e 'const fs = require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify({ name: "@omp-ui/host-lite", version: process.argv[2], private: true, type: "module" }, null, 2) + "\n");' "$stage/package.json" "$HOST_LITE_VERSION"
+          cp packages/host-lite/dist/session-bundle.mjs "$stage/session-bundle.mjs"
+          cp -R node_modules/node-pty node_modules/ws node_modules/js-yaml node_modules/argparse "$stage/node_modules/"
+          tar -czf host-lite-nightly/host-lite-node-pty-linux-x64.tgz -C "$stage" package.json session-bundle.mjs node_modules
+          tar -tzf host-lite-nightly/host-lite-node-pty-linux-x64.tgz | grep -qx "package.json"
+          cp packages/host-lite/dist-sea/omp-ui-lite host-lite-nightly/omp-ui-lite-linux-x64
+          (cd host-lite-nightly && sha256sum omp-ui-lite-linux-x64 > omp-ui-lite-linux-x64.sha256)
+      - name: Upload host-lite nightly artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-host-lite-linux-x64
+          path: |
+            host-lite-nightly/omp-ui-lite-linux-x64
+            host-lite-nightly/omp-ui-lite-linux-x64.sha256
+            host-lite-nightly/host-lite-node-pty-linux-x64.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  container-x64:
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build candidate nightly Host Lite container image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/host-lite/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: omp-ui-lite:nightly-candidate
+          build-args: |
+            HOST_LITE_VERSION=${{ needs.meta.outputs.version }}
+            VCS_REF=${{ needs.meta.outputs.sha }}
+          cache-to: type=local,dest=/tmp/buildx-cache,mode=max
+      - name: Smoke-test nightly Host Lite container image
+        run: node packages/host-lite/scripts/smoke-container.mjs omp-ui-lite:nightly-candidate "${{ needs.meta.outputs.version }}"
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push verified nightly Host Lite container image to GHCR
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/host-lite/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          tags: |
+            ghcr.io/lankfordai/omp-ui-lite:nightly
+            ghcr.io/lankfordai/omp-ui-lite:${{ needs.meta.outputs.version }}
+          build-args: |
+            HOST_LITE_VERSION=${{ needs.meta.outputs.version }}
+            VCS_REF=${{ needs.meta.outputs.sha }}
+          cache-from: type=local,src=/tmp/buildx-cache
 
   # macOS lanes via the trunk's own copy of the reusable. `uses:` forbids
   # expressions (parsed before contexts exist), so the ref is the static
@@ -244,7 +327,7 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: [meta, linux-x64, macos, windows-x64]
+    needs: [meta, linux-x64, container-x64, macos, windows-x64]
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -261,6 +344,11 @@ jobs:
         with:
           name: nightly-linux-x64
           path: packages/desktop/dist
+      - name: Download host-lite Linux nightly
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nightly-host-lite-linux-x64
+          path: host-lite-nightly
       - name: Download Windows nightly
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -368,6 +456,16 @@ jobs:
           (( ${#assets[@]} == 8 )) || { printf 'expected 8 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
           sha256sum "${assets[@]}" > SHA256SUMS.txt
           gh release upload nightly --clobber "${assets[@]}" SHA256SUMS.txt "${GITHUB_WORKSPACE}/release-manifest/mac/latest-mac.yml"
+      - name: Upload host-lite nightly assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload nightly --clobber \
+            host-lite-nightly/omp-ui-lite-linux-x64 \
+            host-lite-nightly/omp-ui-lite-linux-x64.sha256 \
+            host-lite-nightly/host-lite-node-pty-linux-x64.tgz
       - name: Stage macOS arm64 bundles as 14-day run artifacts
         # The reusable's own artifact lives 1 day; mirror macos-preview.yml's
         # publish step so a dispatched run's files outlive the release cycle.

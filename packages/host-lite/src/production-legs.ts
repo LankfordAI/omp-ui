@@ -2,12 +2,14 @@ import { CH, type Registry } from "@omp-ui/core";
 import { registerFleetLegs, type FleetLegsHandle } from "./fleet-legs";
 import {
   createAuditFileSink,
+  createContainerUpdateLegs,
   createExecLegs,
   createHostReportLegs,
   createProjectLegs,
   createTerminalLegs,
 } from "./fleet-legs/adapters-node";
 import type { LiteBackend } from "./lite-backend";
+import { isLiteContainerized } from "./production-sessions";
 import type { LiteSessions } from "./seams";
 
 /**
@@ -31,10 +33,14 @@ export interface ProductionFleetLegsDeps {
   version: string;
   /** Session-bundle artifact override (tests build one on demand); production uses the installed default. */
   bundlePath?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function buildProductionFleetLegs(deps: ProductionFleetLegsDeps): Promise<FleetLegsHandle> {
   const { registry, sessions, backend, dataDir, version, bundlePath } = deps;
+  const env = deps.env ?? process.env;
+  const containerized = isLiteContainerized(env);
+  const activity = () => sessions.activity?.() ?? { liveSessions: 0, runningTurns: 0 };
   const auditSink = await createAuditFileSink(`${dataDir}/logs`, { ...(bundlePath !== undefined ? { bundlePath } : {}) });
   const [exec, terminals] = await Promise.all([
     createExecLegs({ ...(bundlePath !== undefined ? { bundlePath } : {}), onExecFinish: auditSink }),
@@ -54,12 +60,15 @@ export async function buildProductionFleetLegs(deps: ProductionFleetLegsDeps): P
     project: createProjectLegs({ addProject: async (dir) => void registry.addProject(dir) }),
     host: createHostReportLegs({
       registry,
-      activity: () => sessions.activity?.() ?? { liveSessions: 0, runningTurns: 0 },
+      activity,
       // Fail-closed exactly as the adapter doc demands: a guessed `true` ships
       // the owner's dispatch to a machine that cannot run it. No sessions seam
       // (bare registry member) therefore reports not-ready for every project.
       providerReady: (cwd) => sessions.providerReady?.(cwd) ?? false,
+      env,
+      packageFormat: containerized ? "container" : null,
     }),
+    ...(containerized ? { update: createContainerUpdateLegs({ version, env, activity }) } : {}),
     auditSink,
     // A grant write changes placement-relevant state; re-broadcast the merged
     // full BackendState so owners' machine lists refresh without a poll.

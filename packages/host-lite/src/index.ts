@@ -1,7 +1,7 @@
 export type { LiteKeyCipher, LiteRoutinesControl, LiteSessions } from "./seams";
 export { resolveLiteHome, electronAppDataDir, ensureLiteHome, ensureInstanceId } from "./config";
-export { acquireDataDirLock, dataDirLockPath, DataDirLockedError } from "./data-dir-lock";
-export type { DataDirLock } from "./data-dir-lock";
+export { acquireDataDirLock, acquireDataDirLockAsync, dataDirFlockPath, dataDirLockPath, DataDirLockedError } from "./data-dir-lock";
+export type { AcquireDataDirLockOptions, DataDirLock } from "./data-dir-lock";
 export {
   controlMetadataPath,
   controlSocketPath,
@@ -19,7 +19,7 @@ export { LiteBackend, mergeRegistryState, registryOnlySessions } from "./lite-ba
 export type { LiteBackendDeps, RemoteController } from "./lite-backend";
 export { LiteRemoteServer } from "./remote-server";
 export type { LiteRemoteServerDeps, LiteRemoteSettings } from "./remote-server";
-export { applyRoutinesEnvOverride, seedMemberDefaults, startLiteFleetMember } from "./serve";
+export { applyRoutinesEnvOverride, PACKAGE_VERSION, resolveLitePackageVersion, seedMemberDefaults, startLiteFleetMember } from "./serve";
 export type { LiteInstance, LiteServeOptions } from "./serve";
 export { runLiteCli, LITE_EXIT } from "./cli";
 export type { LiteCliDeps, LiteCliIo, LiteExitCode } from "./cli";

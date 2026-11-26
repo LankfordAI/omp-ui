@@ -17,7 +17,7 @@ export interface OmpUpdateInfo {
 }
 
 /** Every package format `detectPackageFormat` can answer; the type derives from this tuple so the two cannot drift. */
-export const APP_PACKAGE_FORMATS = ["appimage", "nsis", "maczip", "deb", "rpm", "flatpak", "unknown"] as const;
+export const APP_PACKAGE_FORMATS = ["appimage", "nsis", "maczip", "deb", "rpm", "flatpak", "container", "unknown"] as const;
 
 export type AppPackageFormat = (typeof APP_PACKAGE_FORMATS)[number];
 
