@@ -756,4 +756,47 @@ describe("RoutineScheduler notifications (#1294)", () => {
     expect(await run2).toEqual({ tabId: "", runId: "" });
     expect(dispatches).toHaveLength(0);
   });
+
+  it("surfaces sanitized outcome.message detail on dispatch-failed (#1372)", async () => {
+    const store = new RoutineStore(path.join(dir, "routines-dispatch-detail.json"));
+    store.add(routine(ID_A, { nextRunAtMs: null }));
+    const history = new RoutineRunHistory(path.join(dir, "routine-runs-dispatch-detail.json"));
+
+    const scheduler = new RoutineScheduler({
+      store,
+      history,
+      isEnabled: () => true,
+      defaultWarnCostUsd: () => 2,
+      defaultMaxCostUsd: () => 5,
+      hasProject: () => true,
+      sessions: () => [],
+      isLive: () => false,
+      isTurnRunning: () => false,
+      awaitingHumanAnswer: () => false,
+      listCatalog: async () => CATALOG,
+      artifactRefreshBlocked: () => null,
+      dispatch: async () =>
+        ({
+          batchId: null,
+          outcomes: [
+            {
+              dispatchId: "d",
+              machineKey: "local",
+              projectCwd: "/proj",
+              status: "failed",
+              message: "spawn git\n\tENOENT\x07 while creating worktree",
+            },
+          ],
+        }) as unknown as FleetDispatchResult,
+      runScript: async () => ({ kind: "ok" }),
+      postRunning: () => false,
+      onRunStarted: () => {},
+      publish: () => {},
+      now: () => T0,
+    });
+
+    await expect(scheduler.runNow(ID_A)).rejects.toThrow("Could not start session: spawn git ENOENT while creating worktree");
+    expect(history.list()[0]).toMatchObject({ outcome: "failed", reasonCode: "dispatch-failed", tabId: null });
+    scheduler.dispose();
+  });
 });

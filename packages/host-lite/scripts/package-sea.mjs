@@ -48,6 +48,8 @@ fs.mkdirSync(outDir, { recursive: true });
 //    dynamic-imports it (verified against official node v22.22.0: getRawAsset,
 //    argv normalization so process.argv[1] is the extracted file, and bare
 //    specifiers resolving through the adjacent node_modules tree).
+const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, "package.json"), "utf8"));
+const version = process.env.HOST_LITE_VERSION?.trim() || pkg.version || "0.0.0";
 const { build } = await import("esbuild");
 await build({
   entryPoints: [path.join(pkgRoot, "src", "cli.ts")],
@@ -56,6 +58,7 @@ await build({
   platform: "node",
   format: "esm",
   external: ["node-pty", "node:*"],
+  define: { __OMP_UI_LITE_VERSION__: JSON.stringify(version) },
   // CJS deps (ws) call require() for optional/native modules; esbuild's ESM
   // output routes those through a shim unless a real require exists — the
   // documented banner (createRequire over import.meta.url) makes the shim delegate.

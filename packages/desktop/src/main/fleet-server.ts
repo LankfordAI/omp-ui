@@ -535,9 +535,11 @@ export class FleetServer {
         return {
           status: "refused",
           reason:
-            st.format === "deb" || st.format === "rpm" || st.format === "flatpak"
-              ? `this machine installs omp-ui as a ${st.format} package; update it with its package manager`
-              : "omp-ui does not know how this machine's omp-ui was installed; update it manually",
+            st.format === "container"
+              ? "this machine runs omp-ui in a container image; pull a newer image tag and redeploy it to update"
+              : st.format === "deb" || st.format === "rpm" || st.format === "flatpak"
+                ? `this machine installs omp-ui as a ${st.format} package; update it with its package manager`
+                : "omp-ui does not know how this machine's omp-ui was installed; update it manually",
         };
       }
       const outcome = this.#maintenance.start(req.requester, gate.rung, "app", async (ctx) => {

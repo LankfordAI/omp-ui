@@ -43,6 +43,6 @@ export async function bootProductionLite(opts: {
     log,
     cipher,
     buildSessions: (ctx) => createProductionSessions({ ...ctx, cipher, env }),
-    buildFleet: buildProductionFleetLegs,
+    buildFleet: (ctx) => buildProductionFleetLegs({ ...ctx, env }),
   });
 }

@@ -22,27 +22,30 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { loadSessionBundle } from "../bundle-artifact";
+import { isLiteOmpPinned, resolveOmp } from "../production-sessions";
 import {
+  compareVersions,
   FLEET_CLONE_TIMEOUT_MS,
+  MIN_SUPPORTED_OMP,
   cloneRepositoryName,
   FLEET_EXEC_OUTPUT_MAX,
   FLEET_EXEC_TIMEOUT_MIN_MS,
   FLEET_EXEC_TIMEOUT_MS,
   detectHostOs,
   detectPackageManagers,
-  ompPinActive,
   readInstalledOmpVersion,
-  resolveOmpBinary,
   resolveRepositoryKey,
   sampleHostResources,
   withoutProviderKeys,
 } from "@omp-ui/core";
 import type {
+  AppPackageFormat,
   FleetAuditEntry,
   FleetExecOutcome,
   FleetHostProject,
   FleetProjectFilesOutcome,
   FleetProjectManageOutcome,
+  FleetUpdateCheck,
   ProjectRecord,
 } from "@omp-ui/core";
 import type {
@@ -63,6 +66,7 @@ import type {
   FleetHostReportLegs,
   FleetProjectLegs,
   FleetTerminalLegs,
+  FleetUpdateLegs,
 } from "./types.js";
 
 /** The audit-ring writer `registerFleetLegs` also feeds (see createAuditRing). */
@@ -368,6 +372,10 @@ export interface HostProbeDeps {
    * guessed `true` would send owners work this machine cannot run.
    */
   providerReady(cwd: string): boolean;
+  /** Environment for omp resolution & pin checks; defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+  /** Package format reported on fleet:hostReport ("container" inside container images, null otherwise). */
+  packageFormat?: AppPackageFormat | null;
 }
 
 /**
@@ -376,16 +384,18 @@ export interface HostProbeDeps {
  * core's fleet-host; nothing here reads a window.
  */
 export function createHostReportLegs(deps: HostProbeDeps): FleetHostReportLegs {
+  const env = deps.env ?? process.env;
   return {
     resources: () => sampleHostResources(),
     os: () => detectHostOs(),
     packageManagers: () => detectPackageManagers(),
     ompVersion: async () => {
-      const p = resolveOmpBinary();
+      const p = resolveOmp(env);
       return p === null ? null : readInstalledOmpVersion(p);
     },
-    ompPath: () => resolveOmpBinary(),
-    ompPinned: () => ompPinActive(),
+    ompPath: () => resolveOmp(env),
+    ompPinned: () => isLiteOmpPinned(env),
+    packageFormat: deps.packageFormat ?? null,
     activity: deps.activity,
     async projects(): Promise<FleetHostProject[]> {
       const registry = deps.registry;
@@ -411,6 +421,55 @@ export function createHostReportLegs(deps: HostProbeDeps): FleetHostReportLegs {
           };
         }),
       );
+    },
+  };
+}
+
+export interface ContainerUpdateLegsDeps {
+  version: string;
+  env?: NodeJS.ProcessEnv;
+  activity(): { liveSessions: number; runningTurns: number };
+}
+
+/**
+ * Immutable-image Fleet update legs for containerized Host Lite: answers
+ * `check` honestly (`format: "container"`, `pinned: true`) and refuses
+ * `stage`/`apply`/`poll` with actionable redeploy instructions.
+ */
+export function createContainerUpdateLegs(deps: ContainerUpdateLegsDeps): FleetUpdateLegs {
+  const env = deps.env ?? process.env;
+  return {
+    async check(target: "omp" | "app"): Promise<FleetUpdateCheck> {
+      if (target === "app") {
+        return {
+          target: "app",
+          currentVersion: deps.version,
+          latestVersion: null,
+          format: "container",
+          staged: false,
+          installOnQuit: false,
+          liveSessions: deps.activity().liveSessions,
+        };
+      }
+      const installPath = resolveOmp(env);
+      const installedVersion = installPath === null ? null : await readInstalledOmpVersion(installPath);
+      return {
+        target: "omp",
+        installedVersion,
+        installPath,
+        latestVersion: null,
+        updateAvailable: false,
+        belowMinimum: installedVersion !== null && compareVersions(installedVersion, MIN_SUPPORTED_OMP) < 0,
+        pinned: true,
+      };
+    },
+    refuseMutation(target: "omp" | "app"): string {
+      return target === "app"
+        ? "this member runs in a container image; pull a newer image tag and redeploy the container to update omp-ui"
+        : "omp is baked into this container image; pull a newer image tag and redeploy the container to update omp";
+    },
+    pollRefusal(): string {
+      return "no maintenance job with that id (containerized members update by redeploying the image)";
     },
   };
 }

@@ -19,4 +19,5 @@ export type {
   FleetProviderKeyLegs,
   FleetSessionLegs,
   FleetTerminalLegs,
+  FleetUpdateLegs,
 } from "./types.js";

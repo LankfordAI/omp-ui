@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Registry, type BackendState, type RoutinesState } from "@omp-ui/core";
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
 import { LITE_EXIT, runLiteCli, type LiteCliIo } from "./cli";
-import { dataDirLockPath } from "./data-dir-lock";
+import { acquireDataDirLockAsync, dataDirFlockPath, dataDirLockPath, DataDirLockedError } from "./data-dir-lock";
 import { controlSocketPath } from "./local-control";
-import { startLiteFleetMember, type LiteInstance } from "./serve";
+import { PACKAGE_VERSION, resolveLitePackageVersion, startLiteFleetMember, type LiteInstance } from "./serve";
 import type { LiteRoutinesControl, LiteSessions } from "./seams";
 // `status` is the operator's one-line answer to "is my member reachable?" — it
 // must read only persisted settings (never load processes), print bind/port/url,
@@ -422,5 +422,109 @@ describe("omp-ui-lite routines CLI (#1368)", () => {
         resolveDataDir: () => dir,
       }),
     ).toBe(LITE_EXIT.USAGE);
+  });
+});
+
+describe("omp-ui-lite version, token, and kernel data-dir lock (#1372)", () => {
+  it("resolves version precedence: injected define > sibling package.json > parent package.json > 0.0.0", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-lite-ver-"));
+    dirs.push(root);
+    const flatDir = path.join(root, "flat");
+    fs.mkdirSync(flatDir, { recursive: true });
+    fs.writeFileSync(path.join(flatDir, "package.json"), JSON.stringify({ version: "1.2.3" }));
+    const flatUrl = `file://${path.join(flatDir, "cli.js")}`;
+
+    expect(resolveLitePackageVersion(flatUrl, "9.9.9")).toBe("9.9.9");
+    expect(resolveLitePackageVersion(flatUrl, "0.0.0")).toBe("1.2.3");
+    expect(resolveLitePackageVersion(flatUrl, undefined)).toBe("1.2.3");
+
+    const nestedDir = path.join(root, "pkg", "dist");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(root, "pkg", "package.json"), JSON.stringify({ version: "2.3.4" }));
+    const nestedUrl = `file://${path.join(nestedDir, "cli.js")}`;
+    expect(resolveLitePackageVersion(nestedUrl, undefined)).toBe("2.3.4");
+
+    const emptyDir = path.join(root, "empty");
+    fs.mkdirSync(emptyDir, { recursive: true });
+    expect(resolveLitePackageVersion(`file://${path.join(emptyDir, "cli.js")}`, undefined)).toBe("0.0.0");
+  });
+
+  it("supports --version and token [--url] subcommands without mutating registry.json", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-lite-tok-"));
+    dirs.push(dir);
+
+    const vBoard = io();
+    const vCode = await runLiteCli(["--version"], {
+      io: vBoard,
+      serve: async () => ({ stop: async () => {} }),
+      connect: connectInstanceClient,
+      resolveDataDir: () => dir,
+    });
+    expect(vCode).toBe(LITE_EXIT.OK);
+    expect(vBoard.out).toEqual([`omp-ui-lite ${PACKAGE_VERSION}`]);
+
+    // Missing registry.json fails closed and creates no files.
+    const tMiss = io();
+    const missCode = await runLiteCli(["token"], {
+      io: tMiss,
+      serve: async () => ({ stop: async () => {} }),
+      connect: connectInstanceClient,
+      resolveDataDir: () => dir,
+    });
+    expect(missCode).toBe(LITE_EXIT.OPERATIONAL);
+    expect(fs.existsSync(path.join(dir, "registry.json"))).toBe(false);
+
+    // Populated registry prints raw token or --url template.
+    const reg = Registry.load(path.join(dir, "registry.json"));
+    reg.setSettings({ remoteToken: "tok-secret-123", remotePort: 5123 });
+    reg.flush();
+
+    const tOk = io();
+    expect(
+      await runLiteCli(["token"], {
+        io: tOk,
+        serve: async () => ({ stop: async () => {} }),
+        connect: connectInstanceClient,
+        resolveDataDir: () => dir,
+      }),
+    ).toBe(LITE_EXIT.OK);
+    expect(tOk.out).toEqual(["tok-secret-123"]);
+
+    const tUrl = io();
+    expect(
+      await runLiteCli(["token", "--url"], {
+        io: tUrl,
+        serve: async () => ({ stop: async () => {} }),
+        connect: connectInstanceClient,
+        resolveDataDir: () => dir,
+      }),
+    ).toBe(LITE_EXIT.OK);
+    expect(tUrl.out[0]).toMatch(/^http:\/\/.+:5123\/\?t=tok-secret-123$/);
+  });
+
+  it("acquires kernel flock on Linux, blocks concurrent callers, and recovers from leftover kernelLock metadata", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-lite-flock-"));
+    dirs.push(dir);
+
+    const lock = await acquireDataDirLockAsync(dir);
+    try {
+      if (process.platform === "linux") {
+        expect(fs.existsSync(dataDirFlockPath(dir))).toBe(true);
+      }
+      await expect(acquireDataDirLockAsync(dir)).rejects.toThrow(DataDirLockedError);
+    } finally {
+      await lock.releaseAsync?.();
+    }
+
+    // Simulate a SIGKILL restart that left lite.lock on disk with our exact PID + kernelLock: true.
+    if (process.platform === "linux") {
+      fs.writeFileSync(
+        dataDirLockPath(dir),
+        `${JSON.stringify({ pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString(), kernelLock: true })}\n`,
+        { mode: 0o600 },
+      );
+      const recovered = await acquireDataDirLockAsync(dir);
+      await recovered.releaseAsync?.();
+    }
   });
 });

@@ -2273,6 +2273,7 @@ export function fleetToolUpdateRequest(
 /** The formatter's `versions:` clause: what the member runs; parenthesized update facts only when true. */
 export function fleetVersionsLine(report: FleetHostReport): string {
   const appBits: string[] = [];
+  if (report.packageFormat === "container") appBits.push("container image");
   if (report.appUpdateStaged) appBits.push("update staged");
   else if (fleetAppUpdateAvailable(report.version, report.appLatestVersion))
     appBits.push(`update available: ${report.appLatestVersion}`);

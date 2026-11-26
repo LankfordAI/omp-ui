@@ -99,6 +99,7 @@ export function FleetUpdateDialog({
   const typedExact = typedVersion !== "" && FLEET_VERSION_PATTERN.test(typedVersion);
   const ompReady = (check: FleetOmpCheck): boolean => check.updateAvailable || check.installedVersion === null || typedExact;
 
+  const isContainer = machine.report?.packageFormat === "container" || (app.status === "check" && app.check.format === "container");
   const dash = "\u2014";
   return (
     <ConfirmDialog
@@ -132,37 +133,47 @@ export function FleetUpdateDialog({
                 <p className="font-mono text-xs tabular-nums text-ink">
                   {omp.check.installedVersion === null
                     ? "omp is not installed in the managed path"
-                    : `${omp.check.installedVersion} → ${omp.check.latestVersion ?? dash}`}
+                    : isContainer
+                      ? omp.check.installedVersion
+                      : `${omp.check.installedVersion} → ${omp.check.latestVersion ?? dash}`}
                 </p>
                 {omp.check.belowMinimum && <p className="text-xs text-rose">Below the minimum omp-ui requires on this machine.</p>}
-                {omp.check.pinned && <p className="text-xs text-copper">omp is pinned by OMP_UI_OMP_PATH here; clear the pin or install into the managed path first.</p>}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    aria-label="Exact omp version"
-                    className={`${FIELD} w-36`}
-                    value={ompVersion}
-                    spellCheck={false}
-                    placeholder="exact version"
-                    onChange={(event) => setOmpVersion(event.target.value)}
-                  />
-                  <Button
-                    variant="solid"
-                    tone="copper"
-                    size="xs"
-                    disabled={!ompReady(omp.check) || (typedVersion !== "" && !typedExact)}
-                    onClick={() => request({ target: "omp", action: "stage", version: typedExact ? typedVersion : null, allowLiveSessions: false })}
-                  >
-                    Update omp
-                  </Button>
-                </div>
-                <p className="text-xs text-ink-faint">
-                  {typedVersion !== "" && !typedExact ? (
-                    <span className="text-rose">A version must look like 18.13.1</span>
-                  ) : (
-                    "Leave blank for the newest release, or name an exact version."
-                  )}
-                </p>
+                {isContainer ? (
+                  <p className="text-xs text-ink-mid">
+                    omp is baked into this container image. Pull a newer image tag and redeploy the container to update omp.
+                  </p>
+                ) : (
+                  <>
+                    {omp.check.pinned && <p className="text-xs text-copper">omp is pinned by OMP_UI_OMP_PATH here; clear the pin or install into the managed path first.</p>}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        aria-label="Exact omp version"
+                        className={`${FIELD} w-36`}
+                        value={ompVersion}
+                        spellCheck={false}
+                        placeholder="exact version"
+                        onChange={(event) => setOmpVersion(event.target.value)}
+                      />
+                      <Button
+                        variant="solid"
+                        tone="copper"
+                        size="xs"
+                        disabled={!ompReady(omp.check) || (typedVersion !== "" && !typedExact)}
+                        onClick={() => request({ target: "omp", action: "stage", version: typedExact ? typedVersion : null, allowLiveSessions: false })}
+                      >
+                        Update omp
+                      </Button>
+                    </div>
+                    <p className="text-xs text-ink-faint">
+                      {typedVersion !== "" && !typedExact ? (
+                        <span className="text-rose">A version must look like 18.13.1</span>
+                      ) : (
+                        "Leave blank for the newest release, or name an exact version."
+                      )}
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </section>
@@ -178,10 +189,16 @@ export function FleetUpdateDialog({
             ) : (
               <div className="space-y-1.5">
                 <p className="font-mono text-xs tabular-nums text-ink">
-                  {`${app.check.currentVersion ?? dash} → ${app.check.latestVersion ?? dash}`}
+                  {app.check.format === "container"
+                    ? (app.check.currentVersion ?? dash)
+                    : `${app.check.currentVersion ?? dash} → ${app.check.latestVersion ?? dash}`}
                   {app.check.format !== null && <Chip className="ml-2">{app.check.format}</Chip>}
                 </p>
-                {app.check.staged ? (
+                {app.check.format === "container" ? (
+                  <p className="text-xs text-ink-mid">
+                    This member runs in an immutable container image. Pull a newer image tag and redeploy the container to update omp-ui.
+                  </p>
+                ) : app.check.staged ? (
                   <>
                     <p className="text-xs text-ink-mid">
                       {app.check.installOnQuit ? "The staged update will install at the next quit." : "An update is staged and waits for this machine's next quit."}

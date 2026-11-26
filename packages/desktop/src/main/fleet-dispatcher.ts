@@ -228,6 +228,9 @@ function updateAllSkipReason(machine: FleetMachine): string | null {
       ? "this app's fleet access there is unknown; Update all needs Full control"
       : `this app holds fleet access "${machine.grantRung}" there; Update all needs Full control`;
   }
+  if (machine.report?.packageFormat === "container") {
+    return "runs in a container image; pull and redeploy the image to update it";
+  }
   return null;
 }
 

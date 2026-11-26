@@ -11,6 +11,7 @@ permissions:
   contents: write
   issues: read
   pull-requests: read
+  packages: write
 
 jobs:
   prepare:
@@ -100,25 +101,32 @@ jobs:
       # scripts/release-artifacts.mjs's canonical manifest — the .sha256 asset
       # is their checksum.
       - name: Build host-lite session bundle and SEA binary
+        env:
+          HOST_LITE_VERSION: ${{ github.ref_name }}
         run: |
+          export HOST_LITE_VERSION="${HOST_LITE_VERSION#v}"
           npm run bundle -w @omp-ui/host-lite
           npm run sea -w @omp-ui/host-lite
       - name: Stage and upload host-lite assets
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOST_LITE_VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          version="${HOST_LITE_VERSION#v}"
           stage="$(mktemp -d)"
           install -d "$stage/node_modules"
           # node-pty plus the bundle's runtime externals (bundle-session.mjs):
           # ws and js-yaml stay external, and argparse rides js-yaml. Ship
-          # session-bundle.mjs right beside node_modules/ so install.sh unpacks
-          # both into ~/.local/lib/omp-ui-lite/ and Node ESM resolution finds
-          # all externals without relying on NODE_PATH.
+          # package.json and session-bundle.mjs right beside node_modules/ so
+          # install.sh unpacks all of them into ~/.local/lib/omp-ui-lite/.
+          node -e 'const fs = require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify({ name: "@omp-ui/host-lite", version: process.argv[2], private: true, type: "module" }, null, 2) + "\n");' "$stage/package.json" "$version"
           cp packages/host-lite/dist/session-bundle.mjs "$stage/session-bundle.mjs"
           cp -R node_modules/node-pty node_modules/ws node_modules/js-yaml node_modules/argparse "$stage/node_modules/"
-          tar -czf host-lite-node-pty-linux-x64.tgz -C "$stage" session-bundle.mjs node_modules
+          tar -czf host-lite-node-pty-linux-x64.tgz -C "$stage" package.json session-bundle.mjs node_modules
+          tar -tzf host-lite-node-pty-linux-x64.tgz | grep -qx "package.json"
+          [ "$(tar -xOzf host-lite-node-pty-linux-x64.tgz package.json | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = "$version" ]
           cp packages/host-lite/dist-sea/omp-ui-lite omp-ui-lite-linux-x64
           sha256sum omp-ui-lite-linux-x64 > omp-ui-lite-linux-x64.sha256
           gh release upload "$GITHUB_REF_NAME" --clobber \
@@ -126,6 +134,62 @@ jobs:
             omp-ui-lite-linux-x64.sha256 \
             host-lite-node-pty-linux-x64.tgz
 
+  release-container:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Compute release container version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Build candidate Host Lite container image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/host-lite/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: omp-ui-lite:candidate
+          build-args: |
+            HOST_LITE_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          cache-to: type=local,dest=/tmp/buildx-cache,mode=max
+      - name: Smoke-test candidate Host Lite container image
+        run: node packages/host-lite/scripts/smoke-container.mjs omp-ui-lite:candidate "${{ steps.meta.outputs.version }}"
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push verified Host Lite container image to GHCR
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/host-lite/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ghcr.io/lankfordai/omp-ui-lite:${{ github.ref_name }}
+            ghcr.io/lankfordai/omp-ui-lite:${{ steps.meta.outputs.version }}
+            ghcr.io/lankfordai/omp-ui-lite:latest
+          build-args: |
+            HOST_LITE_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=local,src=/tmp/buildx-cache
   release-android:
     needs: prepare
     runs-on: ubuntu-latest
@@ -276,8 +340,8 @@ jobs:
             latest.yml
 
   release-manifest:
-    needs: [release-linux, package-macos, release-windows, release-android, test-windows, release-notes]
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-windows.result == 'success' && needs.release-android.result == 'success' && needs.test-windows.result == 'success' }}
+    needs: [release-linux, release-container, package-macos, release-windows, release-android, test-windows, release-notes]
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.release-container.result == 'success' && needs.package-macos.result == 'success' && needs.release-windows.result == 'success' && needs.release-android.result == 'success' && needs.test-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}

@@ -757,7 +757,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     if (this.state.status !== "available" || this.machine.release === null) return;
     const release = this.machine.release;
     const format = this.state.format;
-    if (format === "unknown") {
+    if (format === "unknown" || format === "container") {
       await this.openReleaseNotes(); // nothing downloadable — show the release page
       return;
     }

@@ -11,6 +11,8 @@ there is no second join protocol, and this package has zero Electron imports.
 ```sh
 omp-ui-lite serve                                     # start the member; first run mints a token
 omp-ui-lite status                                    # reachable/unreachable probe of the local listener
+omp-ui-lite token [--url]                             # print the persisted join token (or tokenized template URL)
+omp-ui-lite --version                                 # print the stamped omp-ui-lite version
 omp-ui-lite routines [status]                         # show host-local Routines gate, spend defaults, and run counts
 omp-ui-lite routines enable [--warn <usd>] [--max <usd>]  # opt into Routines on this host (atomic with optional caps)
 omp-ui-lite routines disable                          # pause Routines without reaping live runs
@@ -18,10 +20,10 @@ omp-ui-lite routines spend [--warn <usd>] [--max <usd>]   # update host-wide def
 ```
 
 Join from an owner app: **Settings → Remote instances → paste the URL**.
+Container deployment: [`docker/README.md`](docker/README.md) and [`docker/compose.yaml`](docker/compose.yaml) (`ghcr.io/lankfordai/omp-ui-lite`).
 System service: `packaging/omp-ui-lite.service` + `loginctl enable-linger "$(id -un)"`.
 Install script: `packaging/install.sh` (linux-x64 v1; checksum-verified release asset,
-`session-bundle.mjs` and `node_modules` unpacked adjacent to the binary in `~/.local/lib/omp-ui-lite/`).
-
+`session-bundle.mjs`, `package.json`, and `node_modules` unpacked adjacent to the binary in `~/.local/lib/omp-ui-lite/`).
 ## Configuration
 
 | Variable | Meaning | Default |
@@ -30,8 +32,8 @@ Install script: `packaging/install.sh` (linux-x64 v1; checksum-verified release 
 | `OMP_UI_LITE_KEY_FILE` | 32-byte key file for the credential cipher (must be mode 0600) | unset → protector chain below |
 | `OMP_UI_LITE_ROUTINES` | boot-time override for `routinesEnabled` (`1`/`true` or `0`/`false`; takes precedence on restart over prior CLI toggles when set in `service.env`) | unset → persisted registry value (`false` on fresh installs) |
 | `OMP_UI_LITE_OMP` | explicit path to the `omp` binary | unset → searches `PATH` via `resolveOmpBinary` |
-| `OMP_UI_LITE_BUNDLE` | explicit path to `session-bundle.mjs` | unset → `../lib/omp-ui-lite/session-bundle.mjs` (SEA) or `dist/session-bundle.mjs` |
-
+| `OMP_UI_LITE_BUNDLE` | explicit path to `session-bundle.mjs` | unset → `../lib/omp-ui-lite/session-bundle.mjs` (SEA), `./session-bundle.mjs`, or `../dist/session-bundle.mjs` |
+| `OMP_UI_LITE_CONTAINER` | set `1`/`true` in immutable container images for `packageFormat: "container"` and redeploy-only Fleet upkeep | unset (`false`) |
 Settings that mirror the desktop's remote-access page (`remoteEnabled`,
 `remoteBind`, `remotePort`, `remoteToken`) persist in this root's registry, not
 Electron userData.

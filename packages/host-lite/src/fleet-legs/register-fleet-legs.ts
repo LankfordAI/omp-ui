@@ -50,6 +50,10 @@ import type {
   FleetTerminalOpenOutcome,
   FleetTerminalOpenRequest,
   FleetTerminalRenewRequest,
+  FleetUpdateAck,
+  FleetUpdateMemberRequest,
+  FleetUpdatePollOutcome,
+  FleetUpdatePollRequest,
   RequestHandlers,
 } from "@omp-ui/core";
 import { credentialDigest, currentRemoteCredentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
@@ -448,6 +452,34 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
     };
   }
 
+  // ── fleet:updateMember / fleet:updatePoll: wired only for immutable container images ──
+
+  const update = deps.update;
+  if (update !== undefined) {
+    request[CH.fleetUpdateMember] = async (req: FleetUpdateMemberRequest): Promise<FleetUpdateAck> => {
+      const gate = check(req.requester, "full");
+      if (!gate.ok) {
+        audit("update", req.requester, "full", false, `${req.target} ${req.action}`, null);
+        return { status: "refused", reason: gate.reason };
+      }
+      if (req.action === "check") {
+        const result = await update.check(req.target);
+        audit("update", req.requester, gate.rung, true, `${req.target} check`, null);
+        return { status: "accepted", check: result };
+      }
+      const reason = update.refuseMutation(req.target, req.action);
+      audit("update", req.requester, gate.rung, false, `${req.target} ${req.action}`, null);
+      return { status: "refused", reason };
+    };
+    request[CH.fleetUpdatePoll] = (req: FleetUpdatePollRequest): FleetUpdatePollOutcome => {
+      const gate = check(req.requester, "full");
+      if (!gate.ok) {
+        return { status: "refused", reason: gate.reason };
+      }
+      return { status: "refused", reason: update.pollRefusal() };
+    };
+  }
+
   // ── fleet:hostReport: always served (placement reads it before dispatch) ──
 
   const host = deps.host;
@@ -485,7 +517,7 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
       // Issue #1010 ships no app updater for the SEA binary: these three
       // answer exactly as a member that predates the update feature does —
       // absent-not-denied nulls, and `fleet:updateMember` stays unregistered.
-      packageFormat: null,
+      packageFormat: host.packageFormat ?? null,
       appLatestVersion: null,
       appUpdateStaged: false,
       modelFavorites: [...registry.getSetting("modelFavorites")],

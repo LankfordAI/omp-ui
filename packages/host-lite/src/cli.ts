@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   ROUTINE_DEFAULT_MAX_COST_USD,
@@ -9,7 +10,7 @@ import {
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
 import { pathToFileURL } from "node:url";
 import { ensureLiteHome, resolveLiteHome } from "./config";
-import { acquireDataDirLock, DataDirLockedError } from "./data-dir-lock";
+import { acquireDataDirLockAsync, DataDirLockedError } from "./data-dir-lock";
 import {
   LocalControlHttpError,
   LocalControlUnavailableError,
@@ -20,7 +21,7 @@ import {
   type LocalControlSpendPatch,
 } from "./local-control";
 import { bootProductionLite } from "./production-boot";
-import { seedMemberDefaults } from "./serve";
+import { PACKAGE_VERSION, seedMemberDefaults } from "./serve";
 /**
  * The `omp-ui-lite` command (issue #1010): `serve` runs the headless fleet member
  * in the foreground (never daemonizes); `status` probes the local listener.
@@ -59,6 +60,8 @@ const HELP = `Usage: omp-ui-lite <command>
 Commands:
   serve                                      Run the headless fleet member in the foreground (never daemonizes).
   status                                     Print the local listener's bind/port/url and whether it answers state:get.
+  token [--url]                              Print the persisted remote join token (or tokenized template URL with --url).
+  version, --version, -v                     Print the omp-ui-lite version.
   routines [status]                          Print host-local Routines gate status, spend defaults, and run counts.
   routines enable [--warn <usd>] [--max <usd>]   Enable Routines on this host (optionally setting spend defaults).
   routines disable                           Disable Routines on this host without reaping live runs.
@@ -68,6 +71,7 @@ Commands:
 Environment:
   OMP_UI_LITE_HOME       Data dir override (default: <appData>/omp-ui-lite[-dev]).
   OMP_UI_LITE_ROUTINES   Boot override for routinesEnabled (1/true or 0/false).
+  OMP_UI_LITE_CONTAINER  Set to 1/true in container images for immutable-image Fleet upkeep behavior.
 `;
 
 export async function runLiteCli(argv: readonly string[], deps: LiteCliDeps): Promise<LiteExitCode> {
@@ -76,12 +80,17 @@ export async function runLiteCli(argv: readonly string[], deps: LiteCliDeps): Pr
     deps.io.stdout(HELP);
     return LITE_EXIT.OK;
   }
+  if (command === "version" || command === "--version" || command === "-v") {
+    deps.io.stdout(`omp-ui-lite ${PACKAGE_VERSION}`);
+    return LITE_EXIT.OK;
+  }
   if (argv.includes("--help") || argv.includes("-h")) {
     deps.io.stdout(HELP);
     return LITE_EXIT.OK;
   }
   if (command === "serve") return runServe(deps);
   if (command === "status") return runStatus(deps);
+  if (command === "token") return runToken(argv.slice(1), deps);
   if (command === "routines") return runRoutines(argv.slice(1), deps);
   deps.io.stderr(`omp-ui-lite: unknown command "${command}"`);
   deps.io.stdout(HELP);
@@ -141,6 +150,51 @@ async function runStatus(deps: LiteCliDeps): Promise<LiteExitCode> {
   }
   deps.io.stdout(`unreachable — ${verdict}`);
   return LITE_EXIT.OPERATIONAL;
+}
+
+function runToken(args: readonly string[], deps: LiteCliDeps): LiteExitCode {
+  let asUrl = false;
+  for (const arg of args) {
+    if (arg === "--url") {
+      asUrl = true;
+    } else {
+      deps.io.stderr(`omp-ui-lite token: unexpected argument "${arg}"`);
+      return LITE_EXIT.USAGE;
+    }
+  }
+  const dataDir = (deps.resolveDataDir ?? resolveLiteHome)(deps.io.env);
+  const registryFile = path.join(dataDir, "registry.json");
+  if (!fs.existsSync(registryFile)) {
+    deps.io.stderr("omp-ui-lite token: no registry.json found yet; start `omp-ui-lite serve` first");
+    return LITE_EXIT.OPERATIONAL;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(registryFile, "utf8"));
+  } catch (err) {
+    deps.io.stderr(`omp-ui-lite token: could not read ${registryFile}: ${err instanceof Error ? err.message : String(err)}`);
+    return LITE_EXIT.OPERATIONAL;
+  }
+  const settings =
+    raw !== null && typeof raw === "object" && "settings" in raw && raw.settings !== null && typeof raw.settings === "object"
+      ? (raw.settings as Record<string, unknown>)
+      : null;
+  const token = settings !== null && typeof settings.remoteToken === "string" ? settings.remoteToken.trim() : "";
+  if (token === "") {
+    deps.io.stderr("omp-ui-lite token: no remote token has been minted yet; start `omp-ui-lite serve` first");
+    return LITE_EXIT.OPERATIONAL;
+  }
+  const port =
+    settings !== null && typeof settings.remotePort === "number" && Number.isInteger(settings.remotePort) && settings.remotePort > 0
+      ? settings.remotePort
+      : 4677;
+  if (asUrl) {
+    const host = os.hostname() || "<host>";
+    deps.io.stdout(`http://${host}:${port}/?t=${token}`);
+  } else {
+    deps.io.stdout(token);
+  }
+  return LITE_EXIT.OK;
 }
 
 interface ParsedSpendFlags {
@@ -294,7 +348,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
     // Offline path: acquire exclusive lock before touching registry.json.
     let lock;
     try {
-      lock = acquireDataDirLock(dataDir);
+      lock = await acquireDataDirLockAsync(dataDir);
     } catch (err) {
       deps.io.stderr(
         `omp-ui-lite routines enable: ${err instanceof DataDirLockedError ? err.message : err instanceof Error ? err.message : String(err)}`,
@@ -324,7 +378,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
       );
       return LITE_EXIT.OK;
     } finally {
-      lock.release();
+      await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
     }
   }
 
@@ -349,7 +403,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
     }
     let lock;
     try {
-      lock = acquireDataDirLock(dataDir);
+      lock = await acquireDataDirLockAsync(dataDir);
     } catch (err) {
       deps.io.stderr(
         `omp-ui-lite routines disable: ${err instanceof DataDirLockedError ? err.message : err instanceof Error ? err.message : String(err)}`,
@@ -370,7 +424,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
       deps.io.stdout("routines: disabled — daemon offline");
       return LITE_EXIT.OK;
     } finally {
-      lock.release();
+      await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
     }
   }
 
@@ -402,7 +456,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
     }
     let lock;
     try {
-      lock = acquireDataDirLock(dataDir);
+      lock = await acquireDataDirLockAsync(dataDir);
     } catch (err) {
       deps.io.stderr(
         `omp-ui-lite routines spend: ${err instanceof DataDirLockedError ? err.message : err instanceof Error ? err.message : String(err)}`,
@@ -436,7 +490,7 @@ async function runRoutines(args: readonly string[], deps: LiteCliDeps): Promise<
       );
       return LITE_EXIT.OK;
     } finally {
-      lock.release();
+      await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
     }
   }
 

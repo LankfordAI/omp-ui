@@ -1471,3 +1471,23 @@ describe("dispatch model choice (#956)", () => {
     expect(fleetChoiceText({ model: null, thinkingLevel: null })).toBe("; model omp default, thinking model default");
   });
 });
+
+describe("container packageFormat (#1372)", () => {
+  it("accepts packageFormat container in parseFleetUpdateFacts and formats it in fleetVersionsLine", () => {
+    expect(parseFleetUpdateFacts({ packageFormat: "container", ompPinned: true, ompVersion: "19.2.1" })).toMatchObject({
+      packageFormat: "container",
+      ompPinned: true,
+      ompVersion: "19.2.1",
+    });
+    expect(
+      fleetVersionsLine(
+        report({
+          version: "0.40.0",
+          packageFormat: "container",
+          ompVersion: "19.2.1",
+          ompPinned: true,
+        }),
+      ),
+    ).toBe("versions: omp-ui 0.40.0 (container image), omp 19.2.1 (pinned)");
+  });
+});

@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProviderKeys, type OwnedSessionRecord } from "@omp-ui/core";
 import { machineKeyProtector, openLiteKeyCipher } from "./credentials";
-import { resolveOmp, toCoreCipher, withPlacementGates } from "./production-sessions";
+import { isLiteContainerized, isLiteOmpPinned, resolveOmp, toCoreCipher, withPlacementGates } from "./production-sessions";
 import type { LiteSessions } from "./seams";
 
 const dirs: string[] = [];
@@ -152,5 +152,22 @@ describe("resolveOmp (#1368)", () => {
     expect(resolveOmp(isolatedEnv)).toBe(fakeOmp);
     expect(resolveOmp({ ...isolatedEnv, OMP_UI_LITE_OMP: "   " })).toBe(fakeOmp);
     expect(resolveOmp({ ...isolatedEnv, OMP_UI_LITE_OMP: "/custom/omp" })).toBe("/custom/omp");
+  });
+});
+
+describe("isLiteOmpPinned and isLiteContainerized (#1372)", () => {
+  it("treats both OMP_UI_OMP_PATH and OMP_UI_LITE_OMP existing binaries as pinned", () => {
+    const exists = (p: string) => p === "/opt/omp-ui-lite/omp/bin/omp" || p === "/custom/omp";
+    expect(isLiteOmpPinned({}, exists)).toBe(false);
+    expect(isLiteOmpPinned({ OMP_UI_OMP_PATH: "/opt/omp-ui-lite/omp/bin/omp" }, exists)).toBe(true);
+    expect(isLiteOmpPinned({ OMP_UI_LITE_OMP: "/custom/omp" }, exists)).toBe(true);
+    expect(isLiteOmpPinned({ OMP_UI_LITE_OMP: "/missing/omp" }, exists)).toBe(false);
+  });
+
+  it("recognizes OMP_UI_LITE_CONTAINER=1/true only", () => {
+    expect(isLiteContainerized({})).toBe(false);
+    expect(isLiteContainerized({ OMP_UI_LITE_CONTAINER: "0" })).toBe(false);
+    expect(isLiteContainerized({ OMP_UI_LITE_CONTAINER: "1" })).toBe(true);
+    expect(isLiteContainerized({ OMP_UI_LITE_CONTAINER: "TRUE" })).toBe(true);
   });
 });

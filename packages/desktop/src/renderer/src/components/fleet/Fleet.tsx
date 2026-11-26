@@ -183,6 +183,9 @@ function MachineRow({
         <Dot tone={face.tone} title={face.label} />
         <span className="truncate text-xs text-ink">{name}</span>
         {report !== null && <Chip mono>{`omp-ui ${report.version}`}</Chip>}
+        {report !== null && report.packageFormat === "container" && (
+          <Chip title="Running in a container image; update by pulling and redeploying the image.">container</Chip>
+        )}
         {/* ADR-0066: what each member runs, so skew is visible before dispatching to it. */}
         {report !== null && (report.ompVersion !== null || report.ompPath === null) && (
           <Chip mono title={ompChipTitle(report)}>
@@ -283,8 +286,14 @@ function MachineRow({
           <Button
             size="xs"
             variant="ghost"
-            disabled={!holdsFull(machine)}
-            title={!holdsFull(machine) ? "Needs Full control on this machine" : undefined}
+            disabled={!holdsFull(machine) || report?.packageFormat === "container"}
+            title={
+              report?.packageFormat === "container"
+                ? "Containerized member — pull and redeploy the container image to update omp-ui or omp"
+                : !holdsFull(machine)
+                  ? "Needs Full control on this machine"
+                  : undefined
+            }
             onClick={() => onUpdate(machine)}
           >
             Update versions…
@@ -408,7 +417,7 @@ function MachinesSection() {
   if (view === null) return null;
   const members = (view.machines ?? []).filter((m) => m.key !== LOCAL_MACHINE_KEY);
   // Who Update all asks: ready members this app holds Full control on (the dispatcher skips the rest).
-  const eligible = members.filter((m) => m.status === "ready" && holdsFull(m)).length;
+  const eligible = members.filter((m) => m.status === "ready" && holdsFull(m) && m.report?.packageFormat !== "container").length;
   const runActive = view.updateAll !== null && view.updateAll.finishedAt === null;
   return (
     <Section

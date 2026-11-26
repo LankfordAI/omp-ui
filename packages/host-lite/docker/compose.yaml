@@ -1,0 +1,45 @@
+# Official Docker Compose recipe for @omp-ui/host-lite (issue #1372).
+# See packages/host-lite/docker/README.md for full operator instructions.
+#
+# Quick start:
+#   docker compose -f packages/host-lite/docker/compose.yaml up -d
+#   docker compose -f packages/host-lite/docker/compose.yaml exec omp-ui-lite omp-ui-lite token
+
+services:
+  omp-ui-lite:
+    # Pin an exact release tag (e.g. :v0.40.0) in production, or use :nightly for trunk builds.
+    image: ghcr.io/lankfordai/omp-ui-lite:latest
+    container_name: omp-ui-lite
+    # Surfaces as the fleet member label and Routines machineLabel.
+    hostname: omp-ui-lite
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # Explicit port publish is required across Docker's bridge network (no LAN broadcast discovery).
+    ports:
+      - "4677:4677"
+    environment:
+      # Standard IANA timezone (tzdata is installed in the image).
+      TZ: UTC
+      # Uncomment to enable host-local Routines at boot (off by default).
+      # OMP_UI_LITE_ROUTINES: "1"
+      # Env-first provider credentials (preferred in containers; rotate by updating and restarting).
+      # OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      # ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Optional external sealing key file for sealed provider-keys.json (see volume comment below).
+      # OMP_UI_LITE_KEY_FILE: /run/secrets/omp-ui-lite.key
+    volumes:
+      # Single-writer persistent state volume (registry.json, routines.json, sessions, worktrees).
+      # Never mount this volume into two concurrent omp-ui-lite containers.
+      - omp_ui_lite_data:/data
+      # Optional bind-mounted projects window; registered project paths must exist inside the container.
+      # - ./projects:/projects
+      # Optional read-only OMP model catalog (/home/node/.omp/natives stays writable by uid 1000).
+      # - ./models.yml:/home/node/.omp/agent/models.yml:ro
+      # Optional 32-byte sealing key bind mount. Local Docker Compose bind mounts preserve host
+      # ownership and mode verbatim — create it owned by uid/gid 1000 with mode 0400 first:
+      #   head -c 32 /dev/urandom | sudo install -o 1000 -g 1000 -m 0400 /dev/stdin machine.key
+      # - ./machine.key:/run/secrets/omp-ui-lite.key:ro
+
+volumes:
+  omp_ui_lite_data:

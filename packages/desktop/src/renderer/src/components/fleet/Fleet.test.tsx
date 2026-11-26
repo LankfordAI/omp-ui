@@ -61,6 +61,7 @@ Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports: store.ts → ./backend reads window.ompBackend at module load.
 const { useStore } = await import("../../store");
 const { Fleet } = await import("./Fleet");
+const { FleetUpdateDialog } = await import("./FleetUpdateDialog");
 
 let root: Root | null = null;
 
@@ -734,5 +735,81 @@ describe("Fleet view", () => {
     expect(member("inst-dispatch").textContent).toContain("needs Full control");
     // A run in progress blocks a second one.
     expect(buttons(document.body, "Update all")[0]!.disabled).toBe(true);
+  });
+
+  it("shows a container chip, disables Update versions…, and excludes containerized members from Update all (#1372)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      machine({
+        key: "inst-container",
+        nickname: "docker-lite",
+        grantRung: "full",
+        report: report({ version: "0.40.0", packageFormat: "container", ompVersion: "19.2.1", ompPinned: true }),
+      }),
+    ]);
+    render();
+    const containerRow = row("inst-container");
+    expect(containerRow.textContent).toContain("container");
+    const updateBtn = buttons(containerRow, "Update versions…")[0]!;
+    expect(updateBtn.disabled).toBe(true);
+    expect(updateBtn.getAttribute("title")).toMatch(/redeploy the container image/i);
+    expect(buttons(document.body, "Update all")[0]!.disabled).toBe(true);
+  });
+
+  it("renders FleetUpdateDialog in container mode without mutating controls (#1372)", async () => {
+    backendMock.fleetUpdateMachine.mockImplementation(
+      async (_key: string, req: { target: "omp" | "app" }): Promise<FleetUpdateAck> =>
+        req.target === "omp"
+          ? {
+              status: "accepted",
+              check: {
+                target: "omp",
+                installedVersion: "19.2.1",
+                installPath: "/opt/omp-ui-lite/omp/bin/omp",
+                latestVersion: null,
+                updateAvailable: false,
+                belowMinimum: false,
+                pinned: true,
+              },
+            }
+          : {
+              status: "accepted",
+              check: {
+                target: "app",
+                currentVersion: "0.40.0",
+                latestVersion: null,
+                format: "container",
+                staged: false,
+                installOnQuit: false,
+                liveSessions: 0,
+              },
+            },
+    );
+    const containerMachine = machine({
+      key: "inst-container",
+      nickname: "docker-lite",
+      grantRung: "full",
+      report: report({ version: "0.40.0", packageFormat: "container", ompVersion: "19.2.1", ompPinned: true }),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        <FleetUpdateDialog machine={containerMachine} onClose={() => {}} onRequestConfirmation={() => {}} />,
+      );
+    });
+    const dialog = document.body.querySelector('[role="alertdialog"]')!;
+    const ompSection = dialog.querySelector('[data-update-section="omp"]')!;
+    expect(ompSection.textContent).toContain("19.2.1");
+    expect(ompSection.textContent).toContain("omp is baked into this container image");
+    expect(ompSection.textContent).not.toContain("clear the pin");
+    expect(buttons(dialog, "Update omp")).toHaveLength(0);
+
+    const appSection = dialog.querySelector('[data-update-section="app"]')!;
+    expect(appSection.textContent).toContain("0.40.0");
+    expect(appSection.textContent).toContain("container");
+    expect(appSection.textContent).toContain("immutable container image");
+    expect(buttons(dialog, "Stage update")).toHaveLength(0);
   });
 });

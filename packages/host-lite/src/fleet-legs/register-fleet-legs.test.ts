@@ -553,3 +553,86 @@ describe("lite member channel table (absent not denied)", () => {
     expect(terminals.disposed).toBe(1);
   });
 });
+
+describe("containerized immutable-image Fleet upkeep (#1372)", () => {
+  it("reports packageFormat container and serves fleet:updateMember check + redeploy refusals when update legs are wired", async () => {
+    const registry = fakeRegistry({ fleetExecEnabled: true, fleetExecCeiling: "full" });
+    registry.setSetting("fleetGrants", {
+      [MANAGER.instanceId]: { rung: "full", label: MANAGER.label, updatedAt: "t" },
+    });
+    const host = { ...hostSeam(), packageFormat: "container" as const };
+    const handle = registerFleetLegs({
+      registry,
+      version: "0.40.0",
+      host,
+      update: {
+        check: async (target) =>
+          target === "app"
+            ? {
+                target: "app",
+                currentVersion: "0.40.0",
+                latestVersion: null,
+                format: "container",
+                staged: false,
+                installOnQuit: false,
+                liveSessions: 1,
+              }
+            : {
+                target: "omp",
+                installedVersion: "19.2.1",
+                installPath: "/opt/omp-ui-lite/omp/bin/omp",
+                latestVersion: null,
+                updateAvailable: false,
+                belowMinimum: false,
+                pinned: true,
+              },
+        refuseMutation: (target) =>
+          target === "app"
+            ? "this member runs in a container image; pull a newer image tag and redeploy the container to update omp-ui"
+            : "omp is baked into this container image; pull a newer image tag and redeploy the container to update omp",
+        pollRefusal: () => "no maintenance job with that id (containerized members update by redeploying the image)",
+      },
+    });
+    const table = tableOf(handle);
+
+    const report = await dispatchRequest(table, CH.fleetHostReport, []);
+    expect(report).toMatchObject({ version: "0.40.0", packageFormat: "container" });
+
+    expect(
+      await dispatchRequest(table, CH.fleetUpdateMember, [
+        { requester: MANAGER, target: "app", action: "check", version: null, allowLiveSessions: false },
+      ]),
+    ).toMatchObject({ status: "accepted", check: { target: "app", format: "container", currentVersion: "0.40.0" } });
+
+    expect(
+      await dispatchRequest(table, CH.fleetUpdateMember, [
+        { requester: MANAGER, target: "omp", action: "check", version: null, allowLiveSessions: false },
+      ]),
+    ).toMatchObject({ status: "accepted", check: { target: "omp", pinned: true } });
+
+    expect(
+      await dispatchRequest(table, CH.fleetUpdateMember, [
+        { requester: MANAGER, target: "app", action: "stage", version: null, allowLiveSessions: false },
+      ]),
+    ).toEqual({
+      status: "refused",
+      reason: "this member runs in a container image; pull a newer image tag and redeploy the container to update omp-ui",
+    });
+
+    expect(
+      await dispatchRequest(table, CH.fleetUpdateMember, [
+        { requester: MANAGER, target: "omp", action: "stage", version: null, allowLiveSessions: false },
+      ]),
+    ).toEqual({
+      status: "refused",
+      reason: "omp is baked into this container image; pull a newer image tag and redeploy the container to update omp",
+    });
+
+    expect(
+      await dispatchRequest(table, CH.fleetUpdatePoll, [{ requester: MANAGER, jobId: "job-1", waitMs: 0 }]),
+    ).toEqual({
+      status: "refused",
+      reason: "no maintenance job with that id (containerized members update by redeploying the image)",
+    });
+  });
+});
