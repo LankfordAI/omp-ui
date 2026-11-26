@@ -7,10 +7,11 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CH, Registry, type BackendState } from "@omp-ui/core";
+import { execFileSync } from "node:child_process";
+import { CH, Registry, type BackendState, type SpawnRequest } from "@omp-ui/core";
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
-import type { FleetLegsHandle } from "./fleet-legs";
-import { startLiteFleetMember, type LiteInstance, type LiteServeOptions } from "./serve";
+import { registerFleetLegs, type FleetLegsHandle } from "./fleet-legs";
+import { backfillRepositoryKeys, startLiteFleetMember, type LiteInstance, type LiteServeOptions } from "./serve";
 import type { LiteSessions } from "./seams";
 
 const dirs: string[] = [];
@@ -143,5 +144,109 @@ describe("serve fleet-legs wiring (issue #1010)", () => {
     expect(await client.request(CH.getInstanceIdentity, [])).toMatchObject({ version: "0.0.0" });
     // The fleet channel is absent: the transport's own unknown-channel rejection.
     await expect(client.request(CH.fleetHostReport, [])).rejects.toThrow(/unknown channel/i);
+  });
+
+  it("syncs instanceId into registry without leaking it in state:get or state:changed (#1374)", async () => {
+    const instance = await boot();
+    expect(instance.registry.getSetting("instanceId")).toBe(instance.instanceId);
+    expect(instance.instanceId.length).toBeGreaterThan(0);
+    const client = await join(instance);
+    const state = (await client.request(CH.getState, [])) as Record<string, unknown>;
+    expect(state).not.toHaveProperty("instanceId");
+  });
+
+  it("backfillRepositoryKeys populates null repo keys on git checkouts, skips non-git dirs, and fires onChanged once (#1374)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-backfill-"));
+    dirs.push(dir);
+    const gitRepo = path.join(dir, "repo");
+    const plainDir = path.join(dir, "plain");
+    fs.mkdirSync(gitRepo, { recursive: true });
+    fs.mkdirSync(plainDir, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: gitRepo });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/backfill-demo.git"], { cwd: gitRepo });
+
+    const registry = Registry.load(path.join(dir, "registry.json"));
+    registry.addProject(gitRepo);
+    registry.addProject(plainDir);
+    expect(registry.projects.every((p) => p.repositoryKey === null)).toBe(true);
+
+    let changedCalls = 0;
+    await backfillRepositoryKeys(registry, () => {
+      changedCalls += 1;
+    });
+    expect(changedCalls).toBe(1);
+    expect(registry.projects.find((p) => p.path === gitRepo)?.repositoryKey).toBe("github.com/acme/backfill-demo");
+    expect(registry.projects.find((p) => p.path === plainDir)?.repositoryKey).toBeNull();
+
+    // Second pass is a no-op (no extra broadcast when nothing changed).
+    await backfillRepositoryKeys(registry, () => {
+      changedCalls += 1;
+    });
+    expect(changedCalls).toBe(1);
+  });
+
+  it("enforces the rung-2 dispatch gate on fleet-provenanced session:spawn from foreign dispatchers (#1374)", async () => {
+    let spawned = 0;
+    const sessionsWithSpawn: LiteSessions = {
+      ...noSessions,
+      handlers: {
+        [CH.spawnSession]: async () => {
+          spawned += 1;
+          return { tabId: "tab-new" };
+        },
+      },
+    };
+    const dir = await memberDir();
+    const seeded = Registry.load(path.join(dir, "registry.json"));
+    seeded.setSettings({
+      fleetGrants: { "foreign-owner": { rung: "observe", label: "Observer", updatedAt: "seed" } },
+    });
+    const instance = await startLiteFleetMember({
+      dataDir: dir,
+      version: "0.0.0",
+      sessions: sessionsWithSpawn,
+      log: () => {},
+      buildFleet: async ({ registry }) =>
+        registerFleetLegs({
+          registry,
+          host: {
+            resources: async () => ({ cpuUtilization: 0, cpuCount: 1, availableMemoryBytes: 1, totalMemoryBytes: 2 }),
+            projects: async () => [],
+            activity: () => ({ liveSessions: 0, runningTurns: 0 }),
+          },
+        }),
+    });
+    instances.push(instance);
+
+    const spawnReq: SpawnRequest = {
+      origin: "new",
+      projectCwd: dir,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      fleet: {
+        dispatchId: "disp-1",
+        batchId: "batch-1",
+        title: "Test dispatch",
+        requestedBy: { instanceId: "foreign-owner", label: "Observer", kind: "user", sourceTabId: null },
+        prompt: "hi",
+      },
+    };
+    const handler = instance.backend.handlers().request[CH.spawnSession]!;
+    expect(() => handler(spawnReq)).toThrow(/fleet access refused/i);
+    expect(spawned).toBe(0);
+
+    // Own-instance dispatch skips the foreign ladder check.
+    const localReq: SpawnRequest = {
+      ...spawnReq,
+      fleet: {
+        ...spawnReq.fleet!,
+        requestedBy: { instanceId: instance.instanceId, label: "Self", kind: "user" as const, sourceTabId: null },
+      },
+    };
+    expect(await handler(localReq)).toEqual({ tabId: "tab-new" });
+    expect(spawned).toBe(1);
   });
 });

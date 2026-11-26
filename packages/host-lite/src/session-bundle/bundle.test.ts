@@ -13,7 +13,7 @@
  *    build with the gate's named error — a future runtime-electron import
  *    reaching the session cluster can not ship silently inside lite.
  */
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -631,6 +631,313 @@ describe("session bundle", () => {
       expect(dueRec?.routine).toMatchObject({ warnCostUsd: 0.75, maxCostUsd: 2.25 });
 
       await lite2.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("Tier 1 bundle contracts: CH.addProject persists repositoryKey + broadcasts, and CH.fleetSessionSummary renders summary (#1374)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-t1-"));
+    try {
+      const { deps, registry } = fakeDeps(bundle, base);
+      const repoDir = path.join(base, "tracked-repo");
+      fs.mkdirSync(repoDir, { recursive: true });
+      execFileSync("git", ["init", "-q"], { cwd: repoDir });
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/widget.git"], { cwd: repoDir });
+
+      const lite = bundle.createSessionBundle({ ...deps, pullRequestsEnabled: false });
+      const keyReady = Promise.withResolvers<string>();
+      lite.on((channel, args) => {
+        if (channel !== bundle.CH.onStateChanged) return;
+        const state = args[0] as { projects: Array<{ project: { path: string; repositoryKey: string | null } }> };
+        const hit = state.projects.find((g) => g.project.path === repoDir);
+        if (hit?.project.repositoryKey) keyReady.resolve(hit.project.repositoryKey);
+      });
+
+      const addProject = lite.handlers[bundle.CH.addProject as string] as (raw: string) => Promise<{ path: string }>;
+      const added = await addProject(repoDir);
+      expect(added.path).toBe(repoDir);
+      expect(await keyReady.promise).toBe("github.com/acme/widget");
+      expect(
+        (registry as unknown as { projects: Array<{ path: string; repositoryKey: string | null }> }).projects.find(
+          (p) => p.path === repoDir,
+        )?.repositoryKey,
+      ).toBe("github.com/acme/widget");
+
+      const summaryFn = lite.handlers[bundle.CH.fleetSessionSummary as string] as (tabId: string) => Promise<string>;
+      const summary = await summaryFn("tab-1");
+      expect(summary).toContain("Bundle proof");
+      await expect(summaryFn("tab-missing")).rejects.toThrow(/session not found/i);
+
+      await lite.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("Tier 2 path confinement: rejects unregistered directories and coerces out-of-root worktreePath (#1374)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-confine-"));
+    try {
+      const { deps } = fakeDeps(bundle, base);
+      const registeredProject = path.join(base, "proj");
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: registeredProject });
+      execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: registeredProject });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: registeredProject });
+      fs.writeFileSync(path.join(registeredProject, "README.md"), "hello\n");
+      execFileSync("git", ["add", "."], { cwd: registeredProject });
+      execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: registeredProject });
+      execFileSync("git", ["branch", "feat-1"], { cwd: registeredProject });
+
+      const rogueDir = path.join(base, "unregistered");
+      fs.mkdirSync(rogueDir, { recursive: true });
+      const lite = bundle.createSessionBundle({ ...deps, pullRequestsEnabled: false });
+      const call = (key: string, ...args: unknown[]) =>
+        (lite.handlers[bundle.CH[key] as string] as (...a: unknown[]) => unknown)(...args);
+
+      const rejectedCalls: Array<[string, unknown[]]> = [
+        ["listBranches", [rogueDir]],
+        ["getBranchDiff", [rogueDir]],
+        ["checkoutBranch", [rogueDir, "main"]],
+        ["resolveMergeDestination", [rogueDir, null]],
+        ["getMergeBackStatus", [rogueDir, "feat-1", "main", null]],
+        ["mergeWorktreeBranch", [rogueDir, "feat-1", "main"]],
+        ["setProjectDefaultModel", [rogueDir, "openrouter/model"]],
+        ["setProjectSubagentModel", [rogueDir, "scout", "openrouter/model"]],
+        ["setProjectIcon", [rogueDir, { kind: "none" }]],
+        ["listProjectFiles", [rogueDir]],
+        ["resolveFileMentions", [rogueDir, "@README.md"]],
+        ["getAdvisorDefaults", [rogueDir]],
+        ["getMcpServers", [rogueDir]],
+        ["getScopedCapabilities", [rogueDir]],
+        ["getWatchdogRoster", [rogueDir]],
+      ];
+      for (const [name, args] of rejectedCalls) {
+        await expect(Promise.resolve().then(() => call(name, ...args)), name).rejects.toThrow(
+          /that project is not registered here/i,
+        );
+      }
+      await expect(
+        Promise.resolve().then(() =>
+          call("setCouncilRoster", { scope: "project", scopeCwd: rogueDir, document: { members: [], trial: null } }),
+        ),
+      ).rejects.toThrow(/unknown project/i);
+
+      // Out-of-root worktreePath is coerced to null → worktreeDirty comes back null.
+      const status = (await call("getMergeBackStatus", registeredProject, "feat-1", "main", rogueDir)) as {
+        worktreeDirty: boolean | null;
+      };
+      expect(status.worktreeDirty).toBeNull();
+
+      await lite.dispose();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("Tier 2 git/branch, session UX, project settings/icon, council, and absent-not-denied contracts (#1374)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-lite-t2-"));
+    try {
+      const { deps, registry } = fakeDeps(bundle, base);
+      const project = path.join(base, "proj");
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
+      execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: project });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: project });
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/proj.git"], { cwd: project });
+      fs.writeFileSync(path.join(project, "index.ts"), "export const x = 1;\n");
+      fs.mkdirSync(path.join(project, "public"), { recursive: true });
+      fs.writeFileSync(
+        path.join(project, "public", "favicon.svg"),
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7"/></svg>',
+      );
+      execFileSync("git", ["add", "."], { cwd: project });
+      execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: project });
+
+      // Seed a worktree session with an open PR so refreshPullRequests observes open -> merged auto-settle.
+      const prSession = {
+        tabId: "tab-pr",
+        sessionId: null,
+        lineageDir: "omp-ui--proj--pr-lineage",
+        projectCwd: project,
+        launchedAt: "2026-07-29T10:00:00.000Z",
+        mode: "rpc-ui",
+        cachedTitle: "PR session",
+        cachedModified: null,
+        chat: false,
+        settledAtMs: null,
+        snoozed: false,
+        snoozedUntilMs: null,
+        reminderAtMs: null,
+        worktree: {
+          path: path.join(base, "worktrees", "wt-pr"),
+          branch: "feat-pr",
+          baseBranch: "main",
+          createdAt: "2026-07-29T10:00:00.000Z",
+        },
+        pullRequests: [{ number: 42, url: "https://github.com/acme/proj/pull/42", state: "open", checks: "passing" }],
+        autoSettleOnMerge: true,
+      };
+      (registry as unknown as { addSession(s: unknown): void }).addSession(prSession);
+
+      const lite = bundle.createSessionBundle({
+        ...deps,
+        machineLabel: () => "lite-host-box",
+        readChatModels: async () => ({
+          models: [{ provider: "openrouter", id: "demo/model", name: "Demo", thinking: { efforts: ["low"] } }],
+          discovered: true,
+          error: null,
+        }),
+        pullRequestsEnabled: false,
+        pullRequestLookup: async () => ({
+          ok: true as const,
+          byBranch: new Map([
+            [
+              "feat-pr",
+              [{ number: 42, url: "https://github.com/acme/proj/pull/42", state: "merged" as const, checks: "passing" as const }],
+            ],
+          ]),
+        }),
+      });
+      const call = <T = unknown>(key: string, ...args: unknown[]): Promise<T> =>
+        Promise.resolve((lite.handlers[bundle.CH[key] as string] as (...a: unknown[]) => T | Promise<T>)(...args));
+      // SessionManager's constructor settles dormant rows from prior boots; unsettle tab-pr so the PR merge transition triggers auto-settle.
+      await call("unsettleSession", "tab-pr");
+
+      const events: Array<{ channel: string; args: unknown[] }> = [];
+      lite.on((channel, args) => events.push({ channel, args }));
+
+      // Git / branch round trip
+      const initialBranches = await call<{ current: string | null; branches: Array<{ name: string }> }>(
+        "listBranches",
+        project,
+      );
+      expect(initialBranches.current).toBe("main");
+      await call("createBranch", project, "feat-demo", "main");
+      await call("checkoutBranch", project, "feat-demo");
+      expect(events.some((e) => e.channel === bundle.CH.onBranchChanged && e.args[0] === project)).toBe(true);
+      fs.writeFileSync(path.join(project, "index.ts"), "export const x = 2;\n");
+      const diff = await call<{ diff: string }>("getBranchDiff", project, "main");
+      expect(diff.diff).toContain("index.ts");
+      const prUrl = await call<string | null>("pullRequestUrl", project, "main", "feat-demo");
+      expect(prUrl).toContain("github.com/acme/proj/compare/main...feat-demo");
+      const dest = await call<{ destination: string | null }>("resolveMergeDestination", project, "main");
+      expect(dest.destination).toBe("main");
+
+      // Session UX round trip
+      const catalog = await call<{ models: Array<{ id: string }> }>("readModelCatalog", "tab-1");
+      expect(catalog.models[0]?.id).toBe("demo/model");
+      const advisor = await call<{ enabled: boolean; model: string | null }>("getAdvisorDefaults", project);
+      expect(typeof advisor.enabled).toBe("boolean");
+      const ref = await call<{ sessionId: string; machine: string; path: string } | null>("sessionReference", "tab-1");
+      expect(ref?.machine).toBe("lite-host-box");
+      expect(ref?.path).toContain("01931d8a-6f7e-7000-8000-0000000000aa.jsonl");
+      const files = await call<{ files: string[] }>("listProjectFiles", project);
+      expect(files.files).toContain("index.ts");
+      const resolved = await call<{ contextText: string; images: unknown[] }>(
+        "resolveFileMentions",
+        project,
+        "check @index.ts",
+      );
+      expect(resolved.contextText).toContain("export const x = 2;");
+      const answered = await call<{ ok: boolean }>("answerProjectRequest", "tab-1", "p1", "deny", null);
+      expect(answered.ok).toBe(false);
+      const councilStatus = await call<unknown>("getSessionCouncilStatus", "tab-1");
+      expect(councilStatus).toBeDefined();
+
+      // PullRequestPoller manual refresh updates links and announces auto-settled session.
+      await call("refreshPullRequests", "tab-pr");
+      expect(events.some((e) => e.channel === bundle.CH.onSessionsAutoSettled)).toBe(true);
+      const updatedPr = registry.sessions.find((s) => s.tabId === "tab-pr") as {
+        pullRequests?: Array<{ state: string }>;
+      };
+      expect(updatedPr?.pullRequests?.[0]?.state).toBe("merged");
+
+      // Project settings mutators + headless project:setIcon
+      await call("setProjectDefaultModel", project, "openrouter/google/gemini-4-neon");
+      await call("setProjectDefaultAdvisorModel", project, "openrouter/openai/gpt-5.6-sol");
+      await call("setProjectBrowserClock", project, true);
+      await call("setProjectWorkspacePolicy", project, "worktree");
+      await call("setProjectLastFinishOutcome", project, "merge");
+      await call("setProjectWorktreeSetup", project, {
+        copyPaths: [".env"],
+        copyMode: "copy",
+        postCreateCommand: null,
+      });
+      await call("setProjectKnowledgeHome", project, { vault: "Docs", folder: "Proj" });
+
+      const detectedIcon = await call<{ source: string; dataUrl?: string } | null>("setProjectIcon", project, {
+        kind: "detect",
+      });
+      expect(detectedIcon?.source).toBe("detected");
+      expect(detectedIcon?.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+      const noneIcon = await call<{ source: string } | null>("setProjectIcon", project, { kind: "none" });
+      expect(noneIcon).toEqual({ source: "none" });
+      // Minimal valid 1x1 PNG (< 32 KiB) accepted verbatim; JPEG rejected cleanly without nativeImage.
+      const tinyPngBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+      const customPng = await call<{ source: string; dataUrl?: string }>("setProjectIcon", project, {
+        kind: "custom",
+        data: tinyPngBase64,
+      });
+      expect(customPng.source).toBe("custom");
+      expect(customPng.dataUrl).toMatch(/^data:image\/png;base64,/);
+      const fakeJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]).toString("base64");
+      await expect(call("setProjectIcon", project, { kind: "custom", data: fakeJpeg })).rejects.toThrow(
+        /not an image omp-ui can use/i,
+      );
+
+      // Subagent models + safety validation
+      await call("setProjectSubagentModel", project, "scout", "openrouter/openai/gpt-6-luna");
+      const subagents = await call<{ map: Record<string, string> }>("getProjectSubagentModels", project);
+      expect(subagents.map.scout).toBe("openrouter/openai/gpt-6-luna");
+      await expect(call("setProjectSubagentModel", project, "bad agent!", "openrouter/a")).rejects.toThrow(
+        /unsafe agent name/i,
+      );
+      await expect(call("setProjectSubagentModel", project, "scout", "bad selector\n")).rejects.toThrow(
+        /unsafe model selector/i,
+      );
+
+      // Council roster user + project scope
+      const councilAfter = await call<{ project: { members: Array<{ model: string | null }> } | null }>(
+        "setCouncilRoster",
+        {
+          scope: "project",
+          scopeCwd: project,
+          document: {
+            instructions: null,
+            members: [{ name: "", model: "openrouter/google/gemini-4-neon", instructions: null, enabled: true }],
+          },
+        },
+      );
+      expect(councilAfter.project?.members[0]?.model).toBe("openrouter/google/gemini-4-neon");
+      const councilRead = await call<{ project: { members: Array<{ model: string | null }> } | null }>(
+        "getCouncilRoster",
+        project,
+      );
+      expect(councilRead.project?.members[0]?.model).toBe("openrouter/google/gemini-4-neon");
+
+      // Absent-not-denied regression: desktop-only & deferred subsystems stay undefined
+      for (const absent of [
+        "browserPaneEnsure",
+        "devicePaneEnsure",
+        "browseDirs",
+        "reportStallCap",
+        "openProject",
+        "setRoutinesEnabled",
+        "vaultNames",
+        "statsOverview",
+        "autoresearchOverview",
+        "packStart",
+        "authExportBundle",
+        "liveAudioList",
+      ]) {
+        const ch = bundle.CH[absent];
+        if (ch !== undefined) {
+          expect(lite.handlers[ch], absent).toBeUndefined();
+          expect(lite.notify[ch], absent).toBeUndefined();
+        }
+      }
+
+      await lite.dispose();
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }

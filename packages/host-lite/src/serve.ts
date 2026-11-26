@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { CH, Registry, type RemoteState } from "@omp-ui/core";
+import { CH, Registry, resolveRepositoryKey, type RemoteState } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import { ensureInstanceId, ensureLiteHome, resolveLiteHome } from "./config";
 import { acquireDataDirLockAsync, type DataDirLock } from "./data-dir-lock";
@@ -125,6 +125,32 @@ export function applyRoutinesEnvOverride(registry: Registry, env: NodeJS.Process
   throw new Error(`OMP_UI_LITE_ROUTINES must be 1, true, 0, or false (got "${raw}")`);
 }
 
+/**
+ * Resolve `repositoryKey` for every project that still has null (issue #903,
+ * #1374) so pre-existing registries learn their fleet repo keys without a
+ * re-add. One shared callback when any key lands; a failed probe skips just
+ * that project and retries on the next boot.
+ */
+export async function backfillRepositoryKeys(
+  registry: Registry,
+  onChanged: () => void,
+  resolveKey: (cwd: string) => Promise<string | null> = resolveRepositoryKey,
+): Promise<void> {
+  let changed = false;
+  for (const project of registry.projects) {
+    if (project.repositoryKey !== null) continue;
+    try {
+      const key = await resolveKey(project.path);
+      if (key === null) continue;
+      registry.setProjectRepositoryKey(project.path, key);
+      changed = true;
+    } catch {
+      // Skip unreadable/non-git checkouts; retry on next boot.
+    }
+  }
+  if (changed) onChanged();
+}
+
 export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise<LiteInstance> {
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((line: string) => console.log(line));
@@ -148,6 +174,8 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   let remote: LiteRemoteServer | null = null;
   let localControl: LocalControlServer | null = null;
   let registry: Registry | null = null;
+  let backfillPromise: Promise<void> = Promise.resolve();
+  let stopped = false;
 
   try {
     const registryFile = `${dataDir}/registry.json`;
@@ -162,6 +190,9 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     // Mint at boot so `status` and pairing always have a credential, even before the listener first runs.
     if (registry.getSetting("remoteToken") === "") registry.setSetting("remoteToken", mintRemoteToken());
     const instanceId = ensureInstanceId(dataDir, randomUUID);
+    if (registry.getSetting("instanceId") !== instanceId) {
+      registry.setSetting("instanceId", instanceId);
+    }
 
     // Sessions resolve before the backend (whose constructor subscribes to
     // LiteSessions.on). Production builds the real cluster here through the one
@@ -208,6 +239,15 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       remote,
       fleet: liveFleet ?? undefined,
     });
+    backfillPromise = backfillRepositoryKeys(loadedRegistry, () => {
+      if (stopped) return;
+      void backend
+        .state()
+        .then((state) => {
+          if (!stopped) backend.emit(CH.onStateChanged, [state]);
+        })
+        .catch(() => {});
+    });
     // Production legs exist only after the backend (terminal fan-out needs its
     // emit); build-then-attach lands them in the table before any listener runs.
     if (opts.buildFleet !== undefined) {
@@ -248,7 +288,6 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     const activeRemote = remote;
     const activeSessions = sessions;
     const activeControl = localControl;
-    let stopped = false;
     const stop = async (): Promise<void> => {
       if (stopped) return;
       stopped = true;
@@ -259,6 +298,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
         // terminals before the session machinery drains below them.
         liveFleet?.dispose();
         await activeSessions.dispose();
+        await Promise.allSettled([backfillPromise]);
         loadedRegistry.flush();
       } finally {
         await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
@@ -282,6 +322,8 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     await localControl?.close().catch(() => {});
     liveFleet?.dispose();
     await sessions?.dispose().catch(() => {});
+    stopped = true;
+    await Promise.allSettled([backfillPromise]);
     registry?.flush();
     await (lock.releaseAsync ? lock.releaseAsync() : Promise.resolve(lock.release()));
     throw err;

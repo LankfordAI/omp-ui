@@ -1,4 +1,4 @@
-import { CH, type Registry } from "@omp-ui/core";
+import { CH, resolveProjectPath, resolveRepositoryKey, type Registry } from "@omp-ui/core";
 import { registerFleetLegs, type FleetLegsHandle } from "./fleet-legs";
 import {
   createAuditFileSink,
@@ -56,8 +56,27 @@ export async function buildProductionFleetLegs(deps: ProductionFleetLegsDeps): P
     version,
     exec,
     terminals,
-    // A lite member registers a dispatched project straight into its registry.
-    project: createProjectLegs({ addProject: async (dir) => void registry.addProject(dir) }),
+    // Route fleet clone/register through the bundle's unified registration path
+    // (repositoryKey + head watcher + state:changed), with a fallback for bare
+    // test fakes that do not expose sessions.addProject.
+    project: createProjectLegs({
+      addProject: async (dir) => {
+        if (sessions.addProject !== undefined) {
+          await sessions.addProject(dir);
+          return;
+        }
+        const resolved = await resolveProjectPath(dir);
+        const record = registry.addProject(resolved);
+        const key = await resolveRepositoryKey(resolved).catch(() => null);
+        if (key !== null && key !== record.repositoryKey) {
+          registry.setProjectRepositoryKey(resolved, key);
+        }
+        const state = await backend.state();
+        backend.emit(CH.onStateChanged, [state]);
+      },
+    }),
+    ...(sessions.fleetSessions !== undefined ? { sessions: sessions.fleetSessions } : {}),
+    ...(sessions.providerKeys !== undefined ? { providerKeys: sessions.providerKeys } : {}),
     host: createHostReportLegs({
       registry,
       activity,

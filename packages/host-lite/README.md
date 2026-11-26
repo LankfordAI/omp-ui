@@ -53,15 +53,21 @@ design (opaque binary vs tagged string; namespaces never overlap).
 
 Handshake: `instance:identity` (`{ instanceId, version }`) and `state:get`
 (full `BackendState`, same shape the desktop builds — the owner's parser is fixed).
+Projects resolve and backfill `repositoryKey` so checkouts unify across hosts.
 Traffic: only `REMOTE_PROXY_CHANNELS` (see `packages/core/src/remote-instances.ts`)
-— tab-routed session traffic, project proxy channels, favorites, stats, the fleet
-exec/terminal/project legs, the eight `routines:*` channels, `models:readChat`, and
+— tab-routed session traffic, fleet exec/terminal/project/session/provider-key legs
+plus `fleet:sessionSummary`, git/branch/worktree control with live `HeadWatcherHub`
+(`branch:changed`) and `PullRequestPoller`, composer file/mention/advisor/model-catalog
+and session-reference UX, project settings and scoped capabilities/MCP/watchdog/council
+controls, favorites, the eight `routines:*` channels, `models:readChat`, and
 lineage-confined `plan:read`. Desktop-only surfaces (windows, browser/device panes,
-vaults, artifacts, OS notifications, updates) and host-local settings setters
-(`settings:setRoutinesEnabled`, `settings:setRoutineSpendDefaults`) are **absent from
-the table**, not denied. Operator Routines mutations ride the OS-user-only local
-control socket (`<dataDir>/control.sock`, mode `0600`) or an exclusive-lock-guarded
-offline CLI write when no daemon owns `<dataDir>/lite.lock`.
+`dir:browse`, `stall:cap`, vaults, artifacts, OS notifications, bare-metal updates),
+secondary headless subsystems (`stats:*`, `autoresearch:*`, `session:pack-*`/`ingest-*`,
+`auth:export/import-bundle`, `liveAudio:*`/`liveTranscript:*`), and host-local settings
+setters (`settings:setRoutinesEnabled`, `settings:setRoutineSpendDefaults`) are
+**absent from the table**, not denied. Operator Routines mutations ride the
+OS-user-only local control socket (`<dataDir>/control.sock`, mode `0600`) or an
+exclusive-lock-guarded offline CLI write when no daemon owns `<dataDir>/lite.lock`.
 
 ## Ground rules for contributors
 

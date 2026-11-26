@@ -78,6 +78,89 @@ describe("withPlacementGates (issue #1010)", () => {
     expect(gated.on).toBe(base.on);
     expect(gated.dispose).toBe(base.dispose);
   });
+
+  it("exposes fleetSessions and providerKeys when manager/store are supplied (#1374)", async () => {
+    const dir = tempDir();
+    const cipher = toCoreCipher(await openLiteKeyCipher(await machineKeyProtector(path.join(dir, "machine.key"))));
+    const keys = new ProviderKeys(path.join(dir, "provider-keys.json"), cipher, {});
+    const calls: string[] = [];
+    const manager = {
+      isLive: () => false,
+      isTurnRunning: () => false,
+      modelProviderReady: () => true,
+      fleetSend: async () => {
+        calls.push("send");
+        return { status: "delivered" as const };
+      },
+      fleetFinish: async () => {
+        calls.push("finish");
+        return {
+          status: "finished" as const,
+          destination: "main",
+          worktreePath: "/tmp/wt",
+          checkoutKept: null,
+          branch: "feat-1",
+          branchOutcome: "removed" as const,
+          workingBranches: [],
+        };
+      },
+      fleetStop: async () => {
+        calls.push("stop");
+        return { status: "stopped" as const };
+      },
+      fleetSettle: async () => {
+        calls.push("settle");
+        return { status: "settled" as const };
+      },
+    };
+    const gated = withPlacementGates(
+      {
+        handlers: {},
+        state: () => ({ projects: [], chats: [] }) as never,
+        on: () => () => {},
+        dispose: async () => {},
+        sessions: manager,
+      },
+      { sessions: [] },
+      keys,
+    );
+    const requester = { instanceId: "owner-1", label: "owner", kind: "user" as const, sourceTabId: null };
+    expect(await gated.fleetSessions?.deliverSend({ requester, dispatchId: "d1", message: "hi", mode: "queue" })).toEqual({
+      status: "delivered",
+    });
+    expect(await gated.fleetSessions?.deliverFinish({ requester, dispatchId: "d1" })).toMatchObject({
+      status: "finished",
+      destination: "main",
+    });
+    expect(await gated.fleetSessions?.deliverStop({ requester, dispatchId: "d1" })).toEqual({
+      status: "stopped",
+    });
+    expect(await gated.fleetSessions?.deliverSettle({ requester, dispatchId: "d1" })).toEqual({
+      status: "settled",
+    });
+    expect(calls).toEqual(["send", "finish", "stop", "settle"]);
+
+    gated.providerKeys?.install("OPENROUTER_API_KEY", "sk-or-rollout-123");
+    expect(keys.rolloutValue("OPENROUTER_API_KEY")).toBe("sk-or-rollout-123");
+
+    // Cipher unavailable → install surfaces core's refusal error.
+    const noCipher = { available: false, backend: "none", encrypt: (): Buffer => Buffer.alloc(0), decrypt: (): string => "" };
+    const unsealedKeys = new ProviderKeys(path.join(dir, "unsealed.json"), noCipher, {});
+    const gatedNoCipher = withPlacementGates(
+      {
+        handlers: {},
+        state: () => ({ projects: [], chats: [] }) as never,
+        on: () => () => {},
+        dispose: async () => {},
+        sessions: manager,
+      },
+      { sessions: [] },
+      unsealedKeys,
+    );
+    expect(() => gatedNoCipher.providerKeys?.install("OPENAI_API_KEY", "sk-nope")).toThrow(
+      /credential store .* available|saved securely/i,
+    );
+  });
 });
 
 describe("cipher bridge through core's ProviderKeys store (issue #1010)", () => {
