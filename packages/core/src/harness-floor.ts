@@ -10,4 +10,4 @@
  * CI proves only the pinned current harness (.github/workflows/check.yml);
  * bump this floor in the same change that adopts a newer omp's features.
  */
-export const MIN_SUPPORTED_OMP = "19.0.0";
+export const MIN_SUPPORTED_OMP = "19.2.1";
