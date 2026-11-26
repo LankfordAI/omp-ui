@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RpcClient } from "@omp-ui/core";
+import { RpcClient, type RpcSpawnFn } from "@omp-ui/core";
 import { LiveExitTracker, PreReadyExit, closeAwareSpawn, waitForOrExit } from "./live-exit";
 
 interface Frame {
@@ -19,12 +19,22 @@ function makeTempDir(): string {
 }
 
 /**
- * Writes an executable Node script that ignores omp CLI flags and runs `body`.
+ * Writes a Node script that ignores omp CLI flags and runs `body`.
  */
-function writeStubBinary(dir: string, body: string): string {
+function writeStubScript(dir: string, body: string): string {
   const scriptPath = path.join(dir, "stub-omp.cjs");
-  fs.writeFileSync(scriptPath, `#!/usr/bin/env node\n${body}\n`, { mode: 0o755 });
+  fs.writeFileSync(scriptPath, `${body}\n`);
   return scriptPath;
+}
+
+/**
+ * Wraps {@link closeAwareSpawn} so `ompPath` is executed via `process.execPath`
+ * instead of relying on POSIX shebang execution (which Windows cannot spawn
+ * directly without a shell).
+ */
+function stubNodeSpawn(closeFallbackMs?: number): RpcSpawnFn {
+  const inner = closeAwareSpawn(undefined, closeFallbackMs);
+  return (bin, args, baseEnv) => inner(process.execPath, [bin, ...args], baseEnv);
 }
 
 afterEach(() => {
@@ -40,7 +50,7 @@ describe("live-exit helper", () => {
     // Emit ready + a response frame, then exit immediately with code 1.
     // closeAwareSpawn listens on `close`, so stdout drains into RpcClient
     // before `#dead` latches and `waitForOrExit` sees the frame first.
-    const stub = writeStubBinary(
+    const stub = writeStubScript(
       base,
       `
       process.stdout.write(JSON.stringify({ type: "ready" }) + "\\n");
@@ -55,7 +65,7 @@ describe("live-exit helper", () => {
       cwd: base,
       lineageDir: lineage,
       ompPath: stub,
-      spawnProcess: closeAwareSpawn(),
+      spawnProcess: stubNodeSpawn(),
       onFrame: (frame) => frames.push(frame as Frame),
       onExit: (code) => tracker.recordExit(code),
       onError: (msg) => tracker.recordError(msg),
@@ -78,7 +88,7 @@ describe("live-exit helper", () => {
   it("aborts immediately with PreReadyExit(code=1) when the child exits code 1 with no frame", async () => {
     const base = makeTempDir();
     const lineage = path.join(base, "lin");
-    const stub = writeStubBinary(
+    const stub = writeStubScript(
       base,
       `
       process.stderr.write("No default model selected\\n");
@@ -92,7 +102,7 @@ describe("live-exit helper", () => {
       cwd: base,
       lineageDir: lineage,
       ompPath: stub,
-      spawnProcess: closeAwareSpawn(),
+      spawnProcess: stubNodeSpawn(),
       onFrame: (frame) => frames.push(frame as Frame),
       onExit: (code) => tracker.recordExit(code),
       onError: (msg) => tracker.recordError(msg),
@@ -123,10 +133,12 @@ describe("live-exit helper", () => {
     expect(exitErr.stderrError).toContain("No default model selected");
   });
 
-  it("classifies signal/watchdog exit (code=null) as retryable (isNonZeroExit=false)", async () => {
-    const base = makeTempDir();
-    const lineage = path.join(base, "lin");
-    const stub = writeStubBinary(
+  it.skipIf(process.platform === "win32")(
+    "classifies signal/watchdog exit (code=null) as retryable (isNonZeroExit=false)",
+    async () => {
+      const base = makeTempDir();
+      const lineage = path.join(base, "lin");
+      const stub = writeStubScript(
       base,
       `
       process.kill(process.pid, "SIGTERM");
@@ -139,7 +151,7 @@ describe("live-exit helper", () => {
       cwd: base,
       lineageDir: lineage,
       ompPath: stub,
-      spawnProcess: closeAwareSpawn(),
+      spawnProcess: stubNodeSpawn(),
       onFrame: (frame) => frames.push(frame as Frame),
       onExit: (code) => tracker.recordExit(code),
       onError: (msg) => tracker.recordError(msg),
@@ -164,12 +176,13 @@ describe("live-exit helper", () => {
     const exitErr = caught as PreReadyExit;
     expect(exitErr.code).toBeNull();
     expect(exitErr.isNonZeroExit).toBe(false);
-  });
+    },
+  );
 
   it("falls back after exit when a grandchild holds stdout open so teardown does not hang", async () => {
     const base = makeTempDir();
     const lineage = path.join(base, "lin");
-    const stub = writeStubBinary(
+    const stub = writeStubScript(
       base,
       `
       const { spawn } = require("node:child_process");
@@ -189,7 +202,7 @@ describe("live-exit helper", () => {
       cwd: base,
       lineageDir: lineage,
       ompPath: stub,
-      spawnProcess: closeAwareSpawn(undefined, 150),
+      spawnProcess: stubNodeSpawn(150),
       onFrame: () => {},
       onExit: (code) => tracker.recordExit(code),
       onError: (msg) => tracker.recordError(msg),
