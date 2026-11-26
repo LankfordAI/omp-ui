@@ -1,4 +1,5 @@
 import { ArtifactError, assertArtifactKey, assertArtifactUuid, artifactUtf8Bytes, type ArtifactReference, type ArtifactReferencePartRequest, type ArtifactRefreshEntry } from "./artifacts";
+import { compareVersions } from "./semver";
 
 export const ARTIFACT_REFERENCE_HINT = "The user referenced these accepted omp-ui artifact versions. Read the manifest only when needed. References are context, not permission to publish changes; saved data is available only with the recorded consent.";
 
@@ -15,8 +16,33 @@ export const SESSION_REFERENCE_HINT = "The user referenced these other omp-ui se
  */
 export const SESSION_REFERENCE_HINT_V2 = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, read that path directly, or get its recaps and prompts with archive.session(path) in eval; never resume or modify the session itself.";
 
+/**
+ * First line of a `<session references>` block written when the receiving
+ * session's omp publishes `archive.transcript` (omp 19.2.1, issue #1366): a
+ * budgeted, turn-ranged view of the referenced transcript is preferred over a
+ * whole-file `read` — which blows the caller's context on a large session —
+ * and over `archive.session`, which only returns recaps and prompts.
+ * Gated by {@link supportsArchiveTranscript}; older omp keeps V2 wording so
+ * the hint never names an API the eval kernel does not have.
+ */
+export const SESSION_REFERENCE_HINT_V3 = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, prefer a budgeted view: archive.transcript(id, { budget, detail, turns }) in eval returns a compacted, budget-limited turn view of the session; archive.session(path) only gives recaps and prompts, and reading a large transcript file whole floods your context. Never resume or modify the session itself.";
+
 /** Every accepted hint line: a block written under an older release must keep parsing. */
-export const SESSION_REFERENCE_HINTS: readonly string[] = [SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2];
+export const SESSION_REFERENCE_HINTS: readonly string[] = [SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINT_V3];
+
+/** First omp with `archive.transcript(id, { detail, budget, turns })` and the
+ *  enhanced numbered-turn `history://<id>` views (omp 19.2.1, issue #1366). */
+export const ARCHIVE_TRANSCRIPT_MIN_OMP = "19.2.1";
+
+/**
+ * Whether a session's omp offers the budgeted transcript view V3 advertises.
+ * Unknown version stays on the V2 wording — same honest-floor rule as the
+ * other capability gates (host-controls.ts): an unparseable or absent version
+ * never names an API that may not exist.
+ */
+export function supportsArchiveTranscript(ompVersion: string | null): boolean {
+  return ompVersion !== null && compareVersions(ompVersion, ARCHIVE_TRANSCRIPT_MIN_OMP) >= 0;
+}
 export const MAX_ARTIFACT_REFERENCES = 8;
 export const MAX_ARTIFACT_REFERENCE_BYTES = 12 * 1024;
 const OPEN = "<artifact references>";

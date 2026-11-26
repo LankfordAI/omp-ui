@@ -65,6 +65,17 @@ describe("askContextText", () => {
     expect(text).not.toContain("sourceSession");
   });
 
+  it("names the budgeted view on omp 19.2.1+ and keeps the plain wording below or unknown (#1366)", () => {
+    const budgeted = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT, ompVersion: "19.2.1" });
+    expect(budgeted).toContain(`archive.transcript("${SESSION_ID}", { budget, detail, turns }) in eval`);
+    expect(budgeted).toContain(`read its file at "${TRANSCRIPT}"`);
+    expect(budgeted).toContain(`archive.session("${TRANSCRIPT}") in eval`);
+    for (const version of [null, "19.2.0", "nightly"]) {
+      const plain = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT, ompVersion: version });
+      expect(plain).not.toContain("archive.transcript");
+    }
+  });
+
   // Two parities so one of them lands the cut on a surrogate pair.
   it.each([
     ["an ASCII summary", "a".repeat(20_000)],

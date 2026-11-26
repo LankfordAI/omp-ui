@@ -24,7 +24,7 @@
  * New prompts always use the read/archive hint (#1214). Parsing also accepts
  * the legacy Seance hint so previously saved prompts keep rendering chips.
  */
-import { SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS } from "@omp-ui/core/artifact-references";
+import { SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINT_V3, SESSION_REFERENCE_HINTS, supportsArchiveTranscript } from "@omp-ui/core/artifact-references";
 import type { SessionReference } from "@omp-ui/core/types";
 
 const BLOCK_OPEN = "<session references>";
@@ -45,11 +45,16 @@ export interface DraftSessionReference extends SessionReference {
 
 /**
  * Prepends the session references block; a prompt without references is
- * unchanged. Saved prompts may carry either hint form; both parse.
+ * unchanged. Saved prompts may carry any accepted hint form; all parse.
+ * The written hint is version-gated (issue #1366): a session whose omp
+ * publishes `archive.transcript` (≥ 19.2.1) gets the budgeted-view wording;
+ * older or unknown omp keeps the V2 read/archive wording so the block never
+ * names an API the receiving eval kernel lacks.
  */
 export function withSessionReferenceContext(
   message: string,
   refs: readonly SessionReference[],
+  ompVersion: string | null = null,
 ): string {
   if (refs.length === 0) return message;
   const entries = refs.flatMap((ref) => [
@@ -58,7 +63,8 @@ export function withSessionReferenceContext(
     `  machine: ${oneLine(ref.machine)}`,
     `  path: ${ref.path.replace(/[\r\n]/g, "")}`,
   ]);
-  const block = [BLOCK_OPEN, SESSION_REFERENCE_HINT_V2, ...entries, BLOCK_CLOSE].join("\n");
+  const hint = supportsArchiveTranscript(ompVersion) ? SESSION_REFERENCE_HINT_V3 : SESSION_REFERENCE_HINT_V2;
+  const block = [BLOCK_OPEN, hint, ...entries, BLOCK_CLOSE].join("\n");
   return message === "" ? block : `${block}\n\n${message}`;
 }
 

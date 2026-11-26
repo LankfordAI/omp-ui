@@ -610,9 +610,13 @@ export function createSessionParamsSlice(
    * (ADR-0077) ahead of the prose; the document block attaches to the prose
    * (ADR-0044) and the image routing suffix stays last, preserving
    * stripAttachmentRoutingContext's terminal round-trip. `imageFiles` are the
-   * images' scratch paths on the session's host (issue #993).
+   * images' scratch paths on the session's host (issue #993). Session
+   * references pick their hint from the receiving session's omp version
+   * (#1366): ≥ 19.2.1 advertises archive.transcript, older or unknown keeps
+   * the read/archive wording.
    */
   const promptWireText = (
+    tabId: string,
     message: string,
     images: readonly ImageAttachment[] | undefined,
     docRefs: readonly DocumentRef[] | undefined,
@@ -631,6 +635,7 @@ export function createSessionParamsSlice(
               artifactReferences ?? [],
             ),
             references ?? [],
+            get().rpc[tabId]?.capabilities?.ompVersion ?? null,
           ),
           docRefs ?? [],
         ),
@@ -780,7 +785,7 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const wireMessage = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -861,7 +866,7 @@ export function createSessionParamsSlice(
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const wireMessage = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
@@ -1008,7 +1013,7 @@ export function createSessionParamsSlice(
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
     const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
-    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const text = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     try {
       await backend.holdPrompt(tabId, {
         text,

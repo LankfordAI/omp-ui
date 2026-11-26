@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { keywordsIn } from "@omp-ui/core/magic-keywords";
-import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2 } from "@omp-ui/core/artifact-references";
+import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINT_V3 } from "@omp-ui/core/artifact-references";
 import type { SessionReference } from "@omp-ui/core/types";
 import { withAnnotationContext } from "./annotations";
 import { withDocumentContext } from "./document-context";
@@ -49,11 +49,21 @@ describe("session references wire block", () => {
     expect([...keywordsIn(`${wire} ultrathink`)]).toEqual(["ultrathink"]);
   });
 
-  it("always writes the read/archive hint without Seance instructions", () => {
+  it("writes the read/archive hint by default and for older omp, without Seance instructions", () => {
     const wire = withSessionReferenceContext("compare", [REF]);
     expect(wire.startsWith(`<session references>\n${SESSION_REFERENCE_HINT_V2}\n`)).toBe(true);
+    expect(withSessionReferenceContext("compare", [REF], "19.2.0")).toContain(SESSION_REFERENCE_HINT_V2);
+    expect(withSessionReferenceContext("compare", [REF], null)).toContain(SESSION_REFERENCE_HINT_V2);
     expect(wire).not.toContain("seance");
     expect(wire).not.toContain("sourceSession");
+  });
+
+  it("writes the budgeted-view hint on omp with archive.transcript (#1366)", () => {
+    const wire = withSessionReferenceContext("compare", [REF], "19.2.1");
+    expect(wire.startsWith(`<session references>\n${SESSION_REFERENCE_HINT_V3}\n`)).toBe(true);
+    expect(wire).toContain("archive.transcript");
+    // A block written under V3 still round-trips its references.
+    expect(splitSessionReferenceContext(wire)).toEqual({ text: "compare", references: [REF] });
   });
 
   it("parses saved prompts with the legacy Seance hint", () => {
