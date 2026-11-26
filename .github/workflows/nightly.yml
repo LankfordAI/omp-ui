@@ -187,7 +187,7 @@ jobs:
           cp packages/host-lite/dist/session-bundle.mjs "$stage/session-bundle.mjs"
           cp -R node_modules/node-pty node_modules/ws node_modules/js-yaml node_modules/argparse "$stage/node_modules/"
           tar -czf host-lite-nightly/host-lite-node-pty-linux-x64.tgz -C "$stage" package.json session-bundle.mjs node_modules
-          tar -tzf host-lite-nightly/host-lite-node-pty-linux-x64.tgz | grep -qx "package.json"
+          tar -tzf host-lite-nightly/host-lite-node-pty-linux-x64.tgz package.json >/dev/null
           cp packages/host-lite/dist-sea/omp-ui-lite host-lite-nightly/omp-ui-lite-linux-x64
           (cd host-lite-nightly && sha256sum omp-ui-lite-linux-x64 > omp-ui-lite-linux-x64.sha256)
       - name: Upload host-lite nightly artifact
