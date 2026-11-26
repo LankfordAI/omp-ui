@@ -485,8 +485,12 @@ async function gitHead(dir: string): Promise<string | null> {
 }
 
 function readAdvisorModel(projectCwd: string): string | null {
-  const role = readOmpAdvisorDefaults(projectCwd).role;
-  return role === null ? null : formatModelRole(role);
+  try {
+    const role = readOmpAdvisorDefaults(projectCwd).role;
+    return role === null ? null : formatModelRole(role);
+  } catch {
+    return null;
+  }
 }
 
 // ── audit persistence ───────────────────────────────────────────────────────

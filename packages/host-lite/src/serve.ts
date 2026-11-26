@@ -135,6 +135,7 @@ export async function backfillRepositoryKeys(
   registry: Registry,
   onChanged: () => void,
   resolveKey: (cwd: string) => Promise<string | null> = resolveRepositoryKey,
+  warn: (line: string) => void = (line) => console.warn(line),
 ): Promise<void> {
   let changed = false;
   for (const project of registry.projects) {
@@ -144,8 +145,10 @@ export async function backfillRepositoryKeys(
       if (key === null) continue;
       registry.setProjectRepositoryKey(project.path, key);
       changed = true;
-    } catch {
-      // Skip unreadable/non-git checkouts; retry on next boot.
+    } catch (err) {
+      warn(
+        `omp-ui-lite: repositoryKey backfill skipped for ${project.path}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   if (changed) onChanged();
@@ -239,15 +242,20 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       remote,
       fleet: liveFleet ?? undefined,
     });
-    backfillPromise = backfillRepositoryKeys(loadedRegistry, () => {
-      if (stopped) return;
-      void backend
-        .state()
-        .then((state) => {
-          if (!stopped) backend.emit(CH.onStateChanged, [state]);
-        })
-        .catch(() => {});
-    });
+    backfillPromise = backfillRepositoryKeys(
+      loadedRegistry,
+      () => {
+        if (stopped) return;
+        void backend
+          .state()
+          .then((state) => {
+            if (!stopped) backend.emit(CH.onStateChanged, [state]);
+          })
+          .catch(() => {});
+      },
+      undefined,
+      log,
+    );
     // Production legs exist only after the backend (terminal fan-out needs its
     // emit); build-then-attach lands them in the table before any listener runs.
     if (opts.buildFleet !== undefined) {
