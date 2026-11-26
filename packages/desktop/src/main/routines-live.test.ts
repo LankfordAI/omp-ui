@@ -58,8 +58,9 @@ import {
  *   leaves `mcp-calls.jsonl` with 0 `probe_write` executions.
  * - L2: Inherited project/user `allow` cannot leak past the total compiled routine
  *   overlay (`mcp__probe_routines_probe_write: prompt`).
- * - L3: `xd://` and `eval` leak closure — both consult the inner MCP per-tool
- *   entry (`prompt` and `deny`), and `eval: prompt` gates before inner execution.
+ * - L3: tool-command (`bash mcp__…`) and `eval` leak closure — both consult
+ *   the inner MCP per-tool entry (`prompt` and `deny`), and `eval: prompt`
+ *   gates before inner execution.
  * - L4: Subagent (`task`) leak closure — both `deny` (L4a) and the gating #1252
  *   `prompt` probe (L4b) prove a yolo-resolving child cannot execute `probe_write`
  *   unprompted (with a positive `allow` control proving the child otherwise runs).
@@ -775,9 +776,16 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
     expect(scope.readMcpCalls()).toEqual([]);
   });
 
-  it("L3: xd:// and eval routes consult inner MCP per-tool policy (prompt and deny)", async () => {
-    // L3a: write: allow targeting xd://mcp__probe_routines_probe_write under prompt and deny
-    const runXd = async (decision: "prompt" | "deny") => {
+  it("L3: tool-command and eval routes consult inner MCP per-tool policy (prompt and deny)", async () => {
+    // L3a: bash running the inner MCP tool's tool-command form under prompt
+    // and deny. Through 19.0.x the indirect route was `write` to
+    // xd://mcp__<server>_<tool>; 19.1 replaced xd:// tool devices with tool
+    // commands, and on the supported harness that write fails outright
+    // ("Unknown URI-like write target") without ever consulting policy —
+    // the tool command is what now reaches the tool, and the per-tool entry
+    // still gates it (prompt raises the inner tool's card, deny exits 1
+    // "blocked by user policy", both with zero server-side executions).
+    const runCommand = async (decision: "prompt" | "deny") => {
       const seenTools: string[] = [];
       const provider = trackProvider(
         await startScriptedProvider(({ assistantTurns, toolMessages }) => {
@@ -785,25 +793,21 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
             return {
               toolCalls: [
                 {
-                  id: "call_xd",
-                  name: "write",
-                  args: {
-                    i: "Invoking MCP tool via xd://",
-                    path: "xd://mcp__probe_routines_probe_write",
-                    content: JSON.stringify({ note: `via-xd-${decision}` }),
-                  },
+                  id: "call_cmd",
+                  name: "bash",
+                  args: { command: `mcp__probe_routines_probe_write --note via-cmd-${decision}` },
                 },
               ],
             };
           }
           seenTools.push(...toolMessages);
-          return { text: "done xd" };
+          return { text: "done cmd" };
         }),
       );
       const scope = spawnLiveScope({
         baseUrl: provider.baseUrl,
         approvalEntries: {
-          write: "allow",
+          bash: "allow",
           mcp__probe_routines_probe_write: decision,
         },
         autoAnswer: "Deny",
@@ -813,14 +817,15 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
       return { scope, seenTools };
     };
 
-    const xdPrompt = await runXd("prompt");
-    expect(xdPrompt.scope.approvalPrompts.length).toBeGreaterThanOrEqual(1);
-    expect(xdPrompt.scope.readMcpCalls()).toEqual([]);
+    const cmdPrompt = await runCommand("prompt");
+    expect(cmdPrompt.scope.approvalPrompts.length).toBeGreaterThanOrEqual(1);
+    expect(cmdPrompt.scope.approvalPrompts[0]!.parsed.toolName).toBe("mcp__probe_routines_probe_write");
+    expect(cmdPrompt.scope.readMcpCalls()).toEqual([]);
 
-    const xdDeny = await runXd("deny");
-    expect(xdDeny.scope.approvalPrompts).toHaveLength(0);
-    expect(xdDeny.scope.readMcpCalls()).toEqual([]);
-    expect(xdDeny.seenTools.some((t) => /blocked by user policy/i.test(t))).toBe(true);
+    const cmdDeny = await runCommand("deny");
+    expect(cmdDeny.scope.approvalPrompts).toHaveLength(0);
+    expect(cmdDeny.scope.readMcpCalls()).toEqual([]);
+    expect(cmdDeny.seenTools.some((t) => /blocked by user policy/i.test(t))).toBe(true);
 
     // L3b: eval calling await tool.mcp__probe_routines_probe_write({})
     const runEval = async (evalDecision: "prompt" | "allow", mcpDecision: "prompt" | "deny") => {

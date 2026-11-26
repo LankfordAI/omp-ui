@@ -71,7 +71,11 @@ rehydrating renderers.
   increments a transition counter, awaits the work callback, and *discards its
   return value*: the bridge carries the verdict in a box the callback closes
   over, so a teardown failure settles the command with the real reason instead
-  of an empty one.
+  of an empty one. omp 19.2.1 retired the session seam (the mode-exit tombstone
+  moved inside `setVibeModeState`), so the bridge treats it as optional: it
+  prefers it when present and runs its own kill-and-restore body otherwise. It
+  is deliberately absent from the availability probe — a supported harness must
+  never read the whole bridge unavailable over a seam that no longer exists.
 - **One mode slot, three bridges.** Entry and exit join the chain shared with
   the plan and goal bridges under `Symbol.for("omp-ui:mode-transition")`, and
   every pair is refused in both halves: vibe entry checks Plan and an

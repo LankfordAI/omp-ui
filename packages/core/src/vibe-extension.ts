@@ -89,7 +89,10 @@ const SESSION_APIS = [
   "setVibeModeState",
   "activateVibeTools",
   "deactivateVibeTools",
-  "runModeExitTeardown",
+  // runModeExitTeardown is deliberately absent: omp retired the session seam
+  // in 19.2.1 (the mode-exit tombstone moved inside setVibeModeState). The
+  // exit path still prefers it when present, so a pre-19.2.1 harness keeps
+  // running its own teardown; an unavailable bridge must never hinge on it.
   "getToolByName",
   "getEnabledToolNames",
   "getPlanModeState",

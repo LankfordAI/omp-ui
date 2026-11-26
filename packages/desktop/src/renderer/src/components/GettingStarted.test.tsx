@@ -274,7 +274,7 @@ describe("Getting started checklist rows (issue #623)", () => {
     // The live broadcast is the only writer: the row flips without a remount.
     act(() => {
       useStore.setState({
-        ompUpdate: ompUpdateState({ status: "up-to-date", installedVersion: "19.0.0" }),
+        ompUpdate: ompUpdateState({ status: "up-to-date", installedVersion: "19.2.1" }),
       });
     });
     expect(buttonWithText("Install")).toBeNull();
@@ -419,7 +419,7 @@ describe("Getting started checklist rows (issue #623)", () => {
 describe("Getting started Python readiness row (issue #671)", () => {
   // The binary row is pinned done so "Check" belongs to the Python row alone.
   const binaryInstalled = {
-    ompUpdate: ompUpdateState({ status: "up-to-date", installedVersion: "19.0.0" }),
+    ompUpdate: ompUpdateState({ status: "up-to-date", installedVersion: "19.2.1" }),
   };
 
   it("reads done and names the version on a passing probe", async () => {

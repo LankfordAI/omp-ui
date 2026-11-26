@@ -70,7 +70,7 @@ jobs:
   # One supported harness per policy (bump MIN_SUPPORTED_OMP when a release
   # adopts features from a newer omp; below-floor users auto-upgrade at launch,
   # see packages/core/src/harness-floor.ts). The pin below tracks that floor —
-  # currently both are 19.0.0; bump the two together and keep the sha256 in
+  # currently both are 19.2.1; bump the two together and keep the sha256 in
   # sync with the release asset. The suite stays serial inside each
   # shard (vitest.live.config.ts) — every test boots a real omp and parallel
   # boots starve one another — so wall time falls by splitting FILES across
@@ -88,13 +88,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Provision OMP 19.0.0 (the supported harness) for live tests
+      - name: Provision OMP 19.2.1 (the supported harness) for live tests
         id: live-omp
         shell: bash
         run: |
           set -euo pipefail
-          version=19.0.0
-          sha256=c7cc5c8d505053c8ffaf180417e5d5c781235b9d936f286810560151120109bf
+          version=19.2.1
+          sha256=e8b937f9bf023baa147bdd300ad5421af0a6ef8b1f350c47a9a93d5fca94feca
           omp="$(mktemp -d "$RUNNER_TEMP/omp-live.XXXXXX")/omp"
           curl --fail --silent --show-error --location --retry 3 --output "$omp" \
             "https://github.com/can1357/oh-my-pi/releases/download/v${version}/omp-linux-x64"
@@ -102,7 +102,7 @@ jobs:
           chmod 0755 "$omp"
           "$omp" --version
           printf 'path=%s\n' "$omp" >> "$GITHUB_OUTPUT"
-      - name: Run live proofs shard ${{ matrix.shard }}/${{ strategy.job-total }} against OMP 19.0.0
+      - name: Run live proofs shard ${{ matrix.shard }}/${{ strategy.job-total }} against OMP 19.2.1
         run: npm run test:live --workspace @omp-ui/desktop -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           OMP_UI_OMP_PATH: ${{ steps.live-omp.outputs.path }}
