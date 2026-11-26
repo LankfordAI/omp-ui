@@ -165,4 +165,54 @@ describe("live-exit helper", () => {
     expect(exitErr.code).toBeNull();
     expect(exitErr.isNonZeroExit).toBe(false);
   });
+
+  it("falls back after exit when a grandchild holds stdout open so teardown does not hang", async () => {
+    const base = makeTempDir();
+    const lineage = path.join(base, "lin");
+    const stub = writeStubBinary(
+      base,
+      `
+      const { spawn } = require("node:child_process");
+      // Spawn a short-lived grandchild that inherits stdout/stderr so 'close'
+      // is delayed well past the parent's exit.
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], {
+        stdio: "inherit",
+        detached: true,
+      });
+      child.unref();
+      process.exit(1);
+      `,
+    );
+
+    const tracker = new LiveExitTracker();
+    const client = new RpcClient({
+      cwd: base,
+      lineageDir: lineage,
+      ompPath: stub,
+      spawnProcess: closeAwareSpawn(undefined, 150),
+      onFrame: () => {},
+      onExit: (code) => tracker.recordExit(code),
+      onError: (msg) => tracker.recordError(msg),
+    });
+
+    const startedAt = Date.now();
+    let caught: unknown;
+    try {
+      await waitForOrExit(
+        () => undefined,
+        () => tracker.state(),
+        10_000,
+        "oauth ready response",
+      );
+    } catch (error) {
+      caught = error;
+    } finally {
+      tracker.markTestKilling();
+      client.kill();
+    }
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(caught).toBeInstanceOf(PreReadyExit);
+    expect((caught as PreReadyExit).code).toBe(1);
+  });
 });

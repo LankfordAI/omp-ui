@@ -77,11 +77,23 @@ export class LiveExitTracker {
 }
 
 /**
+ * Fallback grace after `exit` before firing `onExit` if `close` never arrives
+ * (for example, when a grandchild inherits stdio pipes). Normal exits drain
+ * stdio and emit `close` within milliseconds; this caps any orphaned-pipe
+ * teardown stall without racing buffered frames.
+ */
+const CLOSE_FALLBACK_MS = 250;
+
+/**
  * Returns an {@link RpcSpawnFn} that binds `onExit` to `proc.on("close", ...)`
  * instead of `proc.on("exit", ...)`, ensuring buffered stdout/stderr chunks
- * finish draining into `RpcClient` before `#dead` latches.
+ * finish draining into `RpcClient` before `#dead` latches, with a bounded
+ * fallback after `exit` in case a grandchild keeps stdio open.
  */
-export function closeAwareSpawn(envOverride?: NodeJS.ProcessEnv): RpcSpawnFn {
+export function closeAwareSpawn(
+  envOverride?: NodeJS.ProcessEnv,
+  closeFallbackMs = CLOSE_FALLBACK_MS,
+): RpcSpawnFn {
   return (bin, args, baseEnv) => {
     const proc = spawn(bin, args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -92,12 +104,29 @@ export function closeAwareSpawn(envOverride?: NodeJS.ProcessEnv): RpcSpawnFn {
       stdout: proc.stdout,
       stderr: proc.stderr,
       kill: (signal?: NodeJS.Signals) => void proc.kill(signal),
-      onExit: (cb: (code: number | null) => void) => proc.on("close", (code) => cb(code)),
+      onExit: (cb: (code: number | null) => void) => {
+        let settled = false;
+        let fallback: NodeJS.Timeout | null = null;
+        const finish = (code: number | null): void => {
+          if (settled) return;
+          settled = true;
+          if (fallback !== null) {
+            clearTimeout(fallback);
+            fallback = null;
+          }
+          cb(code);
+        };
+        proc.on("close", (code) => finish(code));
+        proc.on("exit", (code) => {
+          if (settled || fallback !== null) return;
+          fallback = setTimeout(() => finish(code), closeFallbackMs);
+          fallback.unref();
+        });
+      },
       onSpawnError: (cb: (err: Error) => void) => proc.on("error", cb),
     };
   };
 }
-
 function sleep(ms: number): Promise<void> {
   // Promise.withResolvers needs ES2024; the node tsconfig targets ES2022.
   return new Promise((resolve) => setTimeout(resolve, ms));
