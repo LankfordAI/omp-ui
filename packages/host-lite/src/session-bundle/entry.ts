@@ -19,47 +19,99 @@ import {
   FLEET_LABEL_MAX,
   RoutineRunHistory,
   RoutineStore,
+  TITLE_MODEL_ROLES,
+  checkoutBranch,
+  createBranch,
+  detectProjectIcon,
+  forkParentLineage,
   formatModelRole,
+  generateBranchNameWithOmp,
+  getScopedCapabilities,
+  getWatchdogRoster,
   hydrateSessionFile,
   isInChatsRoot,
+  isSafeAgentName,
+  isSafeSelector,
+  isWithin,
+  listBranches,
+  listProjectFiles,
+  mergeWorktreeBranch,
   parseRoutineSpendDefaults,
+  projectIconDataUrl,
   providerKeyEnv,
+  pullBranch,
+  pullRequestUrl,
+  pushBranch,
+  readBranchDiff,
+  readInstalledOmpVersion,
+  readMergeBackStatus,
   readModelCatalog,
   readModelsFileModelProviders,
+  readOmpAdvisorDefaults,
+  readOmpModelRole,
+  readProjectConfigMap,
   reclaimCheckouts,
+  renderSessionSummary,
+  resolveCouncilRoster,
+  resolveFileMentions,
+  resolveMcpServers,
+  resolveMergeDestination,
   resolveProjectPath,
+  resolveRepositoryKey,
   resolveSessionLocation,
   routineInputFromAgentCreate,
+  setMcpServerEnabled,
+  setProjectConfigMapEntry,
+  setScopedCapability,
+  setWatchdogRoster,
   withoutProviderKeys,
+  type AdvisorDefaults,
   type ApprovalMode,
   type BackendState,
+  type BranchListOptions,
   type CapabilitySnapshot,
   type ChannelTable,
   type CollabAccess,
   type ConsoleProgram,
+  type CouncilWriteRequest,
   type DocumentAttachment,
+  type FinishOutcome,
   type HeldPromptRequest,
   type ImageAttachment,
+  type KnowledgeHome,
   type LiveState,
+  type McpSetEnabledRequest,
   type ModelCatalogSnapshot,
   type OwnedSessionRecord,
   type PlanReviewVerdict,
   type ProjectGroup,
+  type ProjectIcon,
+  type ProjectIconRequest,
+  type ProjectRecord,
+  type ProjectSubagentModelsResult,
+  type ProjectWorktreeSetup,
+  type PullRequestLookup,
+  type RasterNormalizer,
   type RoutineDryRunRequest,
   type RoutineInput,
   type RoutinePatch,
   type RoutineTestScriptRequest,
   type RpcFrame,
   type ScheduledPromptRequest,
+  type ScopedCapabilityMutation,
   type ServiceTier,
   type SessionMode,
   type SessionSummary,
   type SpawnGateState,
   type SpawnRequest,
   type SubagentModelMap,
+  type WatchdogWriteRequest,
+  type WorkspacePolicy,
   type WorktreeReleaseOptions,
 } from "@omp-ui/core";
+import { HeadWatcherHub } from "../../../desktop/src/main/git-head-watchers";
 import { readConfinedPlanFile } from "../../../desktop/src/main/plan-file";
+import { PullRequestPoller } from "../../../desktop/src/main/pull-request-poller";
 import { RoutineCatalogService } from "../../../desktop/src/main/routine-catalog";
 import { RoutineLifecycleManager } from "../../../desktop/src/main/routine-lifecycle";
 import { ROUTINES_DISABLED_ERROR } from "../../../desktop/src/main/routine-scheduler";
@@ -85,6 +137,7 @@ export interface LiteSessionBundle extends LiteSessions {
   readonly sessions: SessionManager;
   readonly routines: RoutineService;
   readonly routinesControl: LiteRoutinesControl;
+  addProject(rawPath: string): Promise<ProjectRecord>;
 }
 
 // The bundle owns the two event seams every desktop caller injects (`send`,
@@ -106,6 +159,10 @@ export type LiteSessionBundleDependencies = Omit<
   /** Optional catalog/model-probe overrides for deterministic unit tests. */
   routineCatalog?: Pick<RoutineCatalogService, "list">;
   readChatModels?: () => Promise<ModelCatalogSnapshot>;
+  /** Optional pull-request lookup override for deterministic unit tests. */
+  pullRequestLookup?: (cwd: string, branches: readonly string[]) => Promise<PullRequestLookup>;
+  /** Disable background PR polling timers (default true). */
+  pullRequestsEnabled?: boolean;
 };
 /** Settings `BackendState` must never carry (the BackendBroadcastSettings omit list). */
 const NON_BROADCAST_SETTINGS: readonly string[] = [
@@ -129,6 +186,22 @@ const NON_BROADCAST_SETTINGS: readonly string[] = [
 ];
 
 /**
+ * Headless RasterNormalizer (ADR-0002 / #1010 / #1374): no Electron nativeImage.
+ * Accepts already-compact PNGs (<= 32 KiB) verbatim after verifying the PNG
+ * signature; returns null for JPEG (cannot transcode to PNG without native
+ * codec) and oversized PNGs (cannot downscale). SVG, GIF, WebP, and bitmap ICO
+ * ride core's passthrough path untouched.
+ */
+const HEADLESS_RASTER_MAX_BYTES = 32 * 1024;
+const headlessRasterNormalizer: RasterNormalizer = (bytes) => {
+  if (bytes.length === 0 || bytes.length > HEADLESS_RASTER_MAX_BYTES) return null;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return bytes;
+  }
+  return null;
+};
+
+/**
  * Builds the lite session cluster over a real `SessionManager`.
  *
  * The caller supplies the same dependency bag the desktop backend builds —
@@ -146,6 +219,57 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
 
   const sessionsRoot = input.getSessionsRoot();
   const archiveRoot = input.getArchiveRoot();
+  const worktreesRoot = input.getWorktreesRoot();
+  const chatsRoot = input.getChatsRoot();
+
+  const projectProbes = new Set<Promise<unknown>>();
+  const trackProbe = <T>(probe: Promise<T>): Promise<T> => {
+    projectProbes.add(probe);
+    const drop = (): void => {
+      projectProbes.delete(probe);
+    };
+    probe.then(drop, drop);
+    return probe;
+  };
+
+  const registeredProjectPath = (projectPath: string): string => {
+    if (!input.registry.projects.some((project) => project.path === projectPath)) {
+      throw new Error("that project is not registered here");
+    }
+    return projectPath;
+  };
+
+  const registeredProjectOrWorktreePath = (cwd: string): string => {
+    if (input.registry.projects.some((project) => project.path === cwd)) return cwd;
+    if (
+      isWithin(worktreesRoot, cwd) &&
+      input.registry.sessions.some((session) => session.worktree?.path === cwd)
+    ) {
+      return cwd;
+    }
+    throw new Error("that project is not registered here");
+  };
+
+  const registeredSessionCwd = (cwd: string): string => {
+    if (input.registry.projects.some((project) => project.path === cwd)) return cwd;
+    if (
+      isWithin(worktreesRoot, cwd) &&
+      input.registry.sessions.some((session) => session.worktree?.path === cwd)
+    ) {
+      return cwd;
+    }
+    if (
+      isWithin(chatsRoot, cwd) &&
+      input.registry.sessions.some((session) => session.chat && session.projectCwd === cwd)
+    ) {
+      return cwd;
+    }
+    throw new Error("that project is not registered here");
+  };
+
+  const headWatchers = new HeadWatcherHub({
+    onChanged: (projectCwd) => emit(CH.onBranchChanged, projectCwd, null),
+  });
 
   /** Single-flight coalescing broadcast loop mirroring desktop MainBackend (#1286). */
   let broadcastRequests = 0;
@@ -264,6 +388,23 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   });
   managerRef = manager;
   snoozeClock.sync();
+  headWatchers.startAll(input.registry.projects.map((p) => p.path));
+
+  const pullRequests = new PullRequestPoller({
+    sessions: () => input.registry.sessions,
+    updateSession: (tabId, patch) => input.registry.updateSession(tabId, patch),
+    autoSettleDefault: () => input.registry.getSetting("autoSettleMergedPullRequests"),
+    isLive: (tabId) => manager.isLive(tabId),
+    isTurnRunning: (tabId) => manager.isTurnRunning(tabId),
+    settle: (tabId) => manager.settleSession(tabId),
+    broadcast: () => void broadcast(),
+    announceSettled: (settled) => emit(CH.onSessionsAutoSettled, settled),
+    isFocused: () => false,
+    ...(input.pullRequestLookup === undefined ? {} : { lookup: input.pullRequestLookup }),
+  });
+  if (input.pullRequestsEnabled !== false) {
+    pullRequests.start();
+  }
 
   const liveRoutineCapabilities = (projectCwd: string): CapabilitySnapshot | null => {
     let best: CapabilitySnapshot | null = null;
@@ -375,7 +516,10 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   };
 
   /** backend.ts `summarize`, copied: the ephemeral fields all read SessionManager/registry. */
-  async function summarize(record: OwnedSessionRecord): Promise<SessionSummary> {
+  async function summarize(
+    record: OwnedSessionRecord,
+    tabByLineage: ReadonlyMap<string, string>,
+  ): Promise<SessionSummary> {
     const loc = await resolveSessionLocation(sessionsRoot, archiveRoot, record.lineageDir, record.sessionId);
     const live: LiveState = manager.isLive(record.tabId)
       ? "live"
@@ -383,16 +527,21 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
         ? "dormant"
         : loc.where === "archived"
           ? "archived"
-          : "missing";
+          : record.sessionId === null
+            // omp writes the transcript lazily, on the first turn (#1265).
+            ? "dormant"
+            : "missing";
     const streamStalled = manager.isStreamStalled(record.tabId);
     const turnRunning = manager.isTurnRunning(record.tabId);
     const turnAwaitingAsyncWork = manager.isTurnAwaitingAsyncWork(record.tabId);
     const awaitingHumanAnswer = manager.pendingAnswer(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
+    let forkParentDir: string | null = null;
     if (loc.where === "active") {
       try {
         const h = await hydrateSessionFile(loc.filePath);
+        forkParentDir = forkParentLineage(h.parentSession, record.lineageDir);
         if (h.title?.trim()) title = h.title;
         status = h.status;
         const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
@@ -408,6 +557,9 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
         // Vanished mid-hydrate — render from cached fields.
       }
     }
+    const sourceTabId = forkParentDir === null ? undefined : tabByLineage.get(forkParentDir);
+    const forkSourceTabId =
+      sourceTabId !== undefined && sourceTabId !== record.tabId ? sourceTabId : null;
     const gate = manager.planGate(record.tabId);
     const goal = manager.goalState(record.tabId);
     const vibe = manager.vibeSnapshot(record.tabId);
@@ -418,6 +570,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       title: title?.trim() || "New session",
       status,
       live,
+      forkSourceTabId,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
       ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),
@@ -426,6 +579,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       turnAwaitingAsyncWork,
       awaitingHumanAnswer,
       pendingDialogs: manager.pendingDialogs(record.tabId),
+      projectRequest: manager.projectRequests.prompt(record.tabId),
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
       ...(vibe === undefined ? {} : { vibe }),
@@ -437,7 +591,9 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   async function buildState(): Promise<BackendState> {
     const byProject = new Map<string, OwnedSessionRecord[]>();
     const chatRecords: OwnedSessionRecord[] = [];
+    const tabByLineage = new Map<string, string>();
     for (const record of input.registry.sessions) {
+      if (!tabByLineage.has(record.lineageDir)) tabByLineage.set(record.lineageDir, record.tabId);
       if (record.chat) {
         chatRecords.push(record);
         continue;
@@ -449,12 +605,11 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     const groups: ProjectGroup[] = [];
     for (const project of input.registry.projects) {
       const sessions = await Promise.all(
-        (byProject.get(project.path) ?? []).map((record) => summarize(record)),
+        (byProject.get(project.path) ?? []).map((record) => summarize(record, tabByLineage)),
       );
       groups.push({ project, sessions });
     }
-    const chats = await Promise.all(chatRecords.map((record) => summarize(record)));
-    // Strip internal settings from the persisted snapshot before broadcasting.
+    const chats = await Promise.all(chatRecords.map((record) => summarize(record, tabByLineage)));
     const settings: Record<string, unknown> = { ...input.registry.settingsSnapshot() };
     for (const key of NON_BROADCAST_SETTINGS) delete settings[key];
     const broadcastSettings = settings as unknown as Omit<
@@ -476,6 +631,88 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     };
   }
 
+  const addProjectPath = async (resolved: string): Promise<ProjectRecord> => {
+    if (isInChatsRoot(chatsRoot, resolved)) {
+      throw new Error("omp-ui's chats folder can't be registered as a project");
+    }
+    const record = input.registry.addProject(resolved);
+    void headWatchers.start(resolved);
+    // Repository key (issue #903, #1374): resolved off the add path — a git
+    // probe must never fail or delay the add itself. One extra broadcast when a
+    // key lands; a non-git folder resolves null and stays silent.
+    void trackProbe((async () => {
+      try {
+        const key = await resolveRepositoryKey(resolved);
+        if (key === null || key === record.repositoryKey) return;
+        input.registry.setProjectRepositoryKey(resolved, key);
+        void broadcast();
+      } catch {
+        // Swallowed by design: the add already succeeded; startup backfill retries.
+      }
+    })());
+    await broadcast();
+    return record;
+  };
+
+  const addProject = async (raw: string): Promise<ProjectRecord> =>
+    addProjectPath(await resolveProjectPath(raw));
+
+  const advisorDefaults = (projectCwd: string): AdvisorDefaults => {
+    registeredSessionCwd(projectCwd);
+    const defaults = readOmpAdvisorDefaults(projectCwd);
+    return {
+      enabled: defaults.enabled,
+      model: defaults.role === null ? null : formatModelRole(defaults.role),
+    };
+  };
+
+  const councilRosterView = (scopeCwd: string | null) => {
+    const project =
+      scopeCwd === null ? null : (input.registry.projects.find((p) => p.path === scopeCwd) ?? null);
+    return resolveCouncilRoster(project === null ? null : project.path, {
+      global: input.registry.getSetting("councilRoster"),
+      project: project === null ? null : project.councilRoster,
+    });
+  };
+
+  const suggestBranchName = async (projectCwd: string, planContext: string): Promise<string | null> => {
+    const ompPath = input.getOmpPath();
+    if (!ompPath) return null;
+    const role = readOmpModelRole(projectCwd, TITLE_MODEL_ROLES);
+    try {
+      return await generateBranchNameWithOmp({
+        ompPath,
+        projectCwd,
+        model: role === null ? null : formatModelRole(role),
+        prompt: planContext,
+        providerEnv: providerKeyOverlay(),
+      });
+    } catch (err) {
+      console.warn("[branch-name] model naming failed:", err);
+      return null;
+    }
+  };
+
+  const setProjectIcon = async (projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> => {
+    registeredProjectPath(projectPath);
+    let icon: ProjectIcon | null;
+    if (req.kind === "none") {
+      icon = { source: "none" };
+    } else if (req.kind === "detect") {
+      icon = await detectProjectIcon(projectPath, headlessRasterNormalizer);
+    } else {
+      const dataUrl = projectIconDataUrl(Buffer.from(req.data, "base64"), headlessRasterNormalizer);
+      if (dataUrl === null) {
+        throw new Error(
+          "that file is not an image omp-ui can use as an icon (PNG, JPEG, ICO, or a small SVG, GIF, or WebP)",
+        );
+      }
+      icon = { source: "custom", dataUrl };
+    }
+    if (input.registry.setProjectIcon(projectPath, icon)) await broadcast();
+    return icon;
+  };
+
   // ---------------------------------------------------------------------------
   // The handler subset: every `this.sessions.*` and `this.routines.*` mapping
   // of backend.ts `handlers()` that needs no window, copied with its argument
@@ -496,21 +733,12 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.getState]: () => buildState(),
     // Finding 3: every host-lite client is remote; directory browsing lists
     // arbitrary host paths and is desktop-only (omitted = unknown channel).
-    [CH.addProject]: async (raw: string) => {
-      const resolved = await resolveProjectPath(raw);
-      if (isInChatsRoot(input.getChatsRoot(), resolved)) {
-        throw new Error("omp-ui's chats folder can't be registered as a project");
-      }
-      const record = input.registry.addProject(resolved);
-      // No head watcher / icon probe here (desktop backend extras, issue #904
-      ///#1000): the lite index slice owns those polls; the add itself is core.
-      await broadcast();
-      return record;
-    },
+    [CH.addProject]: (raw: string) => addProject(raw),
     [CH.removeProject]: async (projectPath: string) => {
       if (manager.hasLiveInProject(projectPath)) {
         throw new Error("project has live sessions — settle them first");
       }
+      headWatchers.stop(projectPath);
       manager.stopProjectWatchers(projectPath);
       const sessions = input.registry.sessions;
       const checkouts = sessions.flatMap((session) =>
@@ -526,6 +754,102 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       });
       input.registry.removeProject(projectPath);
       await broadcast();
+    },
+    [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
+      registeredProjectPath(projectPath);
+      input.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
+      await broadcast();
+    },
+    [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
+      registeredProjectPath(projectPath);
+      input.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
+      await broadcast();
+    },
+    [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
+      registeredProjectPath(projectPath);
+      input.registry.setProjectBrowserClock(projectPath, on);
+      await broadcast();
+    },
+    [CH.setProjectWorkspacePolicy]: async (projectPath: string, policy: WorkspacePolicy | null) => {
+      registeredProjectPath(projectPath);
+      input.registry.setProjectWorkspacePolicy(projectPath, policy);
+      await broadcast();
+    },
+    [CH.setProjectLastFinishOutcome]: async (projectPath: string, outcome: FinishOutcome | null) => {
+      registeredProjectPath(projectPath);
+      input.registry.setProjectLastFinishOutcome(projectPath, outcome);
+      await broadcast();
+    },
+    [CH.setProjectWorktreeSetup]: async (projectPath: string, setup: ProjectWorktreeSetup | null) => {
+      registeredProjectPath(projectPath);
+      if (input.registry.setProjectWorktreeSetup(projectPath, setup)) await broadcast();
+    },
+    [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
+      registeredProjectPath(projectPath);
+      if (input.registry.setProjectKnowledgeHome(projectPath, home)) await broadcast();
+    },
+    [CH.setProjectIcon]: (projectPath: string, req: ProjectIconRequest) => setProjectIcon(projectPath, req),
+    [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
+      registeredSessionCwd(projectCwd);
+      const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);
+      return { map: layer.shape === "map" ? layer.value : {}, layer };
+    },
+    [CH.setProjectSubagentModel]: async (projectCwd: string, agent: string, value: string | null) => {
+      registeredProjectPath(projectCwd);
+      if (!isSafeAgentName(agent)) throw new Error(`refusing unsafe agent name: ${agent}`);
+      if (value !== null && !isSafeSelector(value)) {
+        throw new Error(`refusing unsafe model selector: ${value}`);
+      }
+      await setProjectConfigMapEntry(projectCwd, ["task", "agentModelOverrides"], agent, value);
+    },
+    [CH.getMcpServers]: (projectCwd: string | null) => {
+      if (projectCwd !== null) registeredSessionCwd(projectCwd);
+      return resolveMcpServers(projectCwd);
+    },
+    [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => {
+      if (req.projectCwd !== null) registeredSessionCwd(req.projectCwd);
+      return setMcpServerEnabled(req);
+    },
+    [CH.getScopedCapabilities]: (scopeCwd: string | null) => {
+      if (scopeCwd !== null) registeredSessionCwd(scopeCwd);
+      return getScopedCapabilities(scopeCwd, input.getOmpPath());
+    },
+    [CH.setScopedCapability]: (req: ScopedCapabilityMutation) => {
+      if (req.scopeCwd !== null) registeredSessionCwd(req.scopeCwd);
+      return setScopedCapability(req, input.getOmpPath());
+    },
+    [CH.getWatchdogRoster]: async (scopeCwd: string | null) => {
+      if (scopeCwd !== null) registeredSessionCwd(scopeCwd);
+      const ompPath = input.getOmpPath();
+      return getWatchdogRoster(
+        scopeCwd,
+        baseEnv,
+        os.homedir(),
+        ompPath === null ? null : await readInstalledOmpVersion(ompPath),
+      );
+    },
+    [CH.setWatchdogRoster]: async (req: WatchdogWriteRequest) => {
+      if (req.scopeCwd !== null) registeredSessionCwd(req.scopeCwd);
+      const ompPath = input.getOmpPath();
+      return setWatchdogRoster(
+        req,
+        baseEnv,
+        os.homedir(),
+        ompPath === null ? null : await readInstalledOmpVersion(ompPath),
+      );
+    },
+    [CH.getCouncilRoster]: (scopeCwd: string | null) => councilRosterView(scopeCwd),
+    [CH.setCouncilRoster]: async (req: CouncilWriteRequest) => {
+      if (req.scope === "user") input.registry.setSetting("councilRoster", req.document);
+      else {
+        if (req.scopeCwd === null) throw new Error("project scope needs a project directory");
+        if (!input.registry.projects.some((project) => project.path === req.scopeCwd)) {
+          throw new Error(`unknown project: ${req.scopeCwd}`);
+        }
+        input.registry.setProjectCouncilRoster(req.scopeCwd, req.document);
+      }
+      await broadcast();
+      return councilRosterView(req.scopeCwd);
     },
     [CH.toggleFavorite]: async (key: string) => {
       input.registry.toggleFavorite(key);
@@ -663,6 +987,106 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.dryRunRoutine]: (req: RoutineDryRunRequest) => routines.dryRun(req),
     [CH.listRoutineToolCatalog]: (projectCwd: string) => routines.toolCatalog(projectCwd),
     [CH.readChatModels]: () => readChatModels(),
+    [CH.readModelCatalog]: () => readChatModels(),
+    [CH.getAdvisorDefaults]: (projectCwd: string): AdvisorDefaults => advisorDefaults(projectCwd),
+    [CH.sessionReference]: async (tabId: string) => {
+      const record = input.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record || record.sessionId === null) return null;
+      const filePath = await manager.transcriptPath(tabId);
+      if (filePath === null) return null;
+      return {
+        sessionId: record.sessionId,
+        title: record.cachedTitle?.trim() || "New session",
+        machine: machineLabel(),
+        path: filePath,
+      };
+    },
+    [CH.refreshPullRequests]: () => pullRequests.poll(),
+    [CH.listProjectFiles]: (projectCwd: string) => {
+      registeredSessionCwd(projectCwd);
+      return listProjectFiles(projectCwd);
+    },
+    [CH.resolveFileMentions]: (projectCwd: string, message: string) => {
+      registeredSessionCwd(projectCwd);
+      return resolveFileMentions(projectCwd, message);
+    },
+    [CH.answerProjectRequest]: (
+      tabId: string,
+      promptId: string,
+      decision: "allow" | "deny",
+      parent: string | null,
+    ) => manager.answerProjectRequest(tabId, promptId, decision, parent),
+    [CH.getSessionCouncilStatus]: (tabId: string) => manager.getSessionCouncilStatus(tabId),
+    [CH.fleetSessionSummary]: (tabId: string): Promise<string> => {
+      const record = input.registry.sessions.find((s) => s.tabId === tabId);
+      if (record === undefined) return Promise.reject(new Error("session not found"));
+      return renderSessionSummary(record, input.registry.projects, (dir, sid) =>
+        resolveSessionLocation(sessionsRoot, archiveRoot, dir, sid),
+      );
+    },
+    [CH.getBranchDiff]: (projectCwd: string, base?: string | null) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      return readBranchDiff(projectCwd, base ?? null);
+    },
+    [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      return listBranches(projectCwd, opts);
+    },
+    [CH.checkoutBranch]: async (projectCwd: string, name: string, opts?: { create?: boolean }) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      await checkoutBranch(projectCwd, name, opts);
+      emit(CH.onBranchChanged, projectCwd, null);
+    },
+    [CH.pullBranch]: async (projectCwd: string) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      await pullBranch(projectCwd);
+      emit(CH.onBranchChanged, projectCwd, null);
+    },
+    [CH.pushBranch]: async (projectCwd: string, branch: string, remote?: string | null) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      const result = await pushBranch(projectCwd, branch, remote);
+      if (result.kind === "pushed" || result.kind === "published") emit(CH.onBranchChanged, projectCwd, null);
+      return result;
+    },
+    [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      return pullRequestUrl(projectCwd, base, head);
+    },
+    [CH.createBranch]: async (projectCwd: string, name: string, startPoint: string) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      await createBranch(projectCwd, name, startPoint);
+      emit(CH.onBranchChanged, projectCwd, null);
+    },
+    [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) => {
+      registeredProjectPath(projectCwd);
+      return resolveMergeDestination(projectCwd, base);
+    },
+    [CH.getMergeBackStatus]: (
+      projectCwd: string,
+      branch: string,
+      destination: string,
+      worktreePath: string | null,
+    ) => {
+      registeredProjectPath(projectCwd);
+      return readMergeBackStatus(
+        projectCwd,
+        branch,
+        destination,
+        worktreePath !== null && !isWithin(worktreesRoot, worktreePath) ? null : worktreePath,
+      );
+    },
+    [CH.mergeWorktreeBranch]: async (projectCwd: string, branch: string, destination: string) => {
+      registeredProjectPath(projectCwd);
+      const result = await mergeWorktreeBranch(projectCwd, branch, destination, {
+        scratchRoot: path.join(worktreesRoot, ".merge"),
+      });
+      if (result.kind === "merged") emit(CH.onBranchChanged, projectCwd, null);
+      return result;
+    },
+    [CH.suggestBranchName]: (projectCwd: string, planContext: string) => {
+      registeredProjectOrWorktreePath(projectCwd);
+      return suggestBranchName(projectCwd, planContext);
+    },
     [CH.readPlanFile]: async (tabId: string, absPath: string): Promise<string | null> => {
       const snapshot = manager.planSnapshotFor(tabId, absPath);
       if (snapshot !== null) return snapshot.text;
@@ -700,6 +1124,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     sessions: manager,
     routines,
     routinesControl,
+    addProject,
     state: buildState,
     on: (cb) => {
       sinks.add(cb);
@@ -709,6 +1134,9 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     },
     dispose: async () => {
       snoozeClock.dispose();
+      await pullRequests.dispose();
+      await headWatchers.disposeAll();
+      await Promise.allSettled([...projectProbes]);
       await routines.disposeAsync();
       manager.killAll();
       sinks.clear();

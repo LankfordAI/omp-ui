@@ -527,6 +527,7 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
   return {
     request,
     notify,
+    check,
     enforceLadder,
     dispose(): void {
       deps.exec?.dispose();

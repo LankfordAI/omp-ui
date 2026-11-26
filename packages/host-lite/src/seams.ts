@@ -1,4 +1,5 @@
-import type { BackendState, ChannelTable, RequestHandlers, RoutinesState } from "@omp-ui/core";
+import type { BackendState, ChannelTable, ProjectRecord, RequestHandlers, RoutinesState } from "@omp-ui/core";
+import type { FleetProviderKeyLegs, FleetSessionLegs } from "./fleet-legs/types";
 
 /**
  * The two contracts the other #1010 slices implement against `@omp-ui/host-lite`.
@@ -63,6 +64,12 @@ export interface LiteSessions {
    * the LAN WebSocket table. Absent on bare test fakes.
    */
   readonly routinesControl?: LiteRoutinesControl;
+  /** Unified project registration (resolveRepositoryKey + watcher + broadcast). */
+  addProject?(rawPath: string): Promise<ProjectRecord>;
+  /** Member-side fleet session control verbs (fleet:send/finish/stop/settle). */
+  readonly fleetSessions?: FleetSessionLegs;
+  /** Member-side provider key installation (fleet:providerKeys). */
+  readonly providerKeys?: FleetProviderKeyLegs;
 }
 
 /**

@@ -6,7 +6,7 @@
    member's ladder — the machines-list and exec semantics of gate 3 without an
    Electron window. The live dev:headless desktop-owner check stays a separate
    manual step per docs/development.md (#858 port-targeting). */
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -20,12 +20,20 @@ import {
   Registry,
   RemoteInstanceStore,
   type FleetExecOutcome,
+  type FleetFinishOutcome,
   type FleetHostReport,
+  type FleetProjectManageOutcome,
+  type FleetProviderKeysOutcome,
+  type FleetSendOutcome,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
   type KeyCipher,
   type ModelCatalogSnapshot,
   type RoutineDryRunResult,
   type RoutineRecord,
   type RoutinesState,
+  type SpawnAnswer,
+  type SpawnRequest,
 } from "@omp-ui/core";
 import { connectInstanceClient } from "@omp-ui/server";
 // The owner's actual join client — zero Electron imports, same code the desktop runs.
@@ -391,5 +399,255 @@ rl.on("line", (line) => {
     } finally {
       direct.close();
     }
+  });
+
+  it("Tier 1 & Tier 2 multi-host parity proof: repo unification, fleet lifecycle, provider keys, git/branch relay, and project settings (#1374)", { skip: process.platform === "win32", timeout: 30_000 }, async () => {
+    const memberDir = tempDir("omp-lite-parity-member-");
+    const ownerDir = tempDir("omp-lite-parity-owner-");
+    const rootsDir = tempDir("omp-lite-parity-roots-");
+    const preSeededRepo = path.join(rootsDir, "preseeded-repo");
+    const registeredRepo = path.join(rootsDir, "registered-repo");
+    for (const repo of [preSeededRepo, registeredRepo]) {
+      fs.mkdirSync(repo, { recursive: true });
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+      execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: repo });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/shared-repo.git"], { cwd: repo });
+      fs.writeFileSync(path.join(repo, "app.ts"), "export const v = 1;\n");
+      execFileSync("git", ["add", "."], { cwd: repo });
+      execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: repo });
+    }
+
+    const fakeOmp = path.join(memberDir, "fake-omp.mjs");
+    fs.writeFileSync(
+      fakeOmp,
+      `#!${process.execPath}
+import * as readline from "node:readline";
+if (process.argv[2] === "config") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+const emit = (obj) => process.stdout.write(JSON.stringify(obj) + "\\n");
+emit({ type: "ready" });
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  if (msg.type === "set_host_tools" || msg.type === "set_event_filter" || msg.type === "set_ask_dialog" || msg.type === "set_host_uri_schemes") {
+    emit({ type: "response", id: msg.id, command: msg.type, success: true });
+    return;
+  }
+  if (msg.type === "prompt" || msg.type === "follow_up" || msg.type === "steer" || msg.type === "abort") {
+    emit({ type: "response", id: msg.id, command: msg.type, success: true });
+    if (msg.type === "prompt") {
+      emit({ type: "agent_start" });
+      emit({ type: "agent_end", messages: [{ role: "assistant", content: "Fleet reply ok." }] });
+    }
+  }
+});
+`,
+      { mode: 0o755 },
+    );
+
+    const seeded = Registry.load(path.join(memberDir, "registry.json"));
+    seeded.setSettings({
+      remoteEnabled: true,
+      remoteBind: "localhost",
+      remotePort: await freePort(),
+      fleetExecEnabled: true,
+      fleetExecCeiling: "full",
+      fleetProjectRoots: [rootsDir],
+      fleetGrants: { [OWNER_ID]: { rung: "full", label: OWNER_LABEL, updatedAt: "seed" } },
+    });
+    // Pre-seeded checkout with repositoryKey: null → backfilled on boot.
+    seeded.addProject(preSeededRepo);
+    expect(seeded.projects[0]?.repositoryKey).toBeNull();
+
+    const bundleMod = await loadSessionBundle<{
+      createSessionBundle(input: Record<string, unknown>): LiteSessions & {
+        sessions: {
+          isLive(tabId: string): boolean;
+          isTurnRunning(tabId: string): boolean;
+          modelProviderReady(cwd: string): boolean;
+          fleetSend(req: unknown): Promise<FleetSendOutcome>;
+          fleetFinish(req: unknown): Promise<FleetFinishOutcome>;
+          fleetStop(req: unknown): Promise<FleetStopOutcome>;
+          fleetSettle(req: unknown): Promise<FleetSettleOutcome>;
+        };
+      };
+    }>(artifact);
+
+    let memberKeys!: ProviderKeys;
+    const instance = await startLiteFleetMember({
+      dataDir: memberDir,
+      version: "9.9.9-parity",
+      log: () => {},
+      buildSessions: async ({ registry, dataDir, version, instanceId }) => {
+        memberKeys = new ProviderKeys(path.join(dataDir, "provider-keys.json"), storeCipher, {
+          OPENROUTER_API_KEY: "test-key",
+        });
+        const created = bundleMod.createSessionBundle({
+          registry,
+          registryFile: path.join(dataDir, "registry.json"),
+          providerKeys: memberKeys,
+          instanceId,
+          getOmpPath: () => fakeOmp,
+          getSessionsRoot: () => path.join(dataDir, "sessions"),
+          getArchiveRoot: () => path.join(dataDir, "archive"),
+          getWorktreesRoot: () => path.join(dataDir, "worktrees"),
+          getChatsRoot: () => path.join(dataDir, "chats"),
+          appVersion: version,
+          pullRequestsEnabled: false,
+          readChatModels: async (): Promise<ModelCatalogSnapshot> => ({
+            models: [{ provider: "openrouter", id: "google/gemini-4-neon", name: "Gemini", thinking: { efforts: ["low"] } }],
+            discovered: true,
+            error: null,
+          }),
+          devicePane: {
+            encodeJpeg: (): never => {
+              throw new Error("no device pane");
+            },
+            agentDeviceBin: async () => null,
+            stateDir: () => path.join(dataDir, "agent-device"),
+          },
+        });
+        return withPlacementGates(created, registry, memberKeys);
+      },
+      buildFleet: (ctx) => buildProductionFleetLegs({ ...ctx, bundlePath: artifact }),
+    });
+    instances.push(instance);
+
+    const rendererEvents: Array<{ channel: string; args: unknown[] }> = [];
+    const branchChanged = Promise.withResolvers<unknown[]>();
+    const repoRegistered = Promise.withResolvers<void>();
+    const preSeededBackfilled = Promise.withResolvers<void>();
+
+    const store = new RemoteInstanceStore(path.join(ownerDir, "remote-instances.json"), storeCipher);
+    const checkSummaries = (): void => {
+      const projects = manager.summaries()[0]?.projects ?? [];
+      if (projects.some((g) => g.project.path === preSeededRepo && g.project.repositoryKey === "github.com/acme/shared-repo")) {
+        preSeededBackfilled.resolve();
+      }
+      if (projects.some((g) => g.project.path === registeredRepo && g.project.repositoryKey === "github.com/acme/shared-repo")) {
+        repoRegistered.resolve();
+      }
+    };
+    const manager = new RemoteInstanceManager({
+      store,
+      localInstanceId: () => OWNER_ID,
+      localVersion: "9.9.9-owner",
+      send: () => {},
+      sendToRenderers: (channel, args) => {
+        rendererEvents.push({ channel, args });
+        if (channel === CH.onBranchChanged) branchChanged.resolve(args);
+      },
+      broadcast: async () => {
+        checkSummaries();
+      },
+    });
+    managers.push(manager);
+
+    await manager.add({
+      url: `http://127.0.0.1:${instance.remote.state.port}`,
+      nickname: "parity-lite",
+      secret: { kind: "token", value: instance.registry.getSetting("remoteToken") },
+    });
+    checkSummaries();
+
+    const row = manager.summaries()[0];
+    expect(row?.status).toBe("joined");
+    const id = row!.id;
+
+    // 1. Pre-seeded project receives startup backfilled repositoryKey; hostReport.instanceId matches identity.
+    await preSeededBackfilled.promise;
+    const report = (await manager.request(id, CH.fleetHostReport, [])) as FleetHostReport;
+    expect(report.instanceId).toBe(instance.instanceId);
+    expect(report.instanceId.length).toBeGreaterThan(0);
+
+    // 2. fleet:projectManage (register) runs unified addProject → repositoryKey + state:changed pushed to owner.
+    const manageOutcome = (await manager.request(id, CH.fleetProjectManage, [
+      { requester, verb: "register", path: registeredRepo },
+    ])) as FleetProjectManageOutcome;
+    expect(manageOutcome).toMatchObject({ status: "accepted", path: registeredRepo });
+    await repoRegistered.promise;
+
+    // 3. Provider key rollout lands sealed in the member's ProviderKeys store.
+    const keyOutcome = (await manager.request(id, CH.fleetProviderKeys, [
+      { requester, keys: [{ envName: "ANTHROPIC_API_KEY", value: "sk-ant-rolled-out" }] },
+    ])) as FleetProviderKeysOutcome;
+    expect(keyOutcome).toEqual({ status: "accepted", installed: ["ANTHROPIC_API_KEY"], failed: [] });
+    expect(memberKeys.rolloutValue("ANTHROPIC_API_KEY")).toBe("sk-ant-rolled-out");
+
+    // 4. Fleet dispatch lifecycle verbs are wired (structured refusal on unknown id, real success on dispatched session).
+    const missingSend = (await manager.request(id, CH.fleetSend, [
+      { requester, dispatchId: "unknown-dispatch", message: "ping", mode: "queue" },
+    ])) as FleetSendOutcome;
+    expect(missingSend.status).toBe("refused");
+    const missingFinish = (await manager.request(id, CH.fleetFinish, [
+      { requester, dispatchId: "unknown-dispatch" },
+    ])) as FleetFinishOutcome;
+    expect(missingFinish.status).toBe("refused");
+    const missingStop = (await manager.request(id, CH.fleetStop, [
+      { requester, dispatchId: "unknown-dispatch" },
+    ])) as FleetStopOutcome;
+    expect(missingStop.status).toBe("refused");
+    const missingSettle = (await manager.request(id, CH.fleetSettle, [
+      { requester, dispatchId: "unknown-dispatch" },
+    ])) as FleetSettleOutcome;
+    expect(missingSettle.status).toBe("refused");
+
+    const agentRequester = { instanceId: OWNER_ID, label: OWNER_LABEL, kind: "agent", sourceTabId: "parent-tab-1" } as const;
+    const dispatchId = "dispatch-parity-1";
+    const spawnReq: SpawnRequest = {
+      origin: "new",
+      projectCwd: registeredRepo,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      fleet: {
+        dispatchId,
+        batchId: "batch-parity-1",
+        title: "Parity check",
+        requestedBy: agentRequester,
+        prompt: "Run parity check.",
+      },
+    };
+    const spawned = (await manager.request(id, CH.spawnSession, [spawnReq])) as SpawnAnswer;
+    const tabId = spawned.tabId;
+    expect(typeof tabId).toBe("string");
+    const sendOutcome = (await manager.request(id, CH.fleetSend, [
+      { requester: agentRequester, dispatchId, message: "Follow up.", mode: "queue" },
+    ])) as FleetSendOutcome;
+    expect(sendOutcome.status).not.toBe("refused");
+    const summaryText = (await manager.request(id, CH.fleetSessionSummary, [tabId])) as string;
+    expect(typeof summaryText).toBe("string");
+    expect(summaryText.length).toBeGreaterThan(0);
+    const settleOutcome = (await manager.request(id, CH.fleetSettle, [
+      { requester: agentRequester, dispatchId },
+    ])) as FleetSettleOutcome;
+    expect(settleOutcome.status).toBe("settled");
+
+    // 5. Remote control parity over WebSocket proxy: branch:list/checkout (+ branch:changed relay), settings, files, catalog, council.
+    const branches = (await manager.request(id, CH.listBranches, [registeredRepo])) as { current: string | null };
+    expect(branches.current).toBe("main");
+    await manager.request(id, CH.checkoutBranch, [registeredRepo, "feat-remote", { create: true }]);
+    const branchEventArgs = await branchChanged.promise;
+    expect(branchEventArgs).toEqual([registeredRepo, id]);
+
+    await manager.request(id, CH.setProjectDefaultModel, [registeredRepo, "openrouter/google/gemini-4-neon"]);
+    const files = (await manager.request(id, CH.listProjectFiles, [registeredRepo])) as { files: string[] };
+    expect(files.files).toContain("app.ts");
+    const catalog = (await manager.request(id, CH.readModelCatalog, [tabId])) as ModelCatalogSnapshot;
+    expect(catalog.models[0]?.id).toBe("google/gemini-4-neon");
+    const council = (await manager.request(id, CH.getCouncilRoster, [registeredRepo])) as {
+      members: unknown[];
+      project: unknown;
+    };
+    expect(Array.isArray(council.members)).toBe(true);
+    expect(council.project).toBeNull();
+    expect(rendererEvents.some((e) => e.channel === CH.onBranchChanged)).toBe(true);
   });
 });

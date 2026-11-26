@@ -1,6 +1,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ompPinActive, ProviderKeys, ProviderOAuth, resolveOmpBinary, type Registry } from "@omp-ui/core";
+import {
+  ompPinActive,
+  ProviderKeys,
+  ProviderOAuth,
+  resolveOmpBinary,
+  type FleetFinishOutcome,
+  type FleetFinishRequest,
+  type FleetSendOutcome,
+  type FleetSendRequest,
+  type FleetSessionRequest,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
+  type Registry,
+} from "@omp-ui/core";
 import { loadSessionBundle } from "./bundle-artifact";
 import type { LiteKeyCipher, LiteSessions } from "./seams";
 
@@ -37,6 +50,10 @@ interface SessionsView {
   isLive(tabId: string): boolean;
   isTurnRunning(tabId: string): boolean;
   modelProviderReady(projectCwd: string): boolean;
+  fleetSend?(req: FleetSendRequest): Promise<FleetSendOutcome>;
+  fleetFinish?(req: FleetFinishRequest): Promise<FleetFinishOutcome>;
+  fleetStop?(req: FleetSessionRequest): Promise<FleetStopOutcome>;
+  fleetSettle?(req: FleetSessionRequest): Promise<FleetSettleOutcome>;
 }
 
 /** A bundle module exposes only this entry (see src/session-bundle/entry.ts). */
@@ -91,8 +108,21 @@ export function isLiteContainerized(env: NodeJS.ProcessEnv = process.env): boole
 export function withPlacementGates(
   base: LiteSessions & { sessions: SessionsView },
   registry: Pick<Registry, "sessions">,
+  providerKeys?: Pick<ProviderKeys, "setKey">,
 ): LiteSessions {
   const manager = base.sessions;
+  const fleetSessions =
+    manager.fleetSend !== undefined &&
+    manager.fleetFinish !== undefined &&
+    manager.fleetStop !== undefined &&
+    manager.fleetSettle !== undefined
+      ? {
+          deliverSend: (req: FleetSendRequest) => manager.fleetSend!(req),
+          deliverFinish: (req: FleetFinishRequest) => manager.fleetFinish!(req),
+          deliverStop: (req: FleetSessionRequest) => manager.fleetStop!(req),
+          deliverSettle: (req: FleetSessionRequest) => manager.fleetSettle!(req),
+        }
+      : undefined;
   return {
     ...base,
     activity: () => ({
@@ -100,6 +130,14 @@ export function withPlacementGates(
       runningTurns: registry.sessions.filter((s) => manager.isTurnRunning(s.tabId)).length,
     }),
     providerReady: (cwd: string) => manager.modelProviderReady(cwd),
+    ...(fleetSessions !== undefined ? { fleetSessions } : {}),
+    ...(providerKeys !== undefined
+      ? {
+          providerKeys: {
+            install: (envName: string, value: string) => providerKeys.setKey(envName, value),
+          },
+        }
+      : {}),
   };
 }
 
@@ -146,7 +184,7 @@ export async function createProductionSessions(deps: ProductionSessionsDeps): Pr
       stateDir: () => path.join(deps.dataDir, "agent-device"),
     },
   });
-  const gated = withPlacementGates(created, deps.registry);
+  const gated = withPlacementGates(created, deps.registry, providerKeys);
   return {
     ...gated,
     dispose: async () => {

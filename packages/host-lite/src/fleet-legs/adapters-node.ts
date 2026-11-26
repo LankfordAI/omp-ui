@@ -33,7 +33,9 @@ import {
   FLEET_EXEC_TIMEOUT_MS,
   detectHostOs,
   detectPackageManagers,
+  formatModelRole,
   readInstalledOmpVersion,
+  readOmpAdvisorDefaults,
   resolveRepositoryKey,
   sampleHostResources,
   withoutProviderKeys,
@@ -413,11 +415,7 @@ export function createHostReportLegs(deps: HostProbeDeps): FleetHostReportLegs {
             headCommit,
             providerReady: deps.providerReady(project.path),
             advisor: project.lastAdvisor ?? registry.getSetting("defaultAdvisor"),
-            // The desktop falls back to its advisor-defaults chain here; the
-            // lite host has no renderer defaults to consult, so an unpinned
-            // advisor model reports null and the owner's placement uses its
-            // own default (the report field is advisory).
-            advisorModel: pinnedModel ?? null,
+            advisorModel: pinnedModel ?? readAdvisorModel(project.path),
           };
         }),
       );
@@ -484,6 +482,15 @@ async function gitHead(dir: string): Promise<string | null> {
     ({ stdout }: { stdout: Buffer }) => stdout.toString("utf8").trim() || null,
     () => null,
   );
+}
+
+function readAdvisorModel(projectCwd: string): string | null {
+  try {
+    const role = readOmpAdvisorDefaults(projectCwd).role;
+    return role === null ? null : formatModelRole(role);
+  } catch {
+    return null;
+  }
 }
 
 // ── audit persistence ───────────────────────────────────────────────────────

@@ -231,6 +231,8 @@ export interface FleetLegsHandle {
   readonly request: Partial<RequestHandlers>;
   /** Member-leg notify handlers (the terminal write/size legs ride notifies). */
   readonly notify: Partial<ChannelTable["notify"]>;
+  /** Ladder check for foreign requesters (used by LiteBackend to gate fleet-provenanced session:spawn). */
+  check?(requester: FleetRequester, need: FleetRung): { ok: true; rung: FleetRung } | { ok: false; reason: string };
   /** Re-check every dispatcher's running work against the current grants/ladder. */
   enforceLadder(): void;
   /** Quit path: cancel detached execs and end fleet terminals. */

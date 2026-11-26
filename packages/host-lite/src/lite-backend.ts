@@ -9,6 +9,7 @@ import {
   type RemoteBind,
   type RemoteState,
   type SessionSummary,
+  type SpawnRequest,
 } from "@omp-ui/core";
 import {
   hashRemotePassword,
@@ -195,9 +196,30 @@ export class LiteBackend implements RemoteHost {
     // shadow them (see seams.ts). Fleet legs ride the same precedence — they
     // carry no key that collides with the core's, but the ordering keeps the
     // "core is law" rule a single readable line.
+    const baseSpawn = this.deps.sessions.handlers[CH.spawnSession];
+    const fleetCheck = this.#fleet?.check;
+    const gatedSpawn =
+      baseSpawn !== undefined
+        ? (req: SpawnRequest) => {
+            // Rung-2 gate (issue #901): a fleet-provenanced spawn arriving from
+            // another instance needs dispatch access here. Fail closed when the
+            // member has no fleet ladder check wired; local dispatches (same
+            // instanceId) skip this gate.
+            const provenance = req.fleet;
+            if (provenance !== undefined && provenance.requestedBy.instanceId !== this.deps.instanceId) {
+              if (fleetCheck === undefined) {
+                throw new Error("fleet access refused — fleet dispatch gate is unavailable on this machine");
+              }
+              const gate = fleetCheck(provenance.requestedBy, "dispatch");
+              if (!gate.ok) throw new Error(`fleet access refused — ${gate.reason}`);
+            }
+            return baseSpawn(req);
+          }
+        : undefined;
     const request = {
       ...this.deps.sessions.handlers,
       ...(this.#fleet?.request ?? {}),
+      ...(gatedSpawn !== undefined ? { [CH.spawnSession]: gatedSpawn } : {}),
       [CH.getState]: () => this.state(),
       [CH.getInstanceIdentity]: () => ({
         instanceId: this.deps.instanceId,
