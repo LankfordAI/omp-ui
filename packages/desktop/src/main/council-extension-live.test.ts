@@ -724,7 +724,11 @@ describe("council extension (real omp)", () => {
         );
         const content = JSON.stringify(launch.message?.content);
         expect(content).toContain("wait");
-        expect(content).toContain("xd://propose");
+        // Plan submission rides the tool-command `propose` command on the
+        // supported harness (omp 19.1+; the bridge's toolCommandsEra probe
+        // picks the dialect). The pre-19.1 plain-text xd://propose dialect is
+        // pinned at the unit level in council-extension.test.ts.
+        expect(content).toContain("run `propose");
 
         const task = await waitFor(
           () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === "call_plan_task"),

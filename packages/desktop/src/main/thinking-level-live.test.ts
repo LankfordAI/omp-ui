@@ -16,7 +16,7 @@ import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
  * `set_thinking_level` ack, the forwarded `thinking_level_changed` receipt,
  * the `appendModelChange` / `appendThinkingLevelChange` transcript entries,
  * and the resume-time replay in session-context.ts). CI runs this proof
- * against the single supported harness (the pinned current omp, now 19.0.0);
+ * against the single supported harness (the pinned current omp, now 19.2.1);
  * the version branches below keep it truthful when run locally against an
  * older binary:
  * 1. `set_thinking_level high` on an effort-ladder model answers with a

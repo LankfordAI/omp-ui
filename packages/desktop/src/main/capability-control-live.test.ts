@@ -206,10 +206,23 @@ async function arm(scope: Scope): Promise<CapabilitySnapshot> {
   );
 }
 
-async function sendPlan(scope: Scope, on: boolean, baseRevision: number): Promise<CapabilitySnapshot> {
+async function sendPlan(
+  scope: Scope,
+  on: boolean,
+  baseRevision: number,
+  until?: (snapshot: CapabilitySnapshot) => boolean,
+): Promise<CapabilitySnapshot> {
   const before = scope.frames.length;
   scope.client.send({ type: "prompt", message: planMessage(on, "md") } as never);
-  return publishAfter(scope, before, baseRevision);
+  if (!until) return publishAfter(scope, before, baseRevision);
+  // The harness swaps its plan-mode tool set a beat after the mode flip
+  // publishes; under load the first newer publish can still carry the old
+  // roster. Wait for the observed tool truth, not merely for a revision bump.
+  return waitFor(
+    () => snapshotsAfter(scope, before).find((s) => s.revision > baseRevision && until(s)),
+    25_000,
+    `publish newer than revision ${baseRevision} satisfying the mode roster`,
+  );
 }
 
 async function killScope(scope: Scope): Promise<void> {
@@ -268,19 +281,21 @@ describe.skipIf(ompPath === null)("capability tool control on the real runtime",
   it("locks write in Plan mode and preserves other selections across Plan/Build", { timeout: 180_000 }, async () => {
     scope = spawnScope();
     const armed = await arm(scope);
-    // OMP v18.1.10 keeps `write` in the enabled set no matter which apply
-    // seam is asked to remove it (verified against the real binary: both
-    // setActiveToolPresentation and setActiveToolsByName retain it). The
-    // bridge reports that runtime truth as not-applied rather than claiming
-    // success — the whole point of readback confirmation.
+    // The supported harness applies a `write` disable like any other tool:
+    // the 18.1.x-era runtime that retained `write` no matter which apply
+    // seam removed it (verified against those binaries: both
+    // setActiveToolPresentation and setActiveToolsByName kept it, and the
+    // bridge reported that truth as not-applied) is retired. Readback still
+    // confirms the outcome either way — here it matches the request.
     expect(toolEnabled(armed, "write")).toBe(true);
-    const refusedBuild = await mutate(scope, armed, "write", false);
-    expect(refusedBuild.toolMutation?.status).toBe("not-applied");
-    expect(toolEnabled(refusedBuild, "write")).toBe(true);
+    const disabledBuild = await mutate(scope, armed, "write", false);
+    expect(disabledBuild.toolMutation?.status).toBe("applied");
+    expect(toolEnabled(disabledBuild, "write")).toBe(false);
 
-    // Plan entry therefore adds nothing and records no ownership: write was
-    // already enabled, so exit must leave it in place untouched.
-    const entered = await sendPlan(scope, true, refusedBuild.revision);
+    // Plan entry swaps in the harness's plan-mode tool set: `write` returns
+    // regardless of the Build-mode selection. The grant arrives with the
+    // mode's roster publish, so the wait carries it as the settle condition.
+    const entered = await sendPlan(scope, true, disabledBuild.revision, (s) => toolEnabled(s, "write") === true);
     expect(toolEnabled(entered, "write")).toBe(true);
 
     // While Plan is on, disabling write is refused by the bridge's policy
@@ -293,9 +308,12 @@ describe.skipIf(ompPath === null)("capability tool control on the real runtime",
     expect(toggled.toolMutation?.status).toBe("applied");
     expect(toolEnabled(toggled, "proof-inert")).toBe(false);
 
-    const exited = await sendPlan(scope, false, toggled.revision);
+    // Exit restores the pre-plan selection: the proof toggle survives and the
+    // plan-mode `write` grant goes away with the mode. Same settle condition
+    // as entry — the restored roster rides a publish after the mode flip.
+    const exited = await sendPlan(scope, false, toggled.revision, (s) => toolEnabled(s, "write") === false);
     expect(toolEnabled(exited, "proof-inert")).toBe(false);
-    expect(toolEnabled(exited, "write")).toBe(true);
+    expect(toolEnabled(exited, "write")).toBe(false);
 
     expect(userMessagesAfter(scope, 0)).toHaveLength(0);
   });
