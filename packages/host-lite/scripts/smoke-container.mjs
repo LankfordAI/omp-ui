@@ -409,13 +409,17 @@ try {
     ...keyMountArgs,
     imageRef,
   ]);
-  await waitForStatus(keyName);
+  const keyStatus = await waitForStatus(keyName);
+  assert(keyStatus.includes("reachable"), `unseeded fresh-volume container failed healthcheck: ${keyStatus}`);
   const keyLogs = docker(["logs", keyName]);
+  assert(
+    keyLogs.includes("first boot — remote access on lan"),
+    `expected automatic first-boot remote access seeding on unseeded volume, got:\n${keyLogs}`,
+  );
   assert(
     keyLogs.includes("credential store ready (key-file)"),
     `expected key-file protector in logs, got:\n${keyLogs}`,
   );
-
   step("8/8 All container smoke assertions passed");
 } finally {
   for (const item of containers) {

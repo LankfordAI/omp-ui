@@ -179,8 +179,10 @@ WORKDIR /data
 EXPOSE 4677
 VOLUME ["/data"]
 
+# On a fresh volume, `omp-ui-lite serve` seeds remoteEnabled=true, remoteBind=lan,
+# and mints a remote token automatically (seedMemberDefaults in serve.ts), so
+# `omp-ui-lite status` passes out of the box without pre-seeding registry.json.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD ["omp-ui-lite", "status"]
-
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["omp-ui-lite", "serve"]
