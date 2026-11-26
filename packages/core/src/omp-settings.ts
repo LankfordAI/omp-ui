@@ -48,6 +48,7 @@ import type {
 // keep importing everything omp-settings from one place.
 export {
   BASH_GIT_GUARD_KEY,
+  BASH_REAP_BACKGROUND_KEY,
   BINJA_INSTALL_DIR_KEY,
   CONTEXT_FILES_EXTRA_KEY,
   CONTEXT_FILES_SETTING_GROUP,
