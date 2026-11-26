@@ -322,16 +322,15 @@ describe("session:setSnoozed", () => {
     expect(seeded.snoozed).toBe(false);
 
     await invoke(CH.setSessionSnoozed, "tab-1", true);
-    // The handler fire-and-forgets broadcast(); wait for its async send to land.
-    await vi.waitFor(() => {
-      expect(sent.some((m) => m.channel === CH.onStateChanged)).toBe(true);
-    });
     const parked = readRegistry().sessions[0] as { snoozed: boolean };
     expect(parked.snoozed).toBe(true);
-    const broadcast = sent.filter((m) => m.channel === CH.onStateChanged).at(-1);
-    const state = broadcast!.args[0] as { projects: { sessions: { snoozed: boolean }[] }[] };
-    expect(state.projects[0]!.sessions[0]!.snoozed).toBe(true);
-
+    // The handler fire-and-forgets broadcast(); wait for a broadcast carrying
+    // the flipped flag so an earlier boot broadcast never satisfies the wait.
+    await vi.waitFor(() => {
+      const broadcast = sent.filter((m) => m.channel === CH.onStateChanged).at(-1);
+      const state = broadcast?.args[0] as { projects: { sessions: { snoozed: boolean }[] }[] } | undefined;
+      expect(state?.projects[0]?.sessions[0]?.snoozed).toBe(true);
+    });
     await invoke(CH.setSessionSnoozed, "tab-1", false);
     const unparked = readRegistry().sessions[0] as { snoozed: boolean };
     expect(unparked.snoozed).toBe(false);
