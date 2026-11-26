@@ -813,6 +813,16 @@ describe("RpcClient lifecycle", () => {
     expect(h.fake.killed()).toBe(true);
     expect(h.errors).toEqual([]);
   });
+
+  it("swallows stdin EPIPE when the child closes stdin before exit settles (#1382)", () => {
+    const h = harness();
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(() => h.fake.stdin.emit("error", epipe)).not.toThrow();
+    expect(h.errors).toEqual([]);
+    h.fake.stdin.destroy();
+    expect(() => h.client.send({ type: "get_state" })).not.toThrow();
+    h.client.kill();
+  });
 });
 
 describe("stderr lines (issue #970)", () => {

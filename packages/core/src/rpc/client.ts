@@ -238,6 +238,14 @@ export class RpcClient {
     if (opts.childEnv !== undefined) Object.assign(env, opts.childEnv);
     const spawnProcess = opts.spawnProcess ?? defaultSpawn;
     this.#proc = spawnProcess(opts.ompPath, args, env);
+    // A child that exits immediately after emitting `ready` can close stdin
+    // before `#startCommandRail()` writes `negotiate_protocol`; swallow
+    // expected broken-pipe errors so they never surface as uncaught exceptions
+    // ahead of `onExit` (#1382).
+    this.#proc.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE" || err.code === "ERR_STREAM_DESTROYED") return;
+      this.#fatal(`omp stdin error: ${err.message}`);
+    });
     this.#proc.stdout.on("data", (chunk: Buffer) => this.#onStdout(chunk));
     this.#proc.stderr.on("data", (chunk: Buffer) => this.#onStderr(chunk));
     this.#proc.onSpawnError((err) => this.#fatal(`failed to spawn omp: ${err.message}`));
@@ -294,7 +302,7 @@ export class RpcClient {
   }
 
   send(cmd: object): void {
-    if (this.#dead) return;
+    if (this.#dead || this.#proc.stdin.destroyed || this.#proc.stdin.writableEnded) return;
     this.#proc.stdin.write(`${JSON.stringify(cmd)}\n`);
   }
 
