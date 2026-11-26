@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -13,6 +12,7 @@ import {
 } from "@omp-ui/core";
 import { ADVISOR_STATS_KEY, parseAdvisorStats, type AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { WatchdogRosterResult } from "@omp-ui/core/types";
+import { LiveExitTracker, PreReadyExit, closeAwareSpawn, waitForOrExit, type LiveExitState } from "./test/live-exit";
 
 /**
  * ADR-0039 parity check: omp's live advisor roster (published by the
@@ -85,6 +85,8 @@ interface Harness {
   statsFrames(): AdvisorStatsView[];
   /** Any response frames from THIS process (indexed from its spawn). */
   seenResponse(): boolean;
+  /** Drained exit state of THIS process. */
+  exitState(): LiveExitState;
   /** Signals the child and resolves once it has actually exited. */
   kill(): Promise<void>;
 }
@@ -174,6 +176,7 @@ function spawnHarness(scope: Scope): Harness {
   const overlay = writeAdvisorOverlay(scope.lineage, null, true);
   if (!overlay) throw new Error("advisor overlay was not written");
   let killed = false;
+  const tracker = new LiveExitTracker();
   // Promise.withResolvers would read better but needs ES2024; the node
   // tsconfig targets ES2022 (same reason as `sleep` above).
   let markExited!: () => void;
@@ -191,28 +194,17 @@ function spawnHarness(scope: Scope): Harness {
     extensions: [planExt, extension],
     // capability-control-live pattern: the real binary must read the fixture
     // user file, not the developer's `~/.omp`.
-    spawnProcess: (bin, args, extra) => {
-      const proc = spawn(bin, args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...extra,
-          HOME: scope.home,
-          XDG_CONFIG_HOME: path.join(scope.home, ".config"),
-          XDG_DATA_HOME: path.join(scope.home, ".local", "share"),
-        },
-      });
-      return {
-        stdin: proc.stdin,
-        stdout: proc.stdout,
-        stderr: proc.stderr,
-        kill: (signal) => void proc.kill(signal),
-        onExit: (cb) => proc.on("exit", (code) => cb(code)),
-        onSpawnError: (cb) => proc.on("error", cb),
-      };
-    },
+    spawnProcess: closeAwareSpawn({
+      HOME: scope.home,
+      XDG_CONFIG_HOME: path.join(scope.home, ".config"),
+      XDG_DATA_HOME: path.join(scope.home, ".local", "share"),
+    }),
     onFrame: (frame) => frames.push(frame as Frame),
-    onExit: () => markExited(),
-    onError: () => {},
+    onExit: (code) => {
+      tracker.recordExit(code);
+      markExited();
+    },
+    onError: (msg) => tracker.recordError(msg),
   });
   return {
     client,
@@ -222,9 +214,11 @@ function spawnHarness(scope: Scope): Harness {
         .map((f) => parseAdvisorStats(f.statusText))
         .filter((v): v is AdvisorStatsView => v !== null),
     seenResponse: () => frames.some((f) => f.type === "response"),
+    exitState: () => tracker.state(),
     kill: async () => {
       if (!killed) {
         killed = true;
+        tracker.markTestKilling();
         client.kill();
       }
       await awaitExit(client, exited);
@@ -239,15 +233,20 @@ async function spawnOauthReady(scope: Scope): Promise<Harness> {
   for (let attempt = 0; attempt < OAUTH_ATTEMPTS; attempt++) {
     const harness = spawnHarness(scope);
     try {
-      await waitFor(
+      await waitForOrExit(
         () => (harness.seenResponse() ? true : undefined),
+        () => harness.exitState(),
         OAUTH_READY_TIMEOUT_MS,
         "oauth ready response",
+        100,
       );
       return harness;
     } catch (error) {
       lastError = error;
       await harness.kill();
+      if (error instanceof PreReadyExit && error.isNonZeroExit) {
+        throw new OauthUnavailable(`oauth session never became ready: ${String(error)}`);
+      }
     }
   }
   throw new OauthUnavailable(`oauth session never became ready: ${String(lastError)}`);

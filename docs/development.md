@@ -287,8 +287,11 @@ From the repository root, install on the explicitly selected device:
 ```
 
 CI's `android-check` job runs these debug build/unit/lint tasks and the Android
-release-verifier regression tests on pushes to `main` and all pull requests,
-including forks, on a GitHub-hosted runner with no signing secrets.
+release-verifier regression tests unconditionally on pushes to `main`, and on
+pull requests (including forks) whenever `android/`,
+`packages/desktop/build/icon.png` (which `syncLauncherIcon` reads), or
+`.github/workflows/ci.yml` changes, on a GitHub-hosted runner with no signing
+secrets.
 
 For a signed release build on Linux/macOS, set `ANDROID_KEYSTORE_PATH` and
 `ANDROID_KEYSTORE_PASSWORD` securely (no shell tracing), then from the repository
@@ -902,33 +905,34 @@ For the agent *driving* the run, rather than the app it drives, OMP's own settin
 
 ## Continuous integration order
 
-The shared check workflow splits into three jobs that run in parallel (no
-`needs:` edges between them): `checks` for the static gates and unit tests,
+The shared check workflow splits into four jobs that run in parallel (no
+`needs:` edges between them): `checks` for the static gates and non-desktop
+workspace unit tests, `desktop-unit` for sharded `@omp-ui/desktop` unit tests,
 `live` for the process-backed proofs, and `smokes` for the Electron smokes.
+`checks`, `desktop-unit`, and `live` set `ELECTRON_SKIP_BINARY_DOWNLOAD=1`
+because none of them invoke the Electron binary.
 
 `checks` uses Node 22 and runs these commands in order:
 
 ```bash
 npm ci
-npm run smoke:pty --workspace @omp-ui/desktop
-npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 npm run lint
 npm install --package-lock-only
 git diff --exit-code package-lock.json
 npm run typecheck
-node --test scripts/release-artifacts.test.mjs
-node --test scripts/release-notes.test.mjs
-node --test scripts/close-landed-issues.test.mjs
-node --test scripts/check-commit-refs.test.mjs
-npm test
+node --test scripts/release-artifacts.test.mjs scripts/release-notes.test.mjs scripts/close-landed-issues.test.mjs scripts/check-commit-refs.test.mjs
+npm run themes:check --workspace @omp-ui/desktop
+npm test --workspace @omp-ui/core --workspace @omp-ui/host-lite --workspace @omp-ui/server
 node packages/host-lite/scripts/bundle-session.mjs
 ```
 
 The `npm install --package-lock-only` and `git diff --exit-code package-lock.json` pair asserts that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.
 
+`desktop-unit` is a matrix over vitest shard indices (`unit_shards`): two shards on hosted PR lanes and one shard on the shared `gfx1201` pool, running `npm run test:unit --workspace @omp-ui/desktop -- --shard=<n>/<total>`.
+
 The `live` job is a matrix over vitest shard indices: each shard downloads the pinned Linux x64 omp release — the supported harness, equal to `MIN_SUPPORTED_OMP` (issue #1232) — into the runner's temporary directory, verifies its SHA-256, and sets `OMP_UI_OMP_PATH` for the step, so the suite never touches the runner's installed copy. One harness per policy: CI proves only that pin, and a release that adopts features from a newer omp bumps the pin and `MIN_SUPPORTED_OMP` together (see the live job's comment in `.github/workflows/check.yml`). The suite stays serial inside each shard; wall time falls by splitting files across shards with vitest `--shard`, never by raising `maxWorkers`. PR lanes run four shards on the hosted runner; the gfx1201 pool leg runs one shard because that pool also ships releases.
 
-`smokes` runs `npm run build`, then the browser-pane and plan-verifier smokes under Electron (with the hosted-runner Xvfb fallback), and publishes their summaries.
+`smokes` runs a single `npm run build`, then executes `smoke:pty`, `smoke:knowledge-vault:run`, `smoke:browser-pane:run`, and `smoke:plan-verifier:run` under Electron (with the hosted-runner Xvfb fallback for the windowed smokes) without rebuilding Vite between smokes, and publishes all three summary artifacts.
 
 ### Self-hosted Linux pool
 

@@ -120,16 +120,6 @@ RUN /stage/opt/omp-ui-lite/omp/bin/omp --version \
 # ── Stage 3: Minimal non-root plain-Node 22 runtime image ─────────────────────
 FROM --platform=linux/amd64 node:22-bookworm-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb AS runtime
 
-ARG HOST_LITE_VERSION=0.0.0
-ARG VCS_REF=unknown
-
-LABEL org.opencontainers.image.title="omp-ui Host Lite" \
-      org.opencontainers.image.description="Headless fleet member and routines host for omp-ui" \
-      org.opencontainers.image.source="https://github.com/LankfordAI/omp-ui" \
-      org.opencontainers.image.version="${HOST_LITE_VERSION}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.licenses="MIT"
-
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tini \
@@ -166,6 +156,16 @@ RUN ln -sf /opt/omp-ui-lite/omp/bin/omp /usr/local/bin/omp \
  && chmod 0755 /usr/local/bin/omp-ui-lite \
  && install -d -o node -g node -m 0700 /data \
  && install -d -o node -g node -m 0755 /projects /home/node/.omp /home/node/.omp/natives /home/node/.omp/agent
+
+ARG HOST_LITE_VERSION=0.0.0
+ARG VCS_REF=unknown
+
+LABEL org.opencontainers.image.title="omp-ui Host Lite" \
+      org.opencontainers.image.description="Headless fleet member and routines host for omp-ui" \
+      org.opencontainers.image.source="https://github.com/LankfordAI/omp-ui" \
+      org.opencontainers.image.version="${HOST_LITE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production \
     OMP_UI_LITE_HOME=/data \

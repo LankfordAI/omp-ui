@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { RpcClient, compareVersions, readInstalledOmpVersion, resolveOmpBinary } from "@omp-ui/core";
 import { formatBtwInjectText, parseBtwRecord, splitBtwInject } from "@omp-ui/core/side-questions";
+import { LiveExitTracker, closeAwareSpawn, waitForOrExit } from "./test/live-exit";
 
 /**
  * Pins the `<inject>` wire claim behind issue #1029 (upstream
@@ -45,6 +45,7 @@ interface Scope {
   frames: Frame[];
   client: RpcClient;
   exited: Promise<void>;
+  tracker: LiveExitTracker;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -74,6 +75,7 @@ function spawnScope(env: NodeJS.ProcessEnv): Scope {
   fs.mkdirSync(lineage, { recursive: true });
   fs.mkdirSync(project, { recursive: true });
   const frames: Frame[] = [];
+  const tracker = new LiveExitTracker();
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
@@ -83,29 +85,20 @@ function spawnScope(env: NodeJS.ProcessEnv): Scope {
     lineageDir: lineage,
     ompPath: ompPath!,
     configOverlays: [],
-    spawnProcess: (bin, args, extra) => {
-      const proc = spawn(bin, args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...extra, ...env },
-      });
-      return {
-        stdin: proc.stdin,
-        stdout: proc.stdout,
-        stderr: proc.stderr,
-        kill: (signal) => void proc.kill(signal),
-        onExit: (cb) => proc.on("exit", (code) => cb(code)),
-        onSpawnError: (cb) => proc.on("error", cb),
-      };
-    },
+    spawnProcess: closeAwareSpawn(env),
     onFrame: (frame) => frames.push(frame as Frame),
-    onExit: () => markExited(),
-    onError: () => {},
+    onExit: (code) => {
+      tracker.recordExit(code);
+      markExited();
+    },
+    onError: (msg) => tracker.recordError(msg),
   });
-  return { base, frames, client, exited };
+  return { base, frames, client, exited, tracker };
 }
 
 const scopes: Scope[] = [];
 async function killScope(scope: Scope): Promise<void> {
+  scope.tracker.markTestKilling();
   scope.client.kill();
   const exitedNow = await Promise.race([
     scope.exited.then(() => true),
@@ -134,8 +127,9 @@ async function request(scope: Scope, command: Record<string, unknown>): Promise<
 }
 
 async function ready(scope: Scope): Promise<void> {
-  await pollUntil(
+  await waitForOrExit(
     () => (scope.frames.some((f) => f.type === "ready" || f.type === "response") ? true : undefined),
+    () => scope.tracker.state(),
     60_000,
     "omp ready",
   );

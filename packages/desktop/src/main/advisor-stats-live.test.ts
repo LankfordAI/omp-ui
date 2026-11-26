@@ -10,6 +10,7 @@ import {
   writeAdvisorStatsExtension,
 } from "@omp-ui/core";
 import { ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
+import { LiveExitTracker, PreReadyExit, closeAwareSpawn, waitForOrExit, type LiveExitState } from "./test/live-exit";
 
 /**
  * End-to-end proof that the advisor cost readout reaches the renderer collector
@@ -62,15 +63,20 @@ async function spawnOauthReady(scope: Scope, what: string, resumeSessionId?: str
   for (let attempt = 0; attempt < OAUTH_ATTEMPTS; attempt++) {
     const harness = spawnHarness(scope, resumeSessionId);
     try {
-      await waitFor(
+      await waitForOrExit(
         () => (harness.seenResponse() ? true : undefined),
+        () => harness.exitState(),
         OAUTH_READY_TIMEOUT_MS,
         what,
+        100,
       );
       return harness;
     } catch (error) {
       lastError = error;
       await harness.kill();
+      if (error instanceof PreReadyExit && error.isNonZeroExit) {
+        throw new OauthUnavailable(`oauth session never became ready (${what}): ${String(error)}`);
+      }
     }
   }
   throw new OauthUnavailable(`oauth session never became ready (${what}): ${String(lastError)}`);
@@ -84,13 +90,15 @@ async function materializeSessionId(scope: Scope): Promise<string> {
   for (let attempt = 0; attempt < OAUTH_ATTEMPTS; attempt++) {
     const harness = spawnHarness(scope);
     try {
-      await waitFor(
+      await waitForOrExit(
         () => (harness.seenResponse() ? true : undefined),
+        () => harness.exitState(),
         OAUTH_READY_TIMEOUT_MS,
         "oauth ready response",
+        100,
       );
       harness.client.send({ type: "prompt", message: "just say ok" });
-      const sessionId = await waitFor(
+      const sessionId = await waitForOrExit(
         () => {
           try {
             return sessionIdFromLineage(scope.lineage);
@@ -98,14 +106,21 @@ async function materializeSessionId(scope: Scope): Promise<string> {
             return undefined;
           }
         },
+        () => harness.exitState(),
         OAUTH_SESSION_TIMEOUT_MS,
         "oauth session file to materialize",
+        100,
       );
       await harness.kill();
       return sessionId;
     } catch (error) {
       lastError = error;
       await harness.kill();
+      if (error instanceof PreReadyExit && error.isNonZeroExit) {
+        throw new OauthUnavailable(
+          `oauth session file never materialized in ${scope.lineage}: ${String(error)}`,
+        );
+      }
     }
   }
   throw new OauthUnavailable(
@@ -133,6 +148,8 @@ interface Harness {
   advisorFrames(): AdvisorFrame[];
   /** Any response frames from THIS process (indexed from its spawn). */
   seenResponse(): boolean;
+  /** Drained exit state of THIS process. */
+  exitState(): LiveExitState;
   /** Signals the child and resolves once it has actually exited. */
   kill(): Promise<void>;
 }
@@ -185,6 +202,7 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
   const overlay = writeAdvisorOverlay(scope.lineage, null, true);
   if (!overlay) throw new Error("advisor overlay was not written");
   let killed = false;
+  const tracker = new LiveExitTracker();
   // Promise.withResolvers would read better but needs ES2024; the node
   // tsconfig targets ES2022 (same reason as `sleep` above).
   let markExited!: () => void;
@@ -203,9 +221,13 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
     advisor: true,
     configOverlays: [overlay],
     extensions: [planExt, extension],
+    spawnProcess: closeAwareSpawn(),
     onFrame: (frame) => tail.push(frame as Frame),
-    onExit: () => markExited(),
-    onError: () => {},
+    onExit: (code) => {
+      tracker.recordExit(code);
+      markExited();
+    },
+    onError: (msg) => tracker.recordError(msg),
   });
   return {
     client,
@@ -214,9 +236,11 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
         .filter((f) => f.type === "extension_ui_request" && f.statusKey === ADVISOR_STATS_KEY)
         .map((f) => ({ text: f.statusText ?? "" })),
     seenResponse: () => tail.some((f) => f.type === "response"),
+    exitState: () => tracker.state(),
     kill: async () => {
       if (!killed) {
         killed = true;
+        tracker.markTestKilling();
         client.kill();
       }
       await awaitExit(client, exited);
