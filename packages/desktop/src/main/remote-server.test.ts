@@ -405,7 +405,9 @@ describe("remote password sign-in", () => {
     expect(state.hasPassword).toBe(true);
     expect(state.urls[0]).toBe(`http://127.0.0.1:${port}/`);
     expect(state.urls[0]).not.toContain("?t=");
-    expect(state.tokenUrls[0]).toContain(state.token);
+    // The token fallback is no longer advertised once a password exists: the
+    // manifest already omits the token in password mode (finding 1).
+    expect(state.tokenUrls).toEqual([]);
 
     // Only the salted hash is persisted — never the password itself.
     const { hash, salt } = registryPassword();

@@ -197,11 +197,33 @@ function cookieToken(header: string | undefined): string | null {
 /** Where the presented token came from — a query hit is what earns the cookie. */
 type TokenSource = "header" | "query" | "cookie" | null;
 
-function presentedToken(req: IncomingMessage, url: URL): { value: string | null; from: TokenSource } {
+/** One shared Set-Cookie builder so the TLS-earned `Secure` attribute exists exactly once
+ *  (security review, finding 1, incremental): this listener is plain HTTP, so TLS is visible
+ *  only as `X-Forwarded-Proto: https` from a reverse proxy — the one deployment shape where
+ *  this server ever sees TLS. A spoofed header on plain HTTP just adds an attribute the
+ *  browser ignores over http, and the credential gate sits ahead of any state change. */
+function cookieAttributes(sessionCred: string, req: IncomingMessage): string {
+  const forwardedProto = singleHeader(req, "x-forwarded-proto");
+  const secure = forwardedProto === "https" ? "; Secure" : "";
+  return `${REMOTE_COOKIE}=${encodeURIComponent(sessionCred)}; Path=/; HttpOnly; SameSite=Strict${secure}; Max-Age=${COOKIE_MAX_AGE}`;
+}
+
+function presentedToken(
+  req: IncomingMessage,
+  url: URL,
+  allowQuery: boolean,
+): { value: string | null; from: TokenSource } {
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) return { value: auth.slice("Bearer ".length).trim(), from: "header" };
-  const query = url.searchParams.get(REMOTE_TOKEN_PARAM);
-  if (query !== null && query !== "") return { value: query, from: "query" };
+  // The query parameter authenticates only the pairing surface (the `/`
+  // landing page and the WS upgrade — the pairing flow's very next step).
+  // Every other route ignores it, so a tokened deep link cannot authenticate
+  // an asset URL and a pasted link cannot leak the credential into Referer
+  // headers of subresource loads (security review, finding 9).
+  if (allowQuery) {
+    const query = url.searchParams.get(REMOTE_TOKEN_PARAM);
+    if (query !== null && query !== "") return { value: query, from: "query" };
+  }
   const cookie = cookieToken(req.headers.cookie);
   if (cookie !== null) return { value: cookie, from: "cookie" };
   return { value: null, from: null };
@@ -419,8 +441,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       }
       loginThrottle.clear(ip);
       res.writeHead(302, {
-        // No `Secure`: plain HTTP is the v1 transport (see the settings footer's honesty note).
-        "Set-Cookie": `${REMOTE_COOKIE}=${encodeURIComponent(sessionCred!)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
+        "Set-Cookie": cookieAttributes(sessionCred!, req),
         Location: "/",
       });
       res.end();

@@ -247,12 +247,63 @@ describe("startRemoteServer auth", () => {
 
   it("serves the manifest with the token in start_url", async () => {
     const { base } = await serve();
-    const res = await fetch(`${base}/manifest.webmanifest?t=${TOKEN}`);
+    // The query token authenticates only `/` now (finding 9); the manifest is
+    // fetched with the header (or the cookie the pairing page set).
+    const res = await fetch(`${base}/manifest.webmanifest`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/manifest+json");
     const body = (await res.json()) as { start_url: string; display: string };
     expect(body.start_url).toContain(TOKEN);
     expect(body.display).toBe("standalone");
+  });
+
+  it("marks the session cookie Secure only behind X-Forwarded-Proto: https", async () => {
+    // Login redirect path.
+    const withTls = await serve({ password: PW_HASH });
+    const login = await postLogin(withTls.base, PW, { "X-Forwarded-Proto": "https" });
+    expect(login.status).toBe(302);
+    expect(login.headers.get("set-cookie")).toContain("; Secure");
+
+    const plain = await serve({ password: PW_HASH });
+    const plainLogin = await postLogin(plain.base, PW);
+    expect(plainLogin.status).toBe(302);
+    expect(plainLogin.headers.get("set-cookie")).not.toContain("Secure");
+
+    // Pairing query-hit re-set path.
+    const { base } = await serve();
+    const paired = await fetch(`${base}/?t=${TOKEN}`, {
+      headers: { "X-Forwarded-Proto": "https" },
+      redirect: "manual",
+    });
+    expect(paired.status).toBe(503);
+    expect(paired.headers.get("set-cookie")).toContain("; Secure");
+
+    const plainPair = await fetch(`${base}/?t=${TOKEN}`, { redirect: "manual" });
+    expect(plainPair.status).toBe(503);
+    expect(plainPair.headers.get("set-cookie")).not.toContain("Secure");
+  });
+
+  it("ignores the query token off the pairing surface", async () => {
+    const { base } = await serve();
+    // The landing page still pairs via ?t=, and it sets the cookie the rest
+    // of the session uses.
+    const paired = await fetch(`${base}/?t=${TOKEN}`, { redirect: "manual" });
+    expect(paired.status).toBe(503);
+    expect(paired.headers.get("set-cookie")).toContain("omp_ui_token=");
+
+    // A tokened deep link (bookmarked asset URL, pasted healthz link) can no
+    // longer ride the query parameter: 401, the client re-pairs via /login
+    // redirect or a fresh pairing link.
+    for (const route of ["/manifest.webmanifest", "/healthz", "/whatever.js"]) {
+      const res = await fetch(`${base}${route}?t=${TOKEN}`);
+      expect(res.status).toBe(401);
+    }
+
+    // The cookie from the pairing hit authenticates everything.
+    const jar = paired.headers.get("set-cookie")!.split(";")[0];
+    expect((await fetch(`${base}/healthz`, { headers: { cookie: jar } })).status).toBe(200);
   });
 });
 
@@ -1077,7 +1128,7 @@ describe("startRemoteServer malformed requests", () => {
       // Cookie-only (no query token): the malformed value must fail as a credential, not throw.
       const bad = await rawGetWithHeader(handle.port, "/", "Cookie: omp_ui_token=%ZZ");
       expect(bad.status).toBe(401);
-      const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+      const good = await rawGetWithHeader(handle.port, "/healthz", `Authorization: Bearer ${TOKEN}`);
       expect(good.status).toBe(200);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
