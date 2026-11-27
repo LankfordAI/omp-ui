@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- Renderer XSS containment (security review, finding 4): scripts only from the
+         app's own origin — never inline. Styles keep 'unsafe-inline': themes inject a
+         <style> element and the artifact runtime writes CSS text. The webview guest
+         (HTML artifacts) and media/data sources load from the listed schemes. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self' data: blob:;"
+    />
     <title>omp-ui</title>
   </head>
   <body>
