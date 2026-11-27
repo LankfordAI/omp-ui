@@ -377,6 +377,9 @@ export class MainBackend {
   private readonly fleetServer: FleetServer;
   /** Card-gated project requests on this computer (#1228, ADR-0099). */
   private readonly localProjectRequests: LocalProjectRequests;
+  /** TabId → latest git clone progress line, ephemeral while a local card clone runs (#1395). */
+  readonly #cloneProgress = new Map<string, string>();
+  readonly #cloneProgressSentAt = new Map<string, number>();
   /** Card-gated grant raises against joined members (#1393). */
   private readonly grantRaiseRequests: FleetGrantRaiseRequests;
   /** Fleet terminals this app opened on members (issue #991, ADR-0084). */
@@ -973,6 +976,7 @@ export class MainBackend {
       homedir: () => os.homedir(),
       ask: (tabId, prompt, signal) => this.sessions.projectRequests.request(tabId, prompt, signal),
       addProject: (dir) => this.addProjectPath(dir),
+      reportCloneProgress: (tabId, line) => this.reportCloneProgress(tabId, line),
     });
     this.grantRaiseRequests = new FleetGrantRaiseRequests({
       eligibility: (tabId) => this.sessions.grantRaiseEligibility(tabId),
@@ -3882,12 +3886,29 @@ export class MainBackend {
       // with no process reports none.
       pendingDialogs: this.sessions.pendingDialogs(record.tabId),
       projectRequest: this.sessions.projectRequests.prompt(record.tabId),
+      cloneProgress: this.#cloneProgress.get(record.tabId) ?? null,
       grantRaiseRequest: this.sessions.grantRaises.prompt(record.tabId),
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
       ...(vibe === undefined ? {} : { vibe }),
       modelHold: this.sessions.modelHold(record.tabId),
     };
+  }
+
+  /** Throttled to one broadcast per tab per second; a null clears immediately. */
+  private reportCloneProgress(tabId: string, line: string | null): void {
+    if (line === null) {
+      this.#cloneProgress.delete(tabId);
+      this.#cloneProgressSentAt.delete(tabId);
+      void this.broadcast();
+      return;
+    }
+    const now = Date.now();
+    const last = this.#cloneProgressSentAt.get(tabId) ?? 0;
+    this.#cloneProgress.set(tabId, line);
+    if (now - last < 1_000) return;
+    this.#cloneProgressSentAt.set(tabId, now);
+    void this.broadcast();
   }
 
   /** Fans state to every sink; the window sink self-guards, so remote clients survive a closed window. */

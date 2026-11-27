@@ -3,8 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetToolProjectArgs, OwnedSessionRecord, ProjectRecord, ProjectRequestPrompt } from "@omp-ui/core";
+import { LOCAL_CLONE_INACTIVITY_MS, LOCAL_CLONE_TIMEOUT_MS } from "@omp-ui/core";
 import type { HostCallControl } from "./host-bridge";
-import { LocalProjectRequests, type LocalGitRunner, type LocalProjectRequestDeps } from "./local-project-request";
+import { LocalProjectRequests, execLocalGit, type LocalGitRunner, type LocalProjectRequestDeps } from "./local-project-request";
 import type { ProjectRequestOutcome } from "./project-request-gate";
 import { ownedSessionRecord } from "./test/fixtures";
 
@@ -45,6 +46,7 @@ function harness(over: {
   const projects: ProjectRecord[] = over.projects ?? [];
   const asked: ProjectRequestPrompt[] = [];
   const added: string[] = [];
+  const progress: Array<[string, string | null]> = [];
   const git = vi.fn<LocalGitRunner>(over.git ?? (async () => ""));
   const deps: LocalProjectRequestDeps = {
     eligibility: () => over.eligibility ?? null,
@@ -59,9 +61,12 @@ function harness(over: {
     addProject: async (dir) => {
       added.push(dir);
     },
+    reportCloneProgress: (tabId, line) => {
+      progress.push([tabId, line]);
+    },
     git,
   };
-  return { requests: new LocalProjectRequests(deps), asked, added, git };
+  return { requests: new LocalProjectRequests(deps), asked, added, progress, git };
 }
 
 const register = (p: string): FleetToolProjectArgs => ({ machine: "this computer", verb: "register", repositoryUrl: null, path: p });
@@ -132,7 +137,7 @@ describe("LocalProjectRequests (#1228)", () => {
     const h = harness({
       answer: () => ({ kind: "allow", parent }),
       git: async (args) => {
-        if (args[0] === "clone") checkout(args[3]!);
+        if (args[0] === "clone") checkout(args[4]!);
         return "";
       },
     });
@@ -142,8 +147,20 @@ describe("LocalProjectRequests (#1228)", () => {
       path: path.join(parent, "app"),
     });
     expect(h.asked[0]).toMatchObject({ verb: "clone", name: "app", defaultParent: repos });
-    expect(h.git.mock.calls[0]![0]).toEqual(["clone", "--", "https://github.com/acme/app.git", path.join(parent, "app")]);
-    expect(h.git.mock.calls[0]![1]).toMatchObject({ env: expect.objectContaining({ GIT_TERMINAL_PROMPT: "0" }) });
+    expect(h.git.mock.calls[0]![0]).toEqual([
+      "clone",
+      "--filter=blob:none",
+      "--progress",
+      "--",
+      "https://github.com/acme/app.git",
+      path.join(parent, "app"),
+    ]);
+    expect(h.git.mock.calls[0]![1]).toMatchObject({
+      timeout: LOCAL_CLONE_TIMEOUT_MS,
+      inactivityMs: LOCAL_CLONE_INACTIVITY_MS,
+      env: expect.objectContaining({ GIT_TERMINAL_PROMPT: "0" }),
+    });
+    expect(c.rearmWatchdog).toHaveBeenCalledWith(LOCAL_CLONE_TIMEOUT_MS + 15_000);
     expect(h.added).toEqual([path.join(parent, "app")]);
   });
 
@@ -168,7 +185,27 @@ describe("LocalProjectRequests (#1228)", () => {
     expect(h.added).toEqual([]);
   });
 
-  it("removes the partial destination when git fails", async () => {
+  it("keeps the partial destination and reports full stderr with a resume hint when .git exists", async () => {
+    const dest = path.join(repos, "app");
+    const h = harness({
+      git: async () => {
+        checkout(dest);
+        fs.mkdirSync(path.join(dest, "partial"), { recursive: true });
+        throw new Error("fatal: transport failed\nerror: RPC failed");
+      },
+    });
+    expect(await h.requests.request(TAB, clone("https://github.com/acme/app"), control())).toEqual({
+      status: "refused",
+      reason:
+        "git clone failed: fatal: transport failed\nerror: RPC failed — the partial checkout was kept at " +
+        `${dest}; retrying the same clone will resume it`,
+    });
+    expect(fs.existsSync(dest)).toBe(true);
+    expect(fs.existsSync(path.join(dest, ".git"))).toBe(true);
+    expect(h.added).toEqual([]);
+  });
+
+  it("removes the destination when git fails without writing .git", async () => {
     const dest = path.join(repos, "app");
     const h = harness({
       git: async () => {
@@ -178,10 +215,75 @@ describe("LocalProjectRequests (#1228)", () => {
     });
     expect(await h.requests.request(TAB, clone("https://github.com/acme/app"), control())).toEqual({
       status: "refused",
-      reason: "git clone failed: fatal: repository not found",
+      reason: "git clone failed: fatal: repository not found\nmore",
     });
     expect(fs.existsSync(dest)).toBe(false);
     expect(h.added).toEqual([]);
+  });
+
+  it("resumes a kept partial clone when the origin matches and completes the checkout", async () => {
+    const dest = checkout(path.join(repos, "app"));
+    const h = harness({
+      git: async (args) => {
+        if (args[0] === "-C" && args[2] === "remote") return "https://github.com/acme/app";
+        if (args[0] === "-C" && args[2] === "symbolic-ref") return "origin/main";
+        if (args[0] === "-C" && args[2] === "fetch") h.git.mock.calls[1]![1].onStderr?.("Receiving objects:  99%\rReceiving objects: 100%\r\n");
+        return "";
+      },
+    });
+    const c = control();
+    expect(await h.requests.request(TAB, clone("https://github.com/acme/app"), c)).toMatchObject({
+      status: "accepted",
+      path: dest,
+    });
+    const calls = h.git.mock.calls.map(([argv]) => argv);
+    expect(calls).toEqual([
+      ["-C", dest, "remote", "get-url", "origin"],
+      ["-C", dest, "fetch", "--progress", "origin", "+refs/heads/*:refs/remotes/origin/*"],
+      ["-C", dest, "remote", "set-head", "origin", "--auto"],
+      ["-C", dest, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+      ["-C", dest, "checkout", "-f", "-B", "--progress", "main", "origin/main"],
+      ["rev-parse", "HEAD"],
+    ]);
+    const fetchOpts = h.git.mock.calls[1]![1]!;
+    expect(fetchOpts.inactivityMs).toBe(LOCAL_CLONE_INACTIVITY_MS);
+    expect(fetchOpts.onStderr).toBeDefined();
+    expect(c.rearmWatchdog).toHaveBeenCalledWith(LOCAL_CLONE_TIMEOUT_MS + 15_000);
+    expect(c.rearmWatchdog).toHaveBeenCalledTimes(4); // once after Allow, once per resume step
+    expect(h.progress).toContainEqual([TAB, "Receiving objects: 100%"]);
+    expect(h.progress.at(-1)).toEqual([TAB, null]);
+    expect(h.added).toEqual([dest]);
+  });
+
+  it("refuses already exists for a foreign directory with .git and never fetches", async () => {
+    const dest = checkout(path.join(repos, "app"));
+    const h = harness({
+      git: async (args) => (args[0] === "-C" && args[2] === "remote" ? "https://gitlab.com/other/repo.git" : ""),
+    });
+    expect(await h.requests.request(TAB, clone("https://github.com/acme/app"), control())).toEqual({
+      status: "refused",
+      reason: `${dest} already exists`,
+    });
+    expect(h.git.mock.calls.map(([argv]) => argv)).toEqual([["-C", dest, "remote", "get-url", "origin"]]);
+    expect(h.added).toEqual([]);
+  });
+
+  it("streams clone progress through reportCloneProgress and clears it at the end", async () => {
+    const parent = path.join(base, "elsewhere");
+    fs.mkdirSync(parent);
+    const h = harness({
+      answer: () => ({ kind: "allow", parent }),
+      git: async (args, opts) => {
+        if (args[0] === "clone") {
+          checkout(args[4]!);
+          opts.onStderr?.("\x1b[2KReceiving objects:  40% (12/30)\rReceiving objects: 100%\r\n");
+        }
+        return "";
+      },
+    });
+    expect(await h.requests.request(TAB, clone("https://github.com/acme/app"), control())).toMatchObject({ status: "accepted" });
+    expect(h.progress).toContainEqual([TAB, "Receiving objects: 100%"]);
+    expect(h.progress.at(-1)).toEqual([TAB, null]);
   });
 
   it("refuses an unsupported clone source without a card", async () => {
@@ -189,4 +291,56 @@ describe("LocalProjectRequests (#1228)", () => {
     expect(await h.requests.request(TAB, clone("file:///srv/app"), control())).toMatchObject({ status: "refused" });
     expect(h.asked).toEqual([]);
   });
+});
+
+describe("execLocalGit runner (#1395)", () => {
+  let base: string;
+  let bin: string;
+  let stderrCalls: string[];
+  const stubGit = (body: string): void => {
+    fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(path.join(bin, "git"), 0o755);
+  };
+
+  beforeEach(() => {
+    base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-gitrunner-")));
+    bin = path.join(base, "bin");
+    fs.mkdirSync(bin);
+    stderrCalls = [];
+  });
+  afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
+
+  const run = (args: string[], over: Partial<Parameters<LocalGitRunner>[1]> = {}) =>
+    execLocalGit(args, { cwd: base, timeout: 10_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, ...over });
+
+  it("kills the child after stderr silence and reports the inactivity message", async () => {
+    stubGit('echo "counting" >&2; exec sleep 30');
+    const onStderr = (chunk: string) => stderrCalls.push(chunk);
+    await expect(run(["x"], { inactivityMs: 200, onStderr })).rejects.toThrow(
+      "git produced no stderr output for 0s — killed (stalled transport, not a slow clone)",
+    );
+    expect(stderrCalls).toEqual(["counting\n"]);
+  }, 10_000);
+
+  it("kills the child at the wall cap even with steady output", async () => {
+    stubGit('while true; do echo "tick" >&2; sleep 0.05; done');
+    await expect(run(["x"], { timeout: 300 })).rejects.toThrow("git did not finish within 1m — killed");
+  }, 10_000);
+
+  it("kills the child when the signal aborts", async () => {
+    stubGit('echo "started" >&2; exec sleep 30');
+    const abort = new AbortController();
+    const onStderr = (chunk: string) => stderrCalls.push(chunk);
+    const pending = run(["x"], { signal: abort.signal, onStderr });
+    await vi.waitFor(() => expect(stderrCalls).toEqual(["started\n"]));
+    abort.abort();
+    await expect(pending).rejects.toThrow("git was cancelled");
+  }, 10_000);
+
+  it("resolves stdout and rejects with git's stderr on failure", async () => {
+    stubGit('echo out; echo "bad" >&2; exit 1');
+    await expect(run(["x"])).rejects.toThrow("bad");
+    stubGit("echo out");
+    await expect(run(["x"])).resolves.toBe("out\n");
+  }, 10_000);
 });

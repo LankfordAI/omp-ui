@@ -11,6 +11,7 @@ import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { ApprovalCard } from "./ApprovalCard";
+import { CloneProgressBanner } from "./CloneProgressBanner";
 import { ProjectRequestCard } from "./ProjectRequestCard";
 import { GrantRaiseCard } from "./GrantRaiseCard";
 import { FindBar } from "./FindBar";
@@ -538,6 +539,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     column's edges at Full (issue #1059). */}
                 <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
                   {active && <ApprovalCard tabId={tabId} />}
+                  {active && <CloneProgressBanner tabId={tabId} />}
                   {active && <ProjectRequestCard tabId={tabId} />}
                   {active && <GrantRaiseCard tabId={tabId} />}
                   {/* No composer here (issue #421): the card keeps its own
@@ -615,6 +617,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                       the viewport and never sees this box. */}
                   <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
                     <ApprovalCard tabId={tabId} />
+                    {active && <CloneProgressBanner tabId={tabId} />}
                     {active && <ProjectRequestCard tabId={tabId} />}
                     {active && <GrantRaiseCard tabId={tabId} />}
                     <ExtensionDialogHost
