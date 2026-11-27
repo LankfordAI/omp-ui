@@ -414,6 +414,37 @@ describe("remote password sign-in", () => {
     expect(fs.readFileSync(registryFile, "utf8")).not.toContain("correct-horse-battery");
   });
 
+  it("does not relay the bearer token into non-renderer sinks", async () => {
+    await invoke(CH.setRemotePort, port);
+    await invoke(CH.setRemoteEnabled, true);
+    const token = lastPush().token;
+
+    // A sink standing in for the remote WS relay — anything but the local
+    // window mirror must never see the credential.
+    const relayed: Array<{ channel: string; args: unknown[] }> = [];
+    const off = backend.addSink((channel, args) => relayed.push({ channel, args }));
+
+    await invoke(CH.setRemoteEnabled, false);
+    await invoke(CH.setRemoteEnabled, true);
+    off();
+
+    const relayState = relayed
+      .filter((s) => s.channel === CH.onRemoteState)
+      .map((s) => s.args[0] as RemoteState)
+      .at(-1);
+    expect(relayState).toBeTruthy();
+    expect(relayState!.token).toBe("");
+    expect(relayState!.tokenUrls).toEqual([]);
+    // No password: token-bearing pairing URLs are the same leak by another name.
+    expect(relayState!.urls).toEqual([]);
+    expect(token).not.toBe("");
+
+    // The local window still got the full state, token included.
+    const local = pushes().at(-1)!;
+    expect(local.token).toBe(token);
+    expect(local.tokenUrls.length).toBeGreaterThan(0);
+  });
+
   it("rejects a too-short password without persisting", async () => {
     await expect(invoke(CH.setRemotePassword, "short")).rejects.toThrow(/at least 8 characters/);
     const state = (await invoke(CH.getRemoteState)) as RemoteState;

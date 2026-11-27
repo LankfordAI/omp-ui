@@ -234,6 +234,7 @@ import {
   type ThemeSource,
   type ThemeToolArgs,
   type ThemeWriteSlot,
+  type RemoteState,
 } from "@omp-ui/core";
 import type { ThemePreference } from "@omp-ui/core/theme";
 import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
@@ -823,7 +824,10 @@ export class MainBackend {
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
-    this.addSink((channel, args) => this.sendToRenderers(channel, args));
+    // Held by identity so the remote-state publisher can skip it when it fans
+    // out the token-stripped copy to the other sinks (security review, finding 3).
+    this.rendererSink = (channel, args) => this.sendToRenderers(channel, args);
+    this.addSink(this.rendererSink);
     this.appUpdater = new AppUpdater({
       win,
       enabled: opts.appUpdateEnabled ?? app.isPackaged,
@@ -908,7 +912,24 @@ export class MainBackend {
       send: (state) => {
         // The remote port joins the browser pane's denied loopback ports (#531).
         this.sessions.setRemoteAccessPort(state.status === "listening" ? state.port : null);
-        this.send(CH.onRemoteState, state);
+        // The local window gets the full state (settings page reveals, copies,
+        // QRs the token); every other sink — the remote WS relay in
+        // particular — gets the credential stripped, so a
+        // password-authenticated client never receives the fallback bearer
+        // credential (security review, finding 3). A token-bearing pairing
+        // URL is the same leak by another name: tokenUrls go always, and urls
+        // too when no password exists (they carry the token then).
+        this.sendToRenderers(CH.onRemoteState, [state]);
+        const stripped: RemoteState = {
+          ...state,
+          token: "",
+          tokenUrls: [],
+          urls: state.hasPassword ? state.urls : [],
+        };
+        for (const sink of this.sinks) {
+          if (sink === this.rendererSink) continue; // local window got the full state above
+          sink(CH.onRemoteState, [stripped]);
+        }
       },
     });
     // A registry that already carries a life — projects or sessions — is not a
@@ -1244,6 +1265,10 @@ export class MainBackend {
   }
 
   private readonly sinks = new Set<(channel: string, args: unknown[]) => void>();
+  /** The desktop-window mirror's identity inside `sinks` — the remote-state
+   * publisher sends the local window the full state and skips it when fanning
+   * out the token-stripped copy (security review, finding 3). */
+  private rendererSink: ((channel: string, args: unknown[]) => void) | null = null;
 
   /** Registers an extra event mirror (the remote server). Returns its unsubscribe. */
   addSink(sink: (channel: string, args: unknown[]) => void): () => void {
