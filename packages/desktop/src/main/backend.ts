@@ -2991,6 +2991,11 @@ export class MainBackend {
       throw err instanceof Error ? err : new Error(String(err));
     });
     try {
+      // The ingest target must be a registered project or an owned worktree
+      // (same gate getBranchDiff/listBranches/checkoutBranch use): a chat
+      // scratch dir is deliberately excluded — chats are host-local
+      // (ADR-0059) and pack-start already refuses transcript-less rows.
+      this.registeredProjectOrWorktreePath(projectCwd);
       if (!this.ompPath) return { ok: false, tabId: null, message: "omp binary not resolved" };
       if (!fs.existsSync(projectCwd) || !fs.statSync(projectCwd).isDirectory()) {
         return { ok: false, tabId: null, message: `target directory ${projectCwd} does not exist` };
