@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
-import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
+import { parseSha256Sums } from "./app-update";
+import { defaultDownloadFetch, defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
 import { resolveOmpBinary } from "./paths";
 import { compareVersions, parseSemver } from "./semver";
 import type { OmpUpdateInfo } from "./types";
@@ -167,13 +168,27 @@ export async function downloadOmp(opts: {
     throw new Error(`unsupported platform/arch for omp binary (${process.platform}/${process.arch})`);
   }
   const version = opts.version.replace(/^v/, "");
+  const fetchImpl = opts.fetchImpl ?? defaultDownloadFetch;
+  // GitHub publishes SHA256SUMS.txt alongside the assets (same convention as
+  // the app updater, security review finding 5). When it exists and names the
+  // asset the digest is authoritative: a mismatch fails the download even if
+  // the binary prints a correct version. Older tags without the file fall
+  // back to the version probe alone.
+  const sums = await fetchOmpSha256Sums(`v${version}`, fetchImpl);
+  const expectedSha256 = sums?.get(asset) ?? undefined;
+  if (sums !== null && expectedSha256 === undefined) {
+    console.warn("[omp-update] SHA256SUMS.txt for v%s does not name %s", version, asset);
+  } else if (sums === null) {
+    console.warn("[omp-update] no SHA256SUMS.txt for v%s; version probe only", version);
+  }
   await downloadFileAtomically({
     url: `${OMP_RELEASE_BASE}/v${version}/${asset}`,
     targetPath: opts.targetPath,
     description: `omp ${version}`,
-    fetchImpl: opts.fetchImpl,
+    fetchImpl,
     mode: process.platform === "win32" ? undefined : 0o755,
     onProgress: opts.onProgress,
+    expectedSha256,
     validateTemp:
       opts.verifyRunner === null
         ? undefined
@@ -187,6 +202,23 @@ export async function downloadOmp(opts: {
             }
           },
   });
+}
+
+/** SHA256SUMS.txt from an omp release tag, or null on any failure. Same
+ * parsing as the app updater; the release base differs (omp's repo). */
+async function fetchOmpSha256Sums(
+  tag: string,
+  fetchImpl: DownloadFetchLike,
+): Promise<Map<string, string> | null> {
+  try {
+    const res = await fetchImpl(`${OMP_RELEASE_BASE}/${tag}/SHA256SUMS.txt`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    return parseSha256Sums(Buffer.from(await res.arrayBuffer()).toString("utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /**
