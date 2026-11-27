@@ -335,13 +335,24 @@ describe("auth bundle handlers (issue #888)", () => {
     }
   });
 
-  it("import-file runs omp auth import on the user's own file untouched", async () => {
+  it("import-picked-bundle opens the dialog, imports the user's own file untouched, and never accepts a renderer path", async () => {
     setup();
     const userFile = path.join(base, "their-copy.json");
     fs.writeFileSync(userFile, '{"creds":"theirs"}');
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [userFile] });
     importMock.mockResolvedValueOnce({ ok: true });
-    await expect(invoke(CH.authImportFile, userFile)).resolves.toEqual({ ok: true, message: null });
+    await expect(invoke(CH.authImportPickedBundle)).resolves.toEqual({ ok: true, message: null });
     expect(importMock.mock.calls[0]![1]).toBe(userFile);
     expect(fs.existsSync(userFile)).toBe(true);
+  });
+
+  it("import-picked-bundle reports a cancelled dialog as an ok no-op without spawning omp", async () => {
+    setup();
+    showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    await expect(invoke(CH.authImportPickedBundle)).resolves.toEqual({
+      ok: true,
+      message: "cancelled",
+    });
+    expect(importMock).not.toHaveBeenCalled();
   });
 });

@@ -2255,8 +2255,7 @@ export class MainBackend {
         [CH.authExportBundle]: () => this.authExportBundle(),
         [CH.authImportBundle]: (bundleBase64: string) => this.authImportBundle(bundleBase64),
         [CH.authSaveBundle]: () => this.authSaveBundle(),
-        [CH.authPickBundleFile]: () => this.authPickBundleFile(),
-        [CH.authImportFile]: (filePath: string) => this.authImportFile(filePath),
+        [CH.authImportPickedBundle]: () => this.authImportPickedBundle(),
         /** Live Collab hosting is terminal-tab only (issue #686): the tracker
          * drives omp's own registry CLI and the PTY keystroke route. */
         [CH.collabList]: () => this.sessions.collabSnapshots(),
@@ -3178,11 +3177,15 @@ export class MainBackend {
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
   }
 
-  /** Import a user-picked file directly — their file stays as they left it
-   * (no temp, no shred). */
-  private async authImportFile(filePath: string): Promise<AuthCarryResult> {
+  /** Pick a bundle with the native dialog and import it — the user's own
+   * file stays as left (no temp, no shred). The renderer never supplies a
+   * path: only main's dialog can select one (security review, finding 6).
+   * Cancel is a silent ok no-op. */
+  private async authImportPickedBundle(): Promise<AuthCarryResult> {
     if (!this.ompPath) return { ok: false, message: "omp binary not resolved" };
-    const imported = await authImport(this.ompPath, filePath);
+    const picked = await this.authPickBundleFile();
+    if (picked === null) return { ok: true, message: "cancelled" };
+    const imported = await authImport(this.ompPath, picked);
     return imported.ok ? { ok: true, message: null } : { ok: false, message: imported.message };
   }
 

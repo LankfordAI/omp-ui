@@ -1797,7 +1797,7 @@ export function createLifecycleSlice(
             ? await backend.authCarryFromInstance(peerId)
             : confirmation.action === "save-file"
               ? await backend.authSaveBundle()
-              : await backend.authImportFile(target);
+              : await backend.authImportPickedBundle();
       if (!result.ok) throw new Error(result.message);
       get().reportNotice(
         result.message === "cancelled"

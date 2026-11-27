@@ -2614,15 +2614,14 @@ export const BACKEND_CHANNELS = {
     channel: "auth:save-bundle",
     ...request<[], AuthCarryResult>([]),
   },
-  /** Native open dialog for a bundle file; path or null on cancel. Local only. */
-  authPickBundleFile: {
-    channel: "auth:pick-bundle-file",
-    ...request<[], string | null>([]),
-  },
-  /** `omp auth import <path>` directly — the user's own file stays as left. */
-  authImportFile: {
-    channel: "auth:import-file",
-    ...request<[filePath: string], AuthCarryResult>([str()]),
+  /** Native open dialog for a bundle file, then `omp auth import <path>` on
+   * the user's own file (it stays as left). Cancel is a silent ok no-op.
+   * The dialog is main's own native surface — the renderer never supplies a
+   * path, so this channel imports only what the user just picked (security
+   * review, finding 6). Local only. */
+  authImportPickedBundle: {
+    channel: "auth:import-picked-bundle",
+    ...request<[], AuthCarryResult>([]),
   },
 } as const;
 export type BackendChannelSpec = typeof BACKEND_CHANNELS;
