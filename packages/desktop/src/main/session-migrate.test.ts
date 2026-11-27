@@ -94,7 +94,16 @@ function setup(): { backend: InstanceType<typeof MainBackend>; sessionsRoot: str
   registryFile = path.join(base, "registry.json");
   seedRegistry(registryFile, {
     settings: { defaultMode: "pty" },
-    projects: [],
+    // The ingest gate (registeredProjectOrWorktreePath) requires the target
+    // to be a registered project checkout.
+    projects: [{
+      path: targetDir,
+      name: "target-project",
+      addedAt: "2026-08-01T00:00:00.000Z",
+      lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null,
+      defaultModel: null, defaultAdvisorModel: null, browserClock: false,
+      councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null,
+    }],
     sessions: [
       ownedSessionRecord({
         tabId: "tab-1",
@@ -229,13 +238,14 @@ describe("session:ingest-* (issue #888)", () => {
     ).toBe(true);
   });
 
-  it("refuses a target cwd that is not a directory and shreds the staged bundle", async () => {
+  it("refuses a target cwd that is not a registered project and shreds the staged bundle", async () => {
     const { sessionsRoot } = setup();
     const transferId = (await invoke(CH.ingestStart)) as string;
     await invoke(CH.ingestPush, transferId, Buffer.from("TAR").toString("base64"));
+    // The registered-project gate fires before the existence check.
     await expect(
       invoke(CH.ingestFinish, transferId, path.join(base, "nope")),
-    ).resolves.toMatchObject({ ok: false, tabId: null });
+    ).rejects.toThrow("that project is not registered here");
     expect(unpackMock).not.toHaveBeenCalled();
     // The staged transfer is gone: a re-finish cannot find it.
     await expect(invoke(CH.ingestFinish, transferId, targetDir)).rejects.toThrow(
@@ -325,13 +335,24 @@ describe("auth bundle handlers (issue #888)", () => {
     }
   });
 
-  it("import-file runs omp auth import on the user's own file untouched", async () => {
+  it("import-picked-bundle opens the dialog, imports the user's own file untouched, and never accepts a renderer path", async () => {
     setup();
     const userFile = path.join(base, "their-copy.json");
     fs.writeFileSync(userFile, '{"creds":"theirs"}');
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [userFile] });
     importMock.mockResolvedValueOnce({ ok: true });
-    await expect(invoke(CH.authImportFile, userFile)).resolves.toEqual({ ok: true, message: null });
+    await expect(invoke(CH.authImportPickedBundle)).resolves.toEqual({ ok: true, message: null });
     expect(importMock.mock.calls[0]![1]).toBe(userFile);
     expect(fs.existsSync(userFile)).toBe(true);
+  });
+
+  it("import-picked-bundle reports a cancelled dialog as an ok no-op without spawning omp", async () => {
+    setup();
+    showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    await expect(invoke(CH.authImportPickedBundle)).resolves.toEqual({
+      ok: true,
+      message: "cancelled",
+    });
+    expect(importMock).not.toHaveBeenCalled();
   });
 });

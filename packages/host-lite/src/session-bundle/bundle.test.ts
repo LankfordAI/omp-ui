@@ -197,7 +197,7 @@ describe("session bundle", () => {
         "browserPaneInput",
         "devicePaneEnsure",
         "devicePaneInput",
-        "authPickBundleFile",
+        "authImportPickedBundle",
         "restartForAppUpdate",
         "checkAppUpdate",
         "openProject",

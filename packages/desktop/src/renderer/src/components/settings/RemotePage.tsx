@@ -205,6 +205,11 @@ export function RemotePage() {
           />
         </Row>
         <PasswordRow />
+        {remote.bind === "lan" && remote.status === "listening" && (
+          <p className="text-sm leading-relaxed text-rose">
+            Pairing URLs cross the LAN in plain HTTP. Anyone on the same network can read them. Prefer localhost and a password.
+          </p>
+        )}
         <Row
           title="Access token (fallback)"
           hint="Still works while a password is set. Regenerating disconnects every client using it."

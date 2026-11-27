@@ -311,6 +311,18 @@ if (!app.requestSingleInstanceLock()) {
       openExternalSafe(details.url);
     });
 
+    // A renderer-XSS must not replace the app document (security review,
+    // finding 7): the only legitimate top navigations are the packaged
+    // file:// document and the dev-server URL. Everything else is silently
+    // refused, not routed out — window.open above already handles external
+    // targets, and a location.assign from compromised script is exactly the
+    // input we do not trust.
+    win.webContents.on("will-navigate", (event, url) => {
+      const devUrl = process.env.ELECTRON_RENDERER_URL;
+      const allowed = url.startsWith("file://") || (devUrl !== undefined && url.startsWith(devUrl));
+      if (!allowed) event.preventDefault();
+    });
+
     // Process-death telemetry + bounded renderer recovery (issues #183, #184):
     // a dead renderer must never leave a blank window for the user to kill.
     const rendererDeaths: ProcessDeath[] = [];

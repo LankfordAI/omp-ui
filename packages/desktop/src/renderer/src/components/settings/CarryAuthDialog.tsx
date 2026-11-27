@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { backend } from "../../backend";
 import { useStore } from "../../store";
 import type { LifecycleConfirmationChoice } from "../../store/types";
 import { Button, ChoiceCapsule, ConfirmDialog } from "../ui";
@@ -22,7 +21,6 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
   const joined = (state?.remoteInstances ?? []).filter((i) => i.status === "joined");
   const [action, setAction] = useState<CarryAction>("to-instance");
   const [instanceId, setInstanceId] = useState<string | null>(joined[0]?.id ?? null);
-  const [pickingFile, setPickingFile] = useState(false);
 
   const peer = joined.find((i) => i.id === instanceId) ?? null;
   const needsPeer = (action === "to-instance" || action === "from-instance") && peer === null;
@@ -39,16 +37,9 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
       return;
     }
     if (action === "import-file") {
-      // Choosing the file is not importing it: the path dialog runs first so
-      // the gate can name the exact file it is about to read. Cancel leaves
-      // everything untouched.
-      setPickingFile(true);
-      try {
-        const path = await backend.authPickBundleFile();
-        if (path !== null) stage({ kind: "carry-auth", action, targetLabel: path });
-      } finally {
-        setPickingFile(false);
-      }
+      // The confirmation IS the credential gate; the file picker runs in main
+      // after the user accepts it, so the renderer never handles a path.
+      stage({ kind: "carry-auth", action, targetLabel: "a file you choose" });
       return;
     }
     if (peer === null) return;
@@ -71,7 +62,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
             variant="solid"
             tone="copper"
             initialFocus
-            disabled={needsPeer || pickingFile}
+            disabled={needsPeer}
             onClick={() => void submit()}
           >
             Continue

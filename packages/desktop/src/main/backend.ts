@@ -234,6 +234,7 @@ import {
   type ThemeSource,
   type ThemeToolArgs,
   type ThemeWriteSlot,
+  type RemoteState,
 } from "@omp-ui/core";
 import type { ThemePreference } from "@omp-ui/core/theme";
 import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
@@ -823,7 +824,10 @@ export class MainBackend {
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
-    this.addSink((channel, args) => this.sendToRenderers(channel, args));
+    // Held by identity so the remote-state publisher can skip it when it fans
+    // out the token-stripped copy to the other sinks (security review, finding 3).
+    this.rendererSink = (channel, args) => this.sendToRenderers(channel, args);
+    this.addSink(this.rendererSink);
     this.appUpdater = new AppUpdater({
       win,
       enabled: opts.appUpdateEnabled ?? app.isPackaged,
@@ -908,7 +912,24 @@ export class MainBackend {
       send: (state) => {
         // The remote port joins the browser pane's denied loopback ports (#531).
         this.sessions.setRemoteAccessPort(state.status === "listening" ? state.port : null);
-        this.send(CH.onRemoteState, state);
+        // The local window gets the full state (settings page reveals, copies,
+        // QRs the token); every other sink — the remote WS relay in
+        // particular — gets the credential stripped, so a
+        // password-authenticated client never receives the fallback bearer
+        // credential (security review, finding 3). A token-bearing pairing
+        // URL is the same leak by another name: tokenUrls go always, and urls
+        // too when no password exists (they carry the token then).
+        this.sendToRenderers(CH.onRemoteState, [state]);
+        const stripped: RemoteState = {
+          ...state,
+          token: "",
+          tokenUrls: [],
+          urls: state.hasPassword ? state.urls : [],
+        };
+        for (const sink of this.sinks) {
+          if (sink === this.rendererSink) continue; // local window got the full state above
+          sink(CH.onRemoteState, [stripped]);
+        }
       },
     });
     // A registry that already carries a life — projects or sessions — is not a
@@ -1244,6 +1265,10 @@ export class MainBackend {
   }
 
   private readonly sinks = new Set<(channel: string, args: unknown[]) => void>();
+  /** The desktop-window mirror's identity inside `sinks` — the remote-state
+   * publisher sends the local window the full state and skips it when fanning
+   * out the token-stripped copy (security review, finding 3). */
+  private rendererSink: ((channel: string, args: unknown[]) => void) | null = null;
 
   /** Registers an extra event mirror (the remote server). Returns its unsubscribe. */
   addSink(sink: (channel: string, args: unknown[]) => void): () => void {
@@ -2255,8 +2280,7 @@ export class MainBackend {
         [CH.authExportBundle]: () => this.authExportBundle(),
         [CH.authImportBundle]: (bundleBase64: string) => this.authImportBundle(bundleBase64),
         [CH.authSaveBundle]: () => this.authSaveBundle(),
-        [CH.authPickBundleFile]: () => this.authPickBundleFile(),
-        [CH.authImportFile]: (filePath: string) => this.authImportFile(filePath),
+        [CH.authImportPickedBundle]: () => this.authImportPickedBundle(),
         /** Live Collab hosting is terminal-tab only (issue #686): the tracker
          * drives omp's own registry CLI and the PTY keystroke route. */
         [CH.collabList]: () => this.sessions.collabSnapshots(),
@@ -2991,6 +3015,11 @@ export class MainBackend {
       throw err instanceof Error ? err : new Error(String(err));
     });
     try {
+      // The ingest target must be a registered project or an owned worktree
+      // (same gate getBranchDiff/listBranches/checkoutBranch use): a chat
+      // scratch dir is deliberately excluded — chats are host-local
+      // (ADR-0059) and pack-start already refuses transcript-less rows.
+      this.registeredProjectOrWorktreePath(projectCwd);
       if (!this.ompPath) return { ok: false, tabId: null, message: "omp binary not resolved" };
       if (!fs.existsSync(projectCwd) || !fs.statSync(projectCwd).isDirectory()) {
         return { ok: false, tabId: null, message: `target directory ${projectCwd} does not exist` };
@@ -3173,11 +3202,15 @@ export class MainBackend {
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
   }
 
-  /** Import a user-picked file directly — their file stays as they left it
-   * (no temp, no shred). */
-  private async authImportFile(filePath: string): Promise<AuthCarryResult> {
+  /** Pick a bundle with the native dialog and import it — the user's own
+   * file stays as left (no temp, no shred). The renderer never supplies a
+   * path: only main's dialog can select one (security review, finding 6).
+   * Cancel is a silent ok no-op. */
+  private async authImportPickedBundle(): Promise<AuthCarryResult> {
     if (!this.ompPath) return { ok: false, message: "omp binary not resolved" };
-    const imported = await authImport(this.ompPath, filePath);
+    const picked = await this.authPickBundleFile();
+    if (picked === null) return { ok: true, message: "cancelled" };
+    const imported = await authImport(this.ompPath, picked);
     return imported.ok ? { ok: true, message: null } : { ok: false, message: imported.message };
   }
 

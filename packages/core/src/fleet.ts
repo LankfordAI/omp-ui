@@ -2373,3 +2373,15 @@ export function parseFleetPlacement(value: unknown): Record<string, PlacementPre
   }
   return out;
 }
+
+/** Masks KEY=value environment assignments embedded in a command string before
+ * it lands in the fleet audit ring (security review, finding 8):
+ * `SECRET_NAME=` followed by 8+ non-space chars becomes `SECRET_NAME=[masked]`.
+ * Deliberately narrow — an uppercase name and a value that would survive an
+ * assignment — so ordinary flags like `--format=short` pass through untouched. */
+export function maskCommandSecrets(command: string): string {
+  return command.replace(
+    /\b([A-Z][A-Z0-9_]{2,})=(["']?)(\S{8,})\2/g,
+    (_m: string, name: string) => `${name}=[masked]`,
+  );
+}

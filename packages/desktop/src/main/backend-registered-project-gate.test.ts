@@ -168,6 +168,21 @@ describe("project-scoped channels are gated on registered projects", () => {
     );
   });
 
+  it("gates session:ingest-finish on a registered project or owned worktree", async () => {
+    const project = fs.mkdtempSync(path.join(base, "registered-"));
+    const be = bootWithProject(project);
+    const requests = be.handlers().request;
+
+    // Stage a real bundle first: a bogus cwd must not skip the consume step.
+    const transferId = (await requests[CH.ingestStart]()) as string;
+    await requests[CH.ingestPush](transferId, Buffer.from("TAR").toString("base64"));
+    await expect(
+      Promise.resolve().then(() =>
+        requests[CH.ingestFinish](transferId, path.join(base, "omp-ui-not-registered")),
+      ),
+    ).rejects.toThrow("that project is not registered here");
+  });
+
   it("refuses browseDirectories and desktop-local shell open channels for remote clients", async () => {
     const project = fs.mkdtempSync(path.join(base, "registered-"));
     const be = bootWithProject(project);

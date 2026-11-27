@@ -203,11 +203,14 @@ export class RemoteServerManager {
         port: desired.port,
         token: desired.token,
         hasPassword: desired.passwordHash !== "",
-        // Primary URLs are bare once a password exists; the token fallback always rides
-        // tokenUrls. Built field by field — never spread desired — so passwordHash and
-        // passwordSalt can never ride a remote:state push to a client.
+        // Primary URLs are bare once a password exists; the token fallback then
+        // stops being advertised at all (security review, finding 1,
+        // incremental): the manifest already omits the token in password mode,
+        // so the fallback URLs should too. Built field by field — never spread
+        // desired — so passwordHash and passwordSalt can never ride a
+        // remote:state push to a client.
         urls: desired.passwordHash !== "" ? handle.urls : handle.tokenUrls,
-        tokenUrls: handle.tokenUrls,
+        tokenUrls: desired.passwordHash !== "" ? [] : handle.tokenUrls,
         webBundleMissing: handle.webBundleMissing,
         error: null,
       });

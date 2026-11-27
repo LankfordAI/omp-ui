@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as crypto from "node:crypto";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchLike } from "./fetch";
@@ -207,8 +208,12 @@ describe("downloadOmp", () => {
     await downloadOmp({ version: "17.2.4", targetPath: target, fetchImpl, verifyRunner: null });
     expect(fs.existsSync(target)).toBe(true);
     expect(fs.readFileSync(target, "utf8")).toBe("#!/bin/sh\n");
-    // The URL points at the exact GitHub release asset for this host, v-prefixed.
-    expect(seenUrls).toEqual([`${OMP_RELEASE_BASE}/v17.2.4/${ompAssetName()}`]);
+    // The URL points at the exact GitHub release asset for this host, v-prefixed;
+    // the SHA256SUMS.txt probe precedes it.
+    expect(seenUrls).toEqual([
+      `${OMP_RELEASE_BASE}/v17.2.4/SHA256SUMS.txt`,
+      `${OMP_RELEASE_BASE}/v17.2.4/${ompAssetName()}`,
+    ]);
   });
 
   it("leaves no temp file behind", async () => {
@@ -264,6 +269,86 @@ describe("downloadOmp", () => {
     expect(fs.existsSync(target)).toBe(false);
     // No tmp files left either.
     expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("fails a body whose sha256 mismatches the published SHA256SUMS.txt even when the probe passes", async () => {
+    const dir = mkTmp();
+    const target = path.join(dir, "omp");
+    const body = new TextEncoder().encode("#!/bin/sh\n");
+    const wrongDigest = "0".repeat(64);
+    let probed = false;
+    await expect(
+      downloadOmp({
+        version: "1.0.0",
+        targetPath: target,
+        fetchImpl: async (url) => {
+          if (String(url).endsWith("/SHA256SUMS.txt")) {
+            return {
+              ok: true,
+              status: 200,
+              arrayBuffer: async () =>
+                new TextEncoder().encode(`${wrongDigest}  ${ompAssetName()}\n`).buffer,
+            } as never;
+          }
+          return {
+            ok: true,
+            status: 200,
+            arrayBuffer: async () => body.buffer,
+          } as never;
+        },
+        verifyRunner: async () => {
+          probed = true;
+          return "omp/1.0.0";
+        },
+      }),
+    ).rejects.toThrow(/checksum mismatch/);
+    // Authoritative sums: the probe must never rescue a bad body.
+    expect(probed).toBe(false);
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it("commits a body whose sha256 matches the published SHA256SUMS.txt", async () => {
+    const dir = mkTmp();
+    const target = path.join(dir, "omp");
+    const body = "#!/bin/sh\n";
+    const digest = crypto.createHash("sha256").update(body).digest("hex");
+    await downloadOmp({
+      version: "1.0.0",
+      targetPath: target,
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/SHA256SUMS.txt")) {
+          return {
+            ok: true,
+            status: 200,
+            arrayBuffer: async () =>
+              new TextEncoder().encode(`${digest}  ${ompAssetName()}\n`).buffer,
+          } as never;
+        }
+        return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(body).buffer } as never;
+      },
+      verifyRunner: async () => "omp/1.0.0",
+    });
+    expect(fs.readFileSync(target, "utf8")).toBe(body);
+  });
+
+  it("falls back to the version probe alone when the tag publishes no SHA256SUMS.txt", async () => {
+    const dir = mkTmp();
+    const target = path.join(dir, "omp");
+    let probed = false;
+    await downloadOmp({
+      version: "0.9.0",
+      targetPath: target,
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/SHA256SUMS.txt")) return { ok: false, status: 404 } as never;
+        return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode("#!/bin/sh\n").buffer } as never;
+      },
+      verifyRunner: async () => {
+        probed = true;
+        return "omp/0.9.0";
+      },
+    });
+    expect(probed).toBe(true);
+    expect(fs.existsSync(target)).toBe(true);
   });
 
 });

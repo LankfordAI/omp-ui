@@ -169,7 +169,7 @@ describe("remote server lifecycle", () => {
     expect(state.urls[0]).toContain("127.0.0.1");
     expect(state.urls[0]).toContain(state.token);
 
-    const res = await fetch(`http://127.0.0.1:${port}/healthz?t=${state.token}`);
+    const res = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${state.token}` } });
     expect(res.status).toBe(200);
     // The starting→listening transition is published, never skipped.
     expect(pushes().map((p) => p.status)).toContain("starting");
@@ -186,10 +186,10 @@ describe("remote server lifecycle", () => {
     expect(lastPush().port).toBe(movedPort);
     expect(lastPush().status).toBe("listening");
 
-    const moved = await fetch(`http://127.0.0.1:${movedPort}/healthz?t=${token}`);
+    const moved = await fetch(`http://127.0.0.1:${movedPort}/healthz`, { headers: { authorization: `Bearer ${token}` } });
     expect(moved.status).toBe(200);
     // The old port is genuinely released.
-    await expect(fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${token}` } })).rejects.toThrow();
     expect(backend.liveCount).toBe(before);
   });
 
@@ -202,7 +202,7 @@ describe("remote server lifecycle", () => {
       "port must be a whole number between 1024 and 65535",
     );
     expect(lastPush().port).toBe(port);
-    const still = await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`);
+    const still = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${token}` } });
     expect(still.status).toBe(200);
   });
 
@@ -221,9 +221,9 @@ describe("remote server lifecycle", () => {
     expect(newToken).not.toBe(oldToken);
     expect(newToken).toBe(registryToken());
 
-    const stale = await fetch(`http://127.0.0.1:${port}/healthz?t=${oldToken}`);
+    const stale = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${oldToken}` } });
     expect(stale.status).toBe(401);
-    const fresh = await fetch(`http://127.0.0.1:${port}/healthz?t=${newToken}`);
+    const fresh = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${newToken}` } });
     expect(fresh.status).toBe(200);
   });
 
@@ -327,12 +327,12 @@ describe("remote server lifecycle", () => {
     await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
-    expect((await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
 
     await invoke(CH.setRemoteEnabled, false);
     expect(lastPush().status).toBe("stopped");
     expect(lastPush().urls).toEqual([]);
-    await expect(fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${token}` } })).rejects.toThrow();
   });
 
   it("publishes an error status when the port is already taken", async () => {
@@ -357,7 +357,7 @@ describe("remote server lifecycle", () => {
 
     // The original listener is untouched by the failed start.
     for (const [ch, fn] of ourHandlers) handlers.set(ch, fn);
-    expect((await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
   });
 
   it("keeps serving remote clients after the desktop window is gone", async () => {
@@ -395,7 +395,7 @@ describe("remote server lifecycle", () => {
 });
 
 describe("remote password sign-in", () => {
-  it("setting a password switches primary URLs to bare and keeps the token fallback", async () => {
+  it("setting a password switches primary URLs to bare and stops advertising the token fallback", async () => {
     await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     await invoke(CH.setRemotePassword, "correct-horse-battery");
@@ -405,13 +405,46 @@ describe("remote password sign-in", () => {
     expect(state.hasPassword).toBe(true);
     expect(state.urls[0]).toBe(`http://127.0.0.1:${port}/`);
     expect(state.urls[0]).not.toContain("?t=");
-    expect(state.tokenUrls[0]).toContain(state.token);
+    // The token fallback is no longer advertised once a password exists: the
+    // manifest already omits the token in password mode (finding 1).
+    expect(state.tokenUrls).toEqual([]);
 
     // Only the salted hash is persisted — never the password itself.
     const { hash, salt } = registryPassword();
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(salt).toMatch(/^[0-9a-f]{32}$/);
     expect(fs.readFileSync(registryFile, "utf8")).not.toContain("correct-horse-battery");
+  });
+
+  it("does not relay the bearer token into non-renderer sinks", async () => {
+    await invoke(CH.setRemotePort, port);
+    await invoke(CH.setRemoteEnabled, true);
+    const token = lastPush().token;
+
+    // A sink standing in for the remote WS relay — anything but the local
+    // window mirror must never see the credential.
+    const relayed: Array<{ channel: string; args: unknown[] }> = [];
+    const off = backend.addSink((channel, args) => relayed.push({ channel, args }));
+
+    await invoke(CH.setRemoteEnabled, false);
+    await invoke(CH.setRemoteEnabled, true);
+    off();
+
+    const relayState = relayed
+      .filter((s) => s.channel === CH.onRemoteState)
+      .map((s) => s.args[0] as RemoteState)
+      .at(-1);
+    expect(relayState).toBeTruthy();
+    expect(relayState!.token).toBe("");
+    expect(relayState!.tokenUrls).toEqual([]);
+    // No password: token-bearing pairing URLs are the same leak by another name.
+    expect(relayState!.urls).toEqual([]);
+    expect(token).not.toBe("");
+
+    // The local window still got the full state, token included.
+    const local = pushes().at(-1)!;
+    expect(local.token).toBe(token);
+    expect(local.tokenUrls.length).toBeGreaterThan(0);
   });
 
   it("rejects a too-short password without persisting", async () => {
@@ -486,7 +519,11 @@ describe("remote password sign-in", () => {
     expect(stale.status).toBe(401);
     const token = lastPush().token;
     expect(
-      (await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status,
+      (
+        await fetch(`http://127.0.0.1:${port}/healthz`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).status,
     ).toBe(200);
   });
 });

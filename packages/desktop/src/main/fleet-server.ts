@@ -21,6 +21,7 @@ import {
   fleetRungAtLeast,
   fleetRungRank,
   isUnsafeFleetId,
+  maskCommandSecrets,
   type AppUpdateState,
   type FleetAuditEntry,
   type FleetDetachedExecRequest,
@@ -929,6 +930,9 @@ export class FleetServer {
     detail: string,
     exitCode: number | null,
   ): void {
+    // Mask first, then truncate: a secret straddling the boundary is still
+    // masked before the cut (security review, finding 8).
+    const masked = maskCommandSecrets(detail);
     const entry: FleetAuditEntry = {
       at: new Date().toISOString(),
       dispatcherId: requester.instanceId,
@@ -937,7 +941,7 @@ export class FleetServer {
       action,
       rung,
       accepted,
-      detail: detail.length > AUDIT_DETAIL_LIMIT ? `${detail.slice(0, AUDIT_DETAIL_LIMIT - 1)}…` : detail,
+      detail: masked.length > AUDIT_DETAIL_LIMIT ? `${masked.slice(0, AUDIT_DETAIL_LIMIT - 1)}…` : masked,
       exitCode,
     };
     this.#ring.push(entry);
