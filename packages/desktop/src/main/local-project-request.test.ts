@@ -248,6 +248,8 @@ describe("LocalProjectRequests (#1228)", () => {
     const fetchOpts = h.git.mock.calls[1]![1]!;
     expect(fetchOpts.inactivityMs).toBe(LOCAL_CLONE_INACTIVITY_MS);
     expect(fetchOpts.onStderr).toBeDefined();
+    expect(c.rearmWatchdog).toHaveBeenCalledWith(LOCAL_CLONE_TIMEOUT_MS + 15_000);
+    expect(c.rearmWatchdog).toHaveBeenCalledTimes(4); // once after Allow, once per resume step
     expect(h.progress).toContainEqual([TAB, "Receiving objects: 100%"]);
     expect(h.progress.at(-1)).toEqual([TAB, null]);
     expect(h.added).toEqual([dest]);

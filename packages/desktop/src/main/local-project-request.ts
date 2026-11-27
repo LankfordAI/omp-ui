@@ -307,6 +307,12 @@ export class LocalProjectRequests {
     env: NodeJS.ProcessEnv,
     control: HostCallControl,
   ): Promise<void> {
+    // The host watchdog is armed once for the whole clone, but a resume is
+    // three sequential git commands, each legitimately granted a full wall
+    // cap. Rearm before every step so the aggregate budget scales with the
+    // number of steps, not the first one.
+    const stepBudget = () => control.rearmWatchdog(LOCAL_CLONE_TIMEOUT_MS + 15_000);
+    stepBudget();
     await this.#git(
       ["-C", dest, "fetch", "--progress", "origin", "+refs/heads/*:refs/remotes/origin/*"],
       {
@@ -318,6 +324,7 @@ export class LocalProjectRequests {
         env,
       },
     );
+    stepBudget();
     await this.#git(
       ["-C", dest, "remote", "set-head", "origin", "--auto"],
       // A network round trip on a large remote: the same budgets as the fetch.
@@ -325,6 +332,7 @@ export class LocalProjectRequests {
     );
     const head = await this.#gitLine(["-C", dest, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], dest);
     const branch = head?.replace(/^origin\//, "") ?? "main";
+    stepBudget();
     await this.#git(
       ["-C", dest, "checkout", "-f", "-B", "--progress", branch, `origin/${branch}`],
       // Under the blob filter the checkout lazily fetches working-tree blobs
