@@ -3,6 +3,8 @@
 # Not a merge gate: adds no workflow, no repository secret, and no required check.
 
 [config]
+model = "openai/GLM-5.3-Flash"
+fallback_models = ["openai/Qwen3.8-Flash-Next"]
 response_language = "en-US"
 repo_context_files = ["AGENTS.md"]
 repo_context_from_default_branch = true
