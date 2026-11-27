@@ -76,6 +76,8 @@ import {
   type FleetToolProjectArgs,
   type FleetToolSendArgs,
   type FleetToolFinishArgs,
+  type FleetToolGrantRaiseArgs,
+  type FleetGrantRaiseOutcome,
   type FleetToolUpdateArgs,
   type FleetMachine,
   type ObsidianListEntry,
@@ -168,6 +170,8 @@ export interface FleetBridgeDeps {
   send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
   /** Cleans up an already-landed worktree session this tab dispatched (issue #978); refusals ride the outcome. */
   finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
+  /** Card-gated grant raise on a joined member (#1393); the control suspends the watchdog while the card waits. */
+  grantRaise(tabId: string, args: FleetToolGrantRaiseArgs, control: HostCallControl): Promise<FleetGrantRaiseOutcome>;
 }
 
 export interface HostBridgeDeps {
@@ -1016,6 +1020,24 @@ export class HostBridge {
           return;
         }
         reply(hostToolTextResult(call.id, `${parsed.args.verb} accepted: ${outcome.path}${outcome.headCommit === null ? "" : ` (HEAD ${outcome.headCommit})`}`));
+        return;
+      }
+      if (parsed.tool === "grantRaise") {
+        const outcome = await deps.grantRaise(tabId, parsed.args, this.callControl(call.id, send));
+        // Machine, rung, and answer kind only — the secret never reaches the
+        // log (the bridge never has it), and refusal reasons ride the answer.
+        this.deps.log(
+          `omp-ui_fleet_grant_raise from ${tabId}: ${parsed.args.machine} ${parsed.args.rung} ` +
+            (outcome.ok ? `granted ${outcome.rung}` : `refused (${outcome.reason})`),
+        );
+        reply(
+          hostToolTextResult(
+            call.id,
+            outcome.ok
+              ? `Granted ${outcome.rung} on ${parsed.args.machine}. The rung took effect at once — re-run the call that was refused.`
+              : `refused — ${outcome.reason}`,
+          ),
+        );
         return;
       }
       if (parsed.tool === "update") {

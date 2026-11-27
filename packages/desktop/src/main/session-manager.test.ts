@@ -3213,6 +3213,70 @@ describe("human-answer published state (issue #436)", () => {
     rpcInstances.at(-1)!.exit(0);
     expect(manager.pendingDialogs(TAB)).toEqual([]);
   });
+
+  it("holds a grant raise through the card and settles it on the answer (#1393)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    await manager.spawn({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const tabId = registry.sessions.at(-1)!.tabId;
+    expect(manager.grantRaiseEligibility(tabId)).toBeNull();
+
+    const prompt: Core.FleetGrantRaisePrompt = {
+      promptId: "g1",
+      machine: "studio",
+      rung: "manage",
+      currentRung: "dispatch",
+      requestedAt: "2026-11-27T00:00:00.000Z",
+    };
+    const held = manager.grantRaises.request(tabId, prompt, new AbortController().signal);
+    expect(manager.pendingAnswer(tabId)).toBe(true);
+    expect(manager.grantRaises.prompt(tabId)?.promptId).toBe("g1");
+
+    expect(manager.answerGrantRaise(tabId, "g1", "allow", "  s3cret  ")).toEqual({ ok: true });
+    expect(await held).toEqual({ kind: "allow", secret: "s3cret" });
+    expect(manager.pendingAnswer(tabId)).toBe(false);
+    expect(manager.answerGrantRaise(tabId, "g1", "allow", null)).toEqual({
+      ok: false,
+      reason: "this request is no longer pending",
+    });
+  });
+
+  it("refuses an allow without a secret, and a plan-mode tab entirely (#1393)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    await manager.spawn({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const tabId = registry.sessions.at(-1)!.tabId;
+    const prompt: Core.FleetGrantRaisePrompt = {
+      promptId: "g2",
+      machine: "studio",
+      rung: "full",
+      currentRung: null,
+      requestedAt: "2026-11-27T00:00:00.000Z",
+    };
+
+    expect(manager.answerGrantRaise(tabId, "missing", "allow", null)).toEqual({
+      ok: false,
+      reason: "this request is no longer pending",
+    });
+    expect(manager.answerGrantRaise(tabId, "missing", "allow", "   ")).toEqual({
+      ok: false,
+      reason: "this request is no longer pending",
+    });
+
+    const held = manager.grantRaises.request(tabId, prompt, new AbortController().signal);
+    expect(manager.answerGrantRaise(tabId, "g2", "allow", "   ")).toEqual({
+      ok: false,
+      reason: "type the member's password or access token to grant",
+    });
+    expect(manager.pendingAnswer(tabId)).toBe(true);
+    expect(manager.answerGrantRaise(tabId, "g2", "deny", null)).toEqual({ ok: true });
+    await held;
+
+    registry.updateSession(tabId, { agentMode: "plan" });
+    expect(manager.grantRaiseEligibility(tabId)).toBe(
+      "Plan mode: a grant raise is a state change; propose it in your plan instead",
+    );
+  });
 });
 
 describe("plan-review gate (issue #215)", () => {
@@ -3666,6 +3730,8 @@ describe("OS attention hooks (issue #271)", () => {
       planSettled: vi.fn(),
       projectRequested: vi.fn(),
       projectRequestSettled: vi.fn(),
+      grantRaiseRequested: vi.fn(),
+      grantRaiseSettled: vi.fn(),
       viewedChanged: vi.fn(),
       sessionExit: vi.fn(),
     }) as Attention;

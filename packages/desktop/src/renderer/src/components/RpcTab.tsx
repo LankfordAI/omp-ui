@@ -12,6 +12,7 @@ import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { ApprovalCard } from "./ApprovalCard";
 import { ProjectRequestCard } from "./ProjectRequestCard";
+import { GrantRaiseCard } from "./GrantRaiseCard";
 import { FindBar } from "./FindBar";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
@@ -538,6 +539,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                 <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
                   {active && <ApprovalCard tabId={tabId} />}
                   {active && <ProjectRequestCard tabId={tabId} />}
+                  {active && <GrantRaiseCard tabId={tabId} />}
                   {/* No composer here (issue #421): the card keeps its own
                       free-text field for editor/input frames. */}
                   <ExtensionDialogHost tabId={tabId} composerVisible={false} />
@@ -614,6 +616,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                   <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
                     <ApprovalCard tabId={tabId} />
                     {active && <ProjectRequestCard tabId={tabId} />}
+                    {active && <GrantRaiseCard tabId={tabId} />}
                     <ExtensionDialogHost
                       tabId={tabId}
                       composerVisible={!compact && !(planReviewOpen && active)}

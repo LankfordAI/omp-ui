@@ -118,6 +118,7 @@ const VALID_ARGS = {
   packStart: ["tab-1"],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   answerProjectRequest: ["tab-1", "prompt-1", "allow", "/srv/repos"],
+  answerGrantRaise: ["tab-1", "prompt-1", "allow", "secret"],
   autoresearchExperiment: ["/project", null, 1],
   autoresearchOverview: ["/project"],
   autoresearchRunLog: ["/project", "tab-1", 1, 2],

@@ -84,6 +84,7 @@ export const FLEET_TOOLS = [
   "omp-ui_fleet_update",
   "omp-ui_fleet_send",
   "omp-ui_fleet_finish",
+  "omp-ui_fleet_grant_raise",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
@@ -96,6 +97,14 @@ export type FleetToolName = (typeof FLEET_TOOLS)[number];
  */
 export const FLEET_RUNGS = ["observe", "dispatch", "manage", "full", "terminal"] as const;
 export type FleetRung = (typeof FLEET_RUNGS)[number];
+
+/**
+ * The rungs an agent may ask a joined member for through the grant raise card
+ * (#1393) — the same set the Settings ceremony offers. Lowering a rung or
+ * resetting to the join default stays an owner action.
+ */
+export const FLEET_RAISE_RUNGS = ["manage", "full", "terminal"] as const;
+export type FleetRaiseRung = (typeof FLEET_RAISE_RUNGS)[number];
 
 /** 1..5 ladder depth; compare rungs through ranks. */
 export function fleetRungRank(r: FleetRung): 1 | 2 | 3 | 4 | 5 {
@@ -1887,6 +1896,11 @@ export interface FleetToolProjectArgs {
   path: string | null;
 }
 
+export interface FleetToolGrantRaiseArgs {
+  machine: string;
+  rung: FleetRaiseRung;
+}
+
 export interface FleetToolUpdateArgs {
   machine: string;
   target: "omp" | "app";
@@ -1905,6 +1919,7 @@ export type FleetToolArguments =
   | { ok: true; tool: "update"; args: FleetToolUpdateArgs }
   | { ok: true; tool: "send"; args: FleetToolSendArgs }
   | { ok: true; tool: "finish"; args: FleetToolFinishArgs }
+  | { ok: true; tool: "grantRaise"; args: FleetToolGrantRaiseArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -1999,6 +2014,15 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     if (!hasPath) return refuse("register needs path");
     if (typeof a.path !== "string" || a.path === "") return refuse("path must be a non-empty string");
     return { ok: true, tool: "project", args: { machine: a.machine.trim(), verb: "register", repositoryUrl: null, path: a.path } };
+  }
+  if (name === "omp-ui_fleet_grant_raise") {
+    const extra = unknownKey(["machine", "rung"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
+    if (typeof a.rung !== "string" || !(FLEET_RAISE_RUNGS as readonly string[]).includes(a.rung)) {
+      return refuse(`rung must be one of: ${FLEET_RAISE_RUNGS.join(", ")}`);
+    }
+    return { ok: true, tool: "grantRaise", args: { machine: a.machine.trim(), rung: a.rung as FleetRaiseRung } };
   }
   if (name === "omp-ui_fleet_update") {
     const extra = unknownKey(["machine", "target", "action", "version"]);

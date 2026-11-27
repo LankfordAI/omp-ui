@@ -19,6 +19,7 @@ import type { HeldPrompt } from "./held-prompt";
 import type { ScheduledPrompt } from "./scheduled-prompt";
 import type { SessionRoutine } from "./routine";
 import type { ProjectRequestPrompt } from "./project-request";
+import type { FleetGrantRaisePrompt } from "./grant-raise-request";
 import type { SpendTotals } from "./session-spend";
 export type {
   CheckoutExperiments,
@@ -44,6 +45,7 @@ export type {
 } from "./update-types";
 export type { SkillOrigin } from "./omp-capability-keys";
 export type { ProjectRequestPrompt } from "./project-request";
+export type { FleetGrantRaisePrompt, FleetGrantRaiseDecision } from "./grant-raise-request";
 export type SessionStatus =
   | "complete"
   | "interrupted"
@@ -807,6 +809,13 @@ export interface SessionSummary extends OwnedSessionRecord {
    * as none.
    */
   projectRequest?: ProjectRequestPrompt | null;
+  /**
+   * The agent's grant raise this session is held on (#1393): a rung raise on
+   * a joined fleet member waiting for the user's card answer. Ephemeral like
+   * `projectRequest`: main holds it in memory and it dies with the host call.
+   * Absent from an older host's summary, which a client reads as none.
+   */
+  grantRaiseRequest?: FleetGrantRaisePrompt | null;
   /**
    * The live session's goal state as omp last reported it (ADR-0046). omp's
    * runtime inside the child owns it; main mirrors the last value omp reported

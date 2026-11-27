@@ -60,6 +60,8 @@ function harness(opts: {
     planSettled: vi.fn<(tabId: string) => void>(),
     projectRequested: vi.fn<(tabId: string) => void>(),
     projectRequestSettled: vi.fn<(tabId: string) => void>(),
+    grantRaiseRequested: vi.fn<(tabId: string) => void>(),
+    grantRaiseSettled: vi.fn<(tabId: string) => void>(),
     viewedChanged: vi.fn<(tabId: string) => void>(),
     sessionExit: vi.fn<(tabId: string) => void>(),
   };

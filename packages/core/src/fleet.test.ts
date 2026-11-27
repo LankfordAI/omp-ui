@@ -331,7 +331,7 @@ describe("parseFleetDispatchRequest", () => {
 describe("fleet exec ladder contracts (issue #901)", () => {
   const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
 
-  it("exposes the nine agent tools in registration order", () => {
+  it("exposes the ten agent tools in registration order", () => {
     expect(FLEET_TOOLS).toEqual([
       "omp-ui_fleet_machines",
       "omp-ui_fleet_dispatch",
@@ -342,6 +342,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       "omp-ui_fleet_update",
       "omp-ui_fleet_send",
       "omp-ui_fleet_finish",
+      "omp-ui_fleet_grant_raise",
     ]);
   });
 
@@ -1021,6 +1022,46 @@ describe("omp-ui_fleet_finish landedOn (#1013)", () => {
     expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", bogus: true })).toEqual({
       ok: false,
       reason: 'unknown argument "bogus"',
+    });
+  });
+});
+
+describe("omp-ui_fleet_grant_raise arguments (#1393)", () => {
+  it("parses a valid call with trimmed machine", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: " box-b ", rung: "manage" })).toEqual({
+      ok: true,
+      tool: "grantRaise",
+      args: { machine: "box-b", rung: "manage" },
+    });
+    for (const rung of ["manage", "full", "terminal"]) {
+      expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "box-b", rung })).toEqual({
+        ok: true,
+        tool: "grantRaise",
+        args: { machine: "box-b", rung },
+      });
+    }
+  });
+
+  it("refuses an unknown key, a rung outside the raise set, and an empty machine", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "box-b", rung: "manage", secret: "x" })).toEqual({
+      ok: false,
+      reason: 'unknown argument "secret"',
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "box-b", rung: "dispatch" })).toEqual({
+      ok: false,
+      reason: "rung must be one of: manage, full, terminal",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "box-b", rung: "observe" })).toEqual({
+      ok: false,
+      reason: "rung must be one of: manage, full, terminal",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "  ", rung: "manage" })).toEqual({
+      ok: false,
+      reason: "machine must be a non-empty string",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_grant_raise", { machine: "box-b" })).toEqual({
+      ok: false,
+      reason: "rung must be one of: manage, full, terminal",
     });
   });
 });

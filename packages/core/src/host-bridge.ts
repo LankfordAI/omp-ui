@@ -762,7 +762,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project, execPoll, update, send, finish] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll, update, send, finish, grantRaise] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -960,6 +960,28 @@ function fleetTools(): RpcHostToolDefinition[] {
           },
         },
         required: ["dispatchId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: grantRaise,
+      loadMode: "essential",
+      description:
+        "Ask a joined fleet member for a higher access rung through a user confirmation card. The user types that member's password or access token into the card; the secret rides once to the member and is never stored or shown to you — never supply or repeat it. Rungs: manage (clone and register within its declared project roots), full (one bounded command, detached exec, member updates), terminal (interactive shell). The member checks the credential and its own ceiling; a refusal comes back as text. Use it when a fleet call was refused for the rung, or before a call you know needs more access. The rung takes effect at once; re-run the refused call after a grant.",
+      parameters: {
+        type: "object",
+        properties: {
+          machine: {
+            type: "string",
+            description: 'Machine nickname from omp-ui_fleet_machines; "this computer" is refused.',
+          },
+          rung: {
+            type: "string",
+            enum: ["manage", "full", "terminal"],
+            description: "The rung to ask the member for.",
+          },
+        },
+        required: ["machine", "rung"],
         additionalProperties: false,
       },
     },

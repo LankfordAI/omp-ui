@@ -1129,6 +1129,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
         update: async () => ({ kind: "refused", reason: "not wired in this fixture" }),
         send: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         finish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        grantRaise: async () => ({ ok: false, reason: "not wired in this fixture" }),
         ...fleet,
       },
     });
@@ -1730,6 +1731,72 @@ describe("HostBridge fleet tools (issue #899)", () => {
     ]);
     expect(dispatch).not.toHaveBeenCalled();
     expect(machines).not.toHaveBeenCalled();
+  });
+
+  it("routes omp-ui_fleet_grant_raise through deps and answers success and refusal as text (#1393)", async () => {
+    const calls: Array<{ tabId: string; args: unknown; control: HostCallControl }> = [];
+    const { bridge, sent, logs } = fleetBridge({
+      grantRaise: async (tabId, args, control) => {
+        calls.push({ tabId, args, control });
+        return calls.length === 1 ? { ok: true, rung: "manage" as FleetRung } : { ok: false, reason: "the user declined" };
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("g1", "omp-ui_fleet_grant_raise", { machine: "studio", rung: "manage" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("g2", "omp-ui_fleet_grant_raise", { machine: "studio", rung: "full" }), send);
+    await settled();
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.args).toEqual({ machine: "studio", rung: "manage" });
+    expect(calls[0]!.control.suspendWatchdog).toBeTypeOf("function");
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(sent.map(resultText)).toEqual([
+      "Granted manage on studio. The rung took effect at once — re-run the call that was refused.",
+      "refused — the user declined",
+    ]);
+    expect(logs).toEqual([
+      "omp-ui_fleet_grant_raise from t1: studio manage granted manage",
+      "omp-ui_fleet_grant_raise from t1: studio full refused (the user declined)",
+    ]);
+  });
+
+  it("never echoes the card's secret into the answered frame or the log (#1393)", async () => {
+    const SECRET = "SECRET-RAISE-MARKER-42";
+    const { promise: settledSecret, resolve: gotSecret } = Promise.withResolvers<string>();
+    const { bridge, sent, logs } = fleetBridge({
+      grantRaise: async (_tabId, _args, control) => {
+        control.suspendWatchdog();
+        control.rearmWatchdog(60_000);
+        // The gate hands the secret to the dispatcher only; the bridge layer
+        // above must never see it.
+        void gotSecret(SECRET);
+        return { ok: true, rung: "manage" as FleetRung };
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("g1", "omp-ui_fleet_grant_raise", { machine: "studio", rung: "manage" }), send);
+    await settled();
+    await settledSecret;
+    expect(JSON.stringify({ sent: sent.map(resultText), logs })).not.toContain(SECRET);
+  });
+
+  it("refuses malformed grant raise arguments without calling the deps", async () => {
+    const grantRaise = vi.fn();
+    const { bridge, sent } = fleetBridge({ grantRaise });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", "omp-ui_fleet_grant_raise", { machine: "studio", rung: "dispatch" }), send);
+    bridge.route("t1", toolCallFrame("b", "omp-ui_fleet_grant_raise", { machine: "studio", rung: "manage", secret: "x" }), send);
+    bridge.route("t1", toolCallFrame("c", "omp-ui_fleet_grant_raise", { machine: "  ", rung: "manage" }), send);
+    await settled();
+    expect(sent).toHaveLength(3);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(sent.map(resultText)).toEqual([
+      "rung must be one of: manage, full, terminal",
+      'unknown argument "secret"',
+      "machine must be a non-empty string",
+    ]);
+    expect(grantRaise).not.toHaveBeenCalled();
   });
 });
 

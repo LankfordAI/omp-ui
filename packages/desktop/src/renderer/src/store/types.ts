@@ -1917,6 +1917,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     parent: string | null,
   ): Promise<{ ok: true } | { ok: false; reason: string }>;
   /**
+   * Answers the tab's grant raise card (#1393). Main owns the held host call;
+   * the secret rides once to the member through the dispatcher and is never
+   * stored. Resolves main's verdict: `{ ok: false }` carries the reason.
+   */
+  answerGrantRaise(
+    tabId: string,
+    promptId: string,
+    decision: "allow" | "deny",
+    secret: string | null,
+  ): Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
    * Compacts the context. Resolves `acked` only when omp acknowledged the
    * compaction (#336), `pending` when it is still running past the response
    * budget, and `failed` when omp refused it or the process left.
