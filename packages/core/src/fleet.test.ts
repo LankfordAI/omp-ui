@@ -22,6 +22,7 @@ import {
   formatFleetMachines,
   isFleetProvenance,
   isOutsideSenderKind,
+  maskCommandSecrets,
   LOCAL_MACHINE_KEY,
   parseFleetDetachedExecRequest,
   parseFleetDispatchRequest,
@@ -1489,5 +1490,31 @@ describe("container packageFormat (#1372)", () => {
         }),
       ),
     ).toBe("versions: omp-ui 0.40.0 (container image), omp 19.2.1 (pinned)");
+  });
+});
+
+describe("maskCommandSecrets (fleet audit ring)", () => {
+  it("masks an uppercase KEY=value assignment with a long value", () => {
+    expect(maskCommandSecrets("FOO=sk-abcdef123456 run")).toBe("FOO=[masked] run");
+  });
+
+  it("leaves ordinary commands and short flag values untouched", () => {
+    expect(maskCommandSecrets("git push origin main")).toBe("git push origin main");
+    expect(maskCommandSecrets("ls --format=short")).toBe("ls --format=short");
+  });
+
+  it("masks a quoted value", () => {
+    expect(maskCommandSecrets('API_KEY="super-secret-value" node')).toBe('API_KEY=[masked] node');
+    expect(maskCommandSecrets("TOKEN='abcdefgh12345678' cmd")).toBe("TOKEN=[masked] cmd");
+  });
+
+  it("keeps a 7-char value — below the mask threshold", () => {
+    expect(maskCommandSecrets("X=abc1234 run")).toBe("X=abc1234 run");
+  });
+
+  it("does not mask lowercase names", () => {
+    expect(maskCommandSecrets("path=/very/long/path/value run")).toBe(
+      "path=/very/long/path/value run",
+    );
   });
 });
