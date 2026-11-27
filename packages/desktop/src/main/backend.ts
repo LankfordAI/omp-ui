@@ -250,6 +250,7 @@ import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
 import { FleetServer } from "./fleet-server";
 import { LocalProjectRequests } from "./local-project-request";
+import { FleetGrantRaiseRequests } from "./fleet-grant-raise";
 import { FleetTerminalClient } from "./fleet-terminal-client";
 import { FleetWakeCoordinator } from "./fleet-wake";
 import { probeSshPort } from "./ssh-probe";
@@ -376,6 +377,8 @@ export class MainBackend {
   private readonly fleetServer: FleetServer;
   /** Card-gated project requests on this computer (#1228, ADR-0099). */
   private readonly localProjectRequests: LocalProjectRequests;
+  /** Card-gated grant raises against joined members (#1393). */
+  private readonly grantRaiseRequests: FleetGrantRaiseRequests;
   /** Fleet terminals this app opened on members (issue #991, ADR-0084). */
   private readonly fleetTerminals: FleetTerminalClient;
   /** Fleet result wake-up (issue #957, ADR-0069): the dispatching session's watch → stage → deliver ledger. */
@@ -722,6 +725,8 @@ export class MainBackend {
         },
         // Lazy: the dispatcher is constructed after remoteInstances, below.
         fleet: () => this.fleet,
+        // Lazy like `fleet`: constructed just before the dispatcher, above.
+        grantRaiseRequests: () => this.grantRaiseRequests,
         // Lazy for the same reason: the wake coordinator follows the fleet server.
         fleetWake: () => this.fleetWake,
         browserPane: {
@@ -968,6 +973,12 @@ export class MainBackend {
       homedir: () => os.homedir(),
       ask: (tabId, prompt, signal) => this.sessions.projectRequests.request(tabId, prompt, signal),
       addProject: (dir) => this.addProjectPath(dir),
+    });
+    this.grantRaiseRequests = new FleetGrantRaiseRequests({
+      eligibility: (tabId) => this.sessions.grantRaiseEligibility(tabId),
+      machines: () => this.fleet.machines(),
+      requestGrant: (machineKey, rung, secret) => this.fleet.requestGrant(machineKey, rung, secret),
+      ask: (tabId, prompt, signal) => this.sessions.grantRaises.request(tabId, prompt, signal),
     });
     this.fleet = new FleetDispatcher({
       localReport: () => this.fleetHostReport(),
@@ -1761,6 +1772,8 @@ export class MainBackend {
         ) => this.sessions.answerPlanReview(tabId, frameId, verdict, sourceHash),
         [CH.answerProjectRequest]: (tabId: string, promptId: string, decision: "allow" | "deny", parent: string | null) =>
           this.sessions.answerProjectRequest(tabId, promptId, decision, parent),
+        [CH.answerGrantRaise]: (tabId: string, promptId: string, decision: "allow" | "deny", secret: string | null) =>
+          this.sessions.answerGrantRaise(tabId, promptId, decision, secret),
         [CH.dismissProposedPlan]: (tabId: string, planFilePath: string) =>
           this.sessions.dismissProposedPlan(tabId, planFilePath),
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
@@ -3869,6 +3882,7 @@ export class MainBackend {
       // with no process reports none.
       pendingDialogs: this.sessions.pendingDialogs(record.tabId),
       projectRequest: this.sessions.projectRequests.prompt(record.tabId),
+      grantRaiseRequest: this.sessions.grantRaises.prompt(record.tabId),
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
       ...(vibe === undefined ? {} : { vibe }),

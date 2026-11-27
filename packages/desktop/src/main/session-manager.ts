@@ -195,6 +195,9 @@ import {
   type ProjectWorktreeSetup,
   type WorktreeSetupState,
   type ThemeToolArgs,
+  GRANT_RAISES_PER_RUN,
+  type FleetGrantRaisePrompt,
+  type FleetGrantRaiseDecision,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
@@ -222,6 +225,8 @@ import { ArtifactHostTools } from "./artifact-host-tools";
 import { parseArtifactPromptReferences } from "@omp-ui/core/artifact-references";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { ProjectRequestGate } from "./project-request-gate";
+import { CardRequestGate } from "./card-request-gate";
+import type { FleetGrantRaiseRequests } from "./fleet-grant-raise";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
 import { ForeignOmpTracker } from "./foreign-omp-tracker";
@@ -461,6 +466,8 @@ export interface SessionManagerDependencies {
    * fleet tools answer as unavailable.
    */
   fleet?: () => FleetDispatcherLike;
+  /** Card-gated grant raise answerer (#1393); lazy like `fleet` — the backend constructs it after this manager. */
+  grantRaiseRequests?: () => FleetGrantRaiseRequests | undefined;
   /** The fleet-wake ledger (ADR-0069); lazy like `fleet`. */
   fleetWake?: () => FleetWakeLedgerAccess;
   /**
@@ -537,6 +544,8 @@ export class SessionManager {
   private readonly routineLifecycle: RoutineLifecycleObserver | null;
   /** Agent project requests waiting on the user's card (#1228, ADR-0099); in memory only. */
   readonly projectRequests: ProjectRequestGate;
+  /** Agent grant raises waiting on the user's card (#1393); in memory only. */
+  readonly grantRaises: CardRequestGate<FleetGrantRaisePrompt, FleetGrantRaiseDecision>;
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
   private readonly collab: CollabTracker;
   private readonly gate: SpawnGate;
@@ -635,6 +644,18 @@ export class SessionManager {
         if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
       },
     });
+    this.grantRaises = new CardRequestGate<FleetGrantRaisePrompt, FleetGrantRaiseDecision>(
+      {
+        broadcast: () => this.deps.broadcast(),
+        onSettled: (tabId) => {
+          if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
+        },
+        onRaised: (tabId) => deps.attention?.grantRaiseRequested(tabId),
+        onSettleAttention: (tabId) => deps.attention?.grantRaiseSettled(tabId),
+        perRun: GRANT_RAISES_PER_RUN,
+      },
+      "grant raise",
+    );
     this.planPreflight = new PlanPreflightController({
       registry: deps.registry,
       getSessionsRoot: deps.getSessionsRoot,
@@ -765,6 +786,12 @@ export class SessionManager {
               status: (sel, waitMs) => fleet().statusText(sel, waitMs),
               exec: (tabId, args) => fleet().exec(tabId, args),
               projectManage: (tabId, args, control) => fleet().projectManage(tabId, args, control),
+              grantRaise: (tabId, args, control) => {
+                const requests = deps.grantRaiseRequests?.();
+                return requests === undefined
+                  ? Promise.resolve({ ok: false, reason: "grant raises are unavailable in this session" })
+                  : requests.request(tabId, args, control);
+              },
               // #905: detached exec start and poll, bounded the same way.
               execDetach: (tabId, args) => fleet().execDetach(tabId, args),
               execPoll: (tabId, args) => fleet().execPoll(tabId, args),
@@ -866,6 +893,7 @@ export class SessionManager {
       this.autoresearch,
       this.sessionSpends,
       this.projectRequests,
+      this.grantRaises,
       this.dialogGates,
       ...(this.routineLifecycle === null ? [] : [this.routineLifecycle]),
       this.heldPrompts,
@@ -3644,7 +3672,12 @@ export class SessionManager {
    * (issue #436).
    */
   pendingAnswer(tabId: string): boolean {
-    return this.planGates.pending(tabId) || this.dialogGates.hasOpen(tabId) || this.projectRequests.pending(tabId);
+    return (
+      this.planGates.pending(tabId) ||
+      this.dialogGates.hasOpen(tabId) ||
+      this.projectRequests.pending(tabId) ||
+      this.grantRaises.pending(tabId)
+    );
   }
 
   /** The open blocking dialogs, in arrival order, for the summary (#555). */
@@ -3663,6 +3696,33 @@ export class SessionManager {
   }
 
   /**
+   * Settles a grant raise card (#1393). The secret rides only into the gate
+   * answer, then once to the member through the dispatcher — never into a
+   * log, a broadcast, or a refusal reason.
+   */
+  answerGrantRaise(
+    tabId: string,
+    promptId: string,
+    decision: "allow" | "deny",
+    secret: string | null,
+  ): { ok: true } | { ok: false; reason: string } {
+    // The gate's staleness answer wins over the secret rule: a stale or
+    // duplicate promptId must never surface as a secret complaint.
+    if (decision === "allow" && (secret ?? "").trim() === "") {
+      const pending = this.grantRaises.prompt(tabId);
+      if (pending === null || pending.promptId !== promptId) {
+        return { ok: false, reason: "this request is no longer pending" };
+      }
+      return { ok: false, reason: "type the member's password or access token to grant" };
+    }
+    return this.grantRaises.answer(
+      tabId,
+      promptId,
+      decision === "allow" ? { kind: "allow", secret: (secret ?? "").trim() } : { kind: "deny" },
+    );
+  }
+
+  /**
    * Why this tab may not raise a project request, or null when it may
    * (#1228): a live native session with the fleet tools granted, not
    * private, not in Plan mode. Granted already excludes agent-dispatched
@@ -3678,10 +3738,27 @@ export class SessionManager {
     return null;
   }
 
+  /**
+   * Why this tab may not raise a grant raise, or null when it may (#1393):
+   * the same guards as a project request — a live native session with the
+   * fleet tools granted (which already excludes agent-dispatched, webhook,
+   * and MCP sessions, so no recursion), not private, not in Plan mode.
+   */
+  grantRaiseEligibility(tabId: string): string | null {
+    const entry = this.live.get(tabId);
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (entry?.kind !== "rpc-ui" || record === undefined) return "this session is not a live native session";
+    if (entry.fleetToolAccess !== "granted") return "this session cannot raise fleet access";
+    if (record.private) return "private sessions do not raise fleet access";
+    if (record.agentMode === "plan") return "Plan mode: a grant raise is a state change; propose it in your plan instead";
+    return null;
+  }
+
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
     if (this.planPreflight.isHeld(tabId)) return true;
     if (this.projectRequests.pending(tabId)) return true;
+    if (this.grantRaises.pending(tabId)) return true;
     return this.dialogGates.hasOpen(tabId);
   }
 

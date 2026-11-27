@@ -1443,6 +1443,20 @@ export const BACKEND_CHANNELS = {
     >([str(), str(), oneOf("allow", "deny"), nullable(str())]),
   },
   /**
+   * Answers the grant raise card on this machine (#1393). Local only — the
+   * secret must never cross the proxy. Main is the only answerer of the held
+   * host call: the renderer sends a decision plus the member's credential, and
+   * the credential rides once to the member through the dispatcher's own
+   * proxied fleet:grantRaise call, exactly like the Settings ceremony.
+   */
+  answerGrantRaise: {
+    channel: "grant-raise:answer",
+    ...request<
+      [tabId: string, promptId: string, decision: "allow" | "deny", secret: string | null],
+      { ok: true } | { ok: false; reason: string }
+    >([str(), str(), oneOf("allow", "deny"), nullable(str())]),
+  },
+  /**
    * Stops tracking an interrupted plan (ADR-0033). A no-op for a plan whose
    * review gate is live (it must be answered) or that is not pending.
    */

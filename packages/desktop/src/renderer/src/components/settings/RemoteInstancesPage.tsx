@@ -216,7 +216,7 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
 }
 
 /** The five ladder rungs, ladder order; labels ride the Fleet view's keys. */
-const RUNG_LABEL: Record<FleetRung, string> = {
+export const RUNG_LABEL: Record<FleetRung, string> = {
   observe: "Observe",
   dispatch: "Dispatch",
   manage: "Manage projects",

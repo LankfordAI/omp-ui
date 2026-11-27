@@ -104,6 +104,7 @@ export * from "./knowledge-vault-extension";
 export * from "./ask-context";
 export * from "./project-scope-extension";
 export * from "./project-request";
+export * from "./grant-raise-request";
 export * from "./fleet";
 export * from "./fleet-host";
 export * from "./remote-vscode";

@@ -83,7 +83,16 @@ turned on; the owner's check is enforced on the inbound handler.**
   *claimed* instanceId — intent bookkeeping under the shared join token, not
   adversarial authentication; only a holder of the node's credential reaches
   the socket at all. Per-peer named credentials are the recorded remedy and
-  explicitly deferred.
+  explicitly deferred. *Amended (#1393): the manager-side raise may be
+  **agent-initiated** through a transcript confirmation card
+  (`omp-ui_fleet_grant_raise`). The card collects the member's credential
+  from the human — the agent never sees, holds, or repeats it, and the
+  strict tool schema has no credential field. The re-presentation ceremony
+  itself is unchanged: the human still types the member's secret, the
+  member's credential verification, ceiling, credential-digest binding, and
+  audit all run exactly as for a Settings raise, and the node-local grant
+  editor stays owner-only. Lowering a rung or resetting to the join default
+  remains a human action.*
 - **Caller-side consent rides ADR-0061's gate.** `omp-ui_fleet_exec` and
   `omp-ui_fleet_project` join §61's three tools into one five-tool set,
   registered only while *Let agents dispatch fleet work* is on and the

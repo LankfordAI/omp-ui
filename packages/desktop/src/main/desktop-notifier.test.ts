@@ -417,11 +417,13 @@ describe("DesktopNotifier", () => {
       await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
       notifier.projectRequested("tab-c");
       await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
-      expect(cues).toEqual([`${CH.onNotificationCue}:turn`, `${CH.onNotificationCue}:plan`, `${CH.onNotificationCue}:plan`]);
+      notifier.grantRaiseRequested("tab-e");
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+      expect(cues).toEqual([`${CH.onNotificationCue}:turn`, `${CH.onNotificationCue}:plan`, `${CH.onNotificationCue}:plan`, `${CH.onNotificationCue}:plan`]);
 
       notifier.stallCap("tab-d", true);
       await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
-      expect(cues[3]).toBe(`${CH.onNotificationCue}:alert`);
+      expect(cues[4]).toBe(`${CH.onNotificationCue}:alert`);
 
       // The cue goes through sendDesktop only — the fan-out sinks (remote web
       // clients) never see it.

@@ -128,6 +128,7 @@ export type SessionParamsSlice = Pick<
   | "acceptApprovalPrompt"
   | "answerApprovalPrompt"
   | "answerProjectRequest"
+  | "answerGrantRaise"
   | "answerExtension"
   | "reconcilePendingDialogs"
   | "sendPrompt"
@@ -3076,6 +3077,11 @@ export function createSessionParamsSlice(
     answerApprovalPrompt,
     answerProjectRequest: (tabId, promptId, decision, parent) =>
       backend.answerProjectRequest(tabId, promptId, decision, parent).catch((err: unknown) => ({
+        ok: false as const,
+        reason: displayMessage(err),
+      })),
+    answerGrantRaise: (tabId, promptId, decision, secret) =>
+      backend.answerGrantRaise(tabId, promptId, decision, secret).catch((err: unknown) => ({
         ok: false as const,
         reason: displayMessage(err),
       })),

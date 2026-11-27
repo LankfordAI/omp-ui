@@ -14,7 +14,7 @@ import type { GnomeSoundGate } from "./gnome-sound-gate";
  * reads live state at the moment the user would see the banner.
  */
 
-export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused" | "project-request";
+export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused" | "project-request" | "grant-raise";
 
 export interface RoutineNotificationPayload {
   routineId: string;
@@ -39,6 +39,10 @@ export interface Attention {
   projectRequested(tabId: string): void;
   /** The tab's project request settled (answer, cancel, exit). */
   projectRequestSettled(tabId: string): void;
+  /** An agent's grant raise card opened on this tab (#1393). */
+  grantRaiseRequested(tabId: string): void;
+  /** The tab's grant raise settled (answer, cancel, exit). */
+  grantRaiseSettled(tabId: string): void;
   /**
    * The desktop renderer's viewed-tab report named this tab: the user is
    * looking at it, so its attention is acknowledged.
@@ -92,6 +96,7 @@ const COPY = {
   planPendingNoTitle: "Plan review — answer needed",
   stallPaused: "Stall auto-continue paused — send a prompt to re-arm",
   projectRequest: "Project request — answer needed",
+  grantRaiseRequest: "Fleet access raise — answer needed",
   snoozeReturned: "Snooze ended — click to resume",
 } as const;
 
@@ -129,6 +134,14 @@ export class DesktopNotifier implements Attention {
 
   projectRequestSettled(tabId: string): void {
     this.drop(tabId, "project-request");
+  }
+
+  grantRaiseRequested(tabId: string): void {
+    this.schedule(tabId, "grant-raise", null);
+  }
+
+  grantRaiseSettled(tabId: string): void {
+    this.drop(tabId, "grant-raise");
   }
 
   viewedChanged(tabId: string): void {
@@ -347,6 +360,7 @@ export class DesktopNotifier implements Attention {
         return "turn";
       case "plan-pending":
       case "project-request":
+      case "grant-raise":
         return "plan";
       case "stall-paused":
         return "alert";
@@ -499,6 +513,8 @@ export class DesktopNotifier implements Attention {
         return { title, body: COPY.stallPaused };
       case "project-request":
         return { title, body: COPY.projectRequest };
+      case "grant-raise":
+        return { title, body: COPY.grantRaiseRequest };
     }
   }
 
