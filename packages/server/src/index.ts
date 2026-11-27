@@ -540,16 +540,15 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       handleMcpRequest(req, res, opts.mcp, opts.version ?? "0.0.0");
       return;
     }
-    const { value, from } = presentedToken(req, url);
+    // The query token authenticates only the pairing landing page; every other
+    // HTTP route requires the header or the session cookie (finding 9).
+    const { value, from } = presentedToken(req, url, url.pathname === "/");
 
     if (credentialMatches(value)) {
       if (from === "query" && value !== null) {
         // A query hit re-sets the cookie to the exact credential presented, so a pairing link
         // (token) and the login page (session credential) both work for the WS upgrade.
-        res.setHeader(
-          "Set-Cookie",
-          `${REMOTE_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
-        );
+        res.setHeader("Set-Cookie", cookieAttributes(value, req));
       }
       if (url.pathname === "/healthz") {
         send(res, 200, "ok");
@@ -696,7 +695,10 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       socket.destroy();
       return;
     }
-    const { value } = presentedToken(req, url);
+    // Pairing-friendly: the token in the upgrade query is the pairing flow's
+    // very next step after the landing page; the frame socket additionally
+    // requires a valid pair key below.
+    const { value } = presentedToken(req, url, true);
     const authDigest = acceptedCredentialDigest(value);
     if (
       closing || authDigest === null ||

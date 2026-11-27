@@ -1088,10 +1088,10 @@ describe("startRemoteServer malformed requests", () => {
     const root = tempWebRoot();
     try {
       const { handle } = await serve({ webRoot: root });
-      const bad = await rawGet(handle.port, `/%ZZ?t=${TOKEN}`);
+      const bad = await rawGetWithHeader(handle.port, "/%ZZ", `Authorization: Bearer ${TOKEN}`);
       expect(bad.status).toBe(400);
       expect(bad.body).toBe("bad request");
-      const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+      const good = await rawGetWithHeader(handle.port, "/healthz", `Authorization: Bearer ${TOKEN}`);
       expect(good.status).toBe(200);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -1105,7 +1105,7 @@ describe("startRemoteServer malformed requests", () => {
     const bad = await rawGet(handle.port, "http://[bad/");
     expect(bad.status).toBe(400);
     expect(bad.body).toBe("bad request");
-    const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+    const good = await rawGetWithHeader(handle.port, "/healthz", `Authorization: Bearer ${TOKEN}`);
     expect(good.status).toBe(200);
   });
 
@@ -1113,7 +1113,7 @@ describe("startRemoteServer malformed requests", () => {
     const { handle } = await serve();
     // The upgrade handler's catch path: no 401 write, no TypeError escaping — just a dead socket.
     await expect(rawUpgrade(handle.port, "http://[bad/")).rejects.toThrow();
-    const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+    const good = await rawGetWithHeader(handle.port, "/healthz", `Authorization: Bearer ${TOKEN}`);
     expect(good.status).toBe(200);
   });
 });
@@ -1140,6 +1140,8 @@ describe("startRemoteServer static bundle", () => {
     roots.push(root);
     const { base } = await serve({ webRoot: root });
 
+    // The landing page is the pairing surface: it pairs via ?t= and issues the
+    // cookie the rest of the session rides.
     const missing = await fetch(`${base}/?t=${TOKEN}`);
     expect(missing.status).toBe(503);
     expect(await missing.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
@@ -1179,8 +1181,9 @@ describe("startRemoteServer static bundle", () => {
 
     const html = "<!doctype html><div id=root>replacement build</div>";
     fs.writeFileSync(path.join(root, "index.html"), html);
+    const headers = { authorization: `Bearer ${TOKEN}` };
     for (const route of ["/", "/some/spa/route"]) {
-      const replacement = await fetch(`${base}${route}?t=${TOKEN}`);
+      const replacement = await fetch(`${base}${route}`, { headers });
       expect(replacement.status).toBe(200);
       expect(await replacement.text()).toBe(html);
     }
@@ -1201,17 +1204,18 @@ describe("startRemoteServer static bundle", () => {
     const { base, handle } = await serve({ webRoot: webRoot() });
     expect(handle.webBundleMissing).toBe(false);
 
-    const index = await fetch(`${base}/?t=${TOKEN}`);
+    const headers = { authorization: `Bearer ${TOKEN}` };
+    const index = await fetch(`${base}/`, { headers });
     expect(index.status).toBe(200);
     expect(index.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await index.text()).toContain('id=root');
 
-    const js = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
+    const js = await fetch(`${base}/assets/app.js`, { headers });
     expect(js.status).toBe(200);
     expect(js.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
     expect(js.headers.get("content-length")).toBe(String(Buffer.byteLength("export const x = 1;\n")));
     expect(await js.text()).toBe("export const x = 1;\n");
-    const png = await fetch(`${base}/icon.png?t=${TOKEN}`);
+    const png = await fetch(`${base}/icon.png`, { headers });
     expect(png.status).toBe(200);
     expect(png.headers.get("content-type")).toBe("image/png");
   });
@@ -1224,7 +1228,9 @@ describe("startRemoteServer static bundle", () => {
     fs.chmodSync(file, 0o000);
     try {
       const { base } = await serve({ webRoot: root });
-      const res = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
+      const res = await fetch(`${base}/assets/app.js`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
       expect(res.status).toBe(404);
       expect(await res.text()).toBe("not found");
     } finally {
@@ -1234,14 +1240,18 @@ describe("startRemoteServer static bundle", () => {
 
   it("falls back to index.html for an extensionless client route", async () => {
     const { base } = await serve({ webRoot: webRoot() });
-    const res = await fetch(`${base}/some/spa/route?t=${TOKEN}`);
+    const res = await fetch(`${base}/some/spa/route`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("id=root");
   });
 
   it("404s a missing asset rather than serving index.html", async () => {
     const { base } = await serve({ webRoot: webRoot() });
-    const res = await fetch(`${base}/assets/gone.js?t=${TOKEN}`);
+    const res = await fetch(`${base}/assets/gone.js`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
     expect(res.status).toBe(404);
   });
 
@@ -1253,7 +1263,11 @@ describe("startRemoteServer static bundle", () => {
     // `%2f` is the traversal that survives: WHATWG URL collapses a literal `/../`, but leaves an
     // encoded slash alone, so `..` only reappears at the decodeURIComponent the static route does.
     // Raw http because fetch rewrites the request-target before it hits the wire.
-    const res = await rawGet(handle.port, `/%2e%2e%2foutside.txt?t=${TOKEN}`);
+    const res = await rawGetWithHeader(
+      handle.port,
+      "/%2e%2e%2foutside.txt",
+      `Authorization: Bearer ${TOKEN}`,
+    );
     expect(res.status).toBe(403);
     expect(res.body).not.toContain("secret");
   });
