@@ -1,9 +1,10 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   EXECUTABLE_CONFIG_PATHS,
+  LOCAL_CLONE_INACTIVITY_MS,
   LOCAL_CLONE_TIMEOUT_MS,
   isWithin,
   parseCloneSource,
@@ -19,7 +20,16 @@ import type { ProjectRequestOutcome } from "./project-request-gate";
 
 export type LocalGitRunner = (
   args: string[],
-  opts: { cwd: string; timeout: number; signal?: AbortSignal; env?: NodeJS.ProcessEnv },
+  opts: {
+    cwd: string;
+    timeout: number;
+    signal?: AbortSignal;
+    env?: NodeJS.ProcessEnv;
+    /** Streamed stderr chunks; only the streaming runner emits them. */
+    onStderr?: (chunk: string) => void;
+    /** Kill the child after this much silence on stderr; default: timeout. */
+    inactivityMs?: number;
+  },
 ) => Promise<string>;
 
 export interface LocalProjectRequestDeps {
@@ -34,19 +44,106 @@ export interface LocalProjectRequestDeps {
   ask(tabId: string, prompt: ProjectRequestPrompt, signal: AbortSignal): Promise<ProjectRequestOutcome>;
   /** Backend.addProjectPath */
   addProject(dir: string): Promise<unknown>;
+  /** Backend.reportCloneProgress: the live git progress line, or null to clear. */
+  reportCloneProgress?(tabId: string, line: string | null): void;
   git?: LocalGitRunner;
   now?: () => Date;
 }
 
-/** execFile git, stdout as text; rejects with git's stderr in the message. */
+/**
+ * git as a spawned child: stdout accumulates as text, stderr streams through
+ * `opts.onStderr` (resetting the inactivity timer), and the child is killed on
+ * abort, on `opts.timeout` of wall clock, or on `opts.inactivityMs` of stderr
+ * silence. Rejects with git's stderr, trimmed, in the message.
+ */
 export const execLocalGit: LocalGitRunner = (args, opts) => {
   const { promise, resolve, reject } = Promise.withResolvers<string>();
-  execFile("git", args, { ...opts, maxBuffer: 1_048_576, encoding: "utf8" }, (err, stdout, stderr) => {
-    if (err === null) resolve(stdout);
-    else reject(new Error(stderr.trim() !== "" ? stderr.trim() : err.message));
+  const child = spawn("git", args, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  const kill = (why: string) => {
+    if (settled) return;
+    child.kill("SIGTERM");
+    setTimeout(() => {
+      if (!settled && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    }, 5_000).unref();
+    reject(new Error(why));
+  };
+  const wallTimer = setTimeout(() => {
+    const minutes = Math.max(1, Math.round(opts.timeout / 60_000));
+    kill(`git did not finish within ${minutes}m — killed`);
+  }, opts.timeout);
+  wallTimer.unref();
+  let inactivityTimer: NodeJS.Timeout | undefined = undefined;
+  const disarmInactivity = () => {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = undefined;
+  };
+  const armInactivity = () => {
+    const window = opts.inactivityMs ?? opts.timeout;
+    disarmInactivity();
+    inactivityTimer = setTimeout(() => {
+      kill(`git produced no stderr output for ${Math.round(window / 1000)}s — killed (stalled transport, not a slow clone)`);
+    }, window);
+    inactivityTimer.unref();
+  };
+  armInactivity();
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    stderr += text;
+    if (stderr.length > 256 * 1024) stderr = `…${stderr.slice(-256 * 1024)}`;
+    opts.onStderr?.(text);
+    armInactivity();
+  });
+  const onAbort = () => kill("git was cancelled");
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+  child.on("error", (err) => {
+    settled = true;
+    disarmInactivity();
+    clearTimeout(wallTimer);
+    opts.signal?.removeEventListener("abort", onAbort);
+    reject(new Error(stderr.trim() !== "" ? stderr.trim() : err.message));
+  });
+  child.on("close", (code) => {
+    if (settled) return;
+    settled = true;
+    disarmInactivity();
+    clearTimeout(wallTimer);
+    opts.signal?.removeEventListener("abort", onAbort);
+    if (code === 0) resolve(stdout);
+    else reject(new Error(stderr.trim() !== "" ? stderr.trim() : `git exited with code ${code ?? "null"}`));
   });
   return promise;
 };
+
+/**
+ * The one progress line a git stderr chunk leaves on screen: ANSI stripped,
+ * the last non-empty `\r`/`\n` segment. Null when the chunk carries no text.
+ */
+export function lastProgressLine(chunk: string): string | null {
+  const segments = chunk
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .split(/[\r\n]+/)
+    .filter((segment) => segment.trim() !== "");
+  const last = segments.at(-1);
+  return last === undefined ? null : last.trim();
+}
+
+/**
+ * Full clone stderr, tail-capped, with the resume hint when the partial
+ * checkout was kept.
+ */
+function cloneFailureReason(message: string, kept: boolean, dest: string): string {
+  const capped = message.length > 2000 ? `…${message.slice(-2000)}` : message;
+  return kept
+    ? `git clone failed: ${capped} — the partial checkout was kept at ${dest}; retrying the same clone will resume it`
+    : `git clone failed: ${capped}`;
+}
 
 function realpathOrNull(p: string): string | null {
   try {
@@ -142,25 +239,46 @@ export class LocalProjectRequests {
     const dest = path.join(parentReal, source.name);
     const blocked = this.#blockedLocation(dest);
     if (blocked !== null) return refused(blocked);
-    if (fs.existsSync(dest)) return refused(`${dest} already exists`);
+    const cloneEnv: NodeJS.ProcessEnv = {
+      // Provider keys never ride a git child (finding 9): a repo's
+      // credential helper or hook runs with this env.
+      ...withoutProviderKeys(process.env),
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes",
+    };
+    const onStderr = (chunk: string) => {
+      const line = lastProgressLine(chunk);
+      if (line !== null) this.deps.reportCloneProgress?.(tabId, line);
+    };
+    const resumeReady =
+      fs.existsSync(dest) && fs.existsSync(path.join(dest, ".git"))
+        ? (await this.#gitLine(["-C", dest, "remote", "get-url", "origin"], parentReal)) === source.url
+        : false;
+    if (fs.existsSync(dest) && !resumeReady) return refused(`${dest} already exists`);
     try {
-      await this.#git(["clone", "--", source.url, dest], {
-        cwd: parentReal,
-        timeout: LOCAL_CLONE_TIMEOUT_MS,
-        signal: control.signal,
-        env: {
-          // Provider keys never ride a git child (finding 9): a repo's
-          // credential helper or hook runs with this env.
-          ...withoutProviderKeys(process.env),
-          GIT_TERMINAL_PROMPT: "0",
-          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes",
-        },
-      });
+      if (resumeReady) {
+        await this.#resumeClone(dest, onStderr, cloneEnv, control);
+      } else {
+        await this.#git(
+          ["clone", "--filter=blob:none", "--progress", "--", source.url, dest],
+          {
+            cwd: parentReal,
+            timeout: LOCAL_CLONE_TIMEOUT_MS,
+            inactivityMs: LOCAL_CLONE_INACTIVITY_MS,
+            onStderr,
+            signal: control.signal,
+            env: cloneEnv,
+          },
+        );
+      }
     } catch (err) {
-      // dest did not exist before the clone, so everything there is the clone's.
-      await fs.promises.rm(dest, { recursive: true, force: true });
-      const message = err instanceof Error ? err.message : String(err);
-      return refused(`git clone failed: ${message.split("\n")[0]}`);
+      // The clone's own directory is the only thing there: keep it when git
+      // wrote `.git` (the resumable state), remove it otherwise.
+      const kept = fs.existsSync(path.join(dest, ".git"));
+      if (!kept) await fs.promises.rm(dest, { recursive: true, force: true });
+      return refused(cloneFailureReason(err instanceof Error ? err.message : String(err), kept, dest));
+    } finally {
+      this.deps.reportCloneProgress?.(tabId, null);
     }
     try {
       await this.deps.addProject(dest);
@@ -168,6 +286,35 @@ export class LocalProjectRequests {
       return refused(`cloned to ${dest} but registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return this.#accepted(dest);
+  }
+
+  /**
+   * Completes a kept partial clone in `dest` whose origin already matches
+   * `url`: fetch (the partial-clone config reapplies the filter and git
+   * reuses the already-downloaded pack), re-resolve the remote head, then
+   * force-checkout the working tree.
+   */
+  async #resumeClone(
+    dest: string,
+    onStderr: (chunk: string) => void,
+    env: NodeJS.ProcessEnv,
+    control: HostCallControl,
+  ): Promise<void> {
+    await this.#git(
+      ["-C", dest, "fetch", "--progress", "origin", "+refs/heads/*:refs/remotes/origin/*"],
+      {
+        cwd: dest,
+        timeout: LOCAL_CLONE_TIMEOUT_MS,
+        inactivityMs: LOCAL_CLONE_INACTIVITY_MS,
+        onStderr,
+        signal: control.signal,
+        env,
+      },
+    );
+    await this.#git(["-C", dest, "remote", "set-head", "origin", "--auto"], { cwd: dest, timeout: 5_000, env });
+    const head = await this.#gitLine(["-C", dest, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], dest);
+    const branch = head?.replace(/^origin\//, "") ?? "main";
+    await this.#git(["-C", dest, "checkout", "-f", "-B", branch, `origin/${branch}`], { cwd: dest, timeout: 5_000, env });
   }
 
   /** Suspends the watchdog and waits on the card: the refusal, or Allow with the picked clone parent. */

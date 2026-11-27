@@ -614,8 +614,20 @@ describe("FleetServer.projectManage", () => {
     registry.setSetting("fleetProjectRoots", [rootA, rootB]);
     const outcome = await server(execGit).projectManage({ requester: A, verb: "clone", repositoryUrl: "https://github.com/acme/re%24po.git" });
     expect(outcome).toMatchObject({ status: "accepted", path: path.join(rootB, "re24po") });
-    expect(execGit).toHaveBeenCalledWith("git", ["clone", "--", "https://github.com/acme/re%24po.git", path.join(rootB, "re24po")], expect.objectContaining({ cwd: rootB }));
+    expect(execGit).toHaveBeenCalledWith("git", ["clone", "--filter=blob:none", "--", "https://github.com/acme/re%24po.git", path.join(rootB, "re24po")], expect.objectContaining({ cwd: rootB }));
     expect(registry.projects.map((p) => p.path)).toContain(path.join(rootB, "re24po"));
+  });
+
+  it("returns the full stderr, not the first line, when the clone fails", async () => {
+    registry.setSetting("fleetProjectRoots", [base]);
+    const failing = vi.fn(async () => {
+      throw new Error("fatal: transport failed\nerror: RPC failed");
+    });
+    const outcome = await server(failing).projectManage({ requester: A, verb: "clone", repositoryUrl: "https://github.com/acme/repo" });
+    expect(outcome).toEqual({
+      status: "refused",
+      reason: "git clone failed: fatal: transport failed\nerror: RPC failed",
+    });
   });
 
   it("maps a git timeout to the long-running-setup hint", async () => {

@@ -42,8 +42,10 @@ export const EXECUTABLE_CONFIG_PATHS: readonly string[] = [
   ".env.local",
 ];
 
-/** The local clone's git timeout; the host call's watchdog is rearmed a little past it. */
-export const LOCAL_CLONE_TIMEOUT_MS = 600_000;
+/** The local clone's absolute wall-clock cap; the host call's watchdog is rearmed a little past it. */
+export const LOCAL_CLONE_TIMEOUT_MS = 3_600_000;
+/** Kill a local clone whose stderr has been silent this long: a stalled transport, not a slow clone. */
+export const LOCAL_CLONE_INACTIVITY_MS = 180_000;
 /** Project requests one agent run may raise; the count resets on agent_start. */
 export const PROJECT_REQUESTS_PER_RUN = 3;
 

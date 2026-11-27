@@ -665,13 +665,14 @@ export class FleetServer {
     }
     if (dest === null) return { status: "refused", reason: `every project root already holds a directory named ${name}` };
     try {
-      await this.#git(["clone", "--", url.toString(), dest], { cwd: path.dirname(dest), timeout: FLEET_CLONE_TIMEOUT_MS });
+      await this.#git(["clone", "--filter=blob:none", "--", url.toString(), dest], { cwd: path.dirname(dest), timeout: FLEET_CLONE_TIMEOUT_MS });
     } catch (err) {
       const message = messageOf(err);
       if (/timed out|ETIMEDOUT/i.test(message)) {
         return { status: "refused", reason: "clone timed out — use fleet.exec for long-running setup" };
       }
-      return { status: "refused", reason: `git clone failed: ${message.split("\n")[0]}` };
+      const capped = message.length > 2000 ? `…${message.slice(-2000)}` : message;
+      return { status: "refused", reason: `git clone failed: ${capped}` };
     }
     try {
       await this.#deps.addProject(dest);

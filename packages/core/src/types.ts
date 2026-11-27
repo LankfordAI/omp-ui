@@ -810,6 +810,13 @@ export interface SessionSummary extends OwnedSessionRecord {
    */
   projectRequest?: ProjectRequestPrompt | null;
   /**
+   * The latest git clone progress line while this session's local project
+   * request is cloning (#1395). Ephemeral like `projectRequest`: main holds it
+   * in memory and it dies with the host call. Null or absent means no clone is
+   * running.
+   */
+  cloneProgress?: string | null;
+  /**
    * The agent's grant raise this session is held on (#1393): a rung raise on
    * a joined fleet member waiting for the user's card answer. Ephemeral like
    * `projectRequest`: main holds it in memory and it dies with the host call.
