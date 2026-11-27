@@ -64,9 +64,13 @@ export const execLocalGit: LocalGitRunner = (args, opts) => {
   let settled = false;
   const kill = (why: string) => {
     if (settled) return;
+    settled = true;
+    disarmInactivity();
+    clearTimeout(wallTimer);
+    opts.signal?.removeEventListener("abort", onAbort);
     child.kill("SIGTERM");
     setTimeout(() => {
-      if (!settled && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     }, 5_000).unref();
     reject(new Error(why));
   };
@@ -94,6 +98,9 @@ export const execLocalGit: LocalGitRunner = (args, opts) => {
   });
   child.stderr?.on("data", (chunk: Buffer) => {
     const text = chunk.toString("utf8");
+    // A killed child's late chunks must not re-arm the cleared timers or
+    // re-populate progress the failure path already cleared.
+    if (settled) return;
     stderr += text;
     if (stderr.length > 256 * 1024) stderr = `…${stderr.slice(-256 * 1024)}`;
     opts.onStderr?.(text);
@@ -311,10 +318,27 @@ export class LocalProjectRequests {
         env,
       },
     );
-    await this.#git(["-C", dest, "remote", "set-head", "origin", "--auto"], { cwd: dest, timeout: 5_000, env });
+    await this.#git(
+      ["-C", dest, "remote", "set-head", "origin", "--auto"],
+      // A network round trip on a large remote: the same budgets as the fetch.
+      { cwd: dest, timeout: LOCAL_CLONE_TIMEOUT_MS, inactivityMs: LOCAL_CLONE_INACTIVITY_MS, signal: control.signal, env },
+    );
     const head = await this.#gitLine(["-C", dest, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], dest);
     const branch = head?.replace(/^origin\//, "") ?? "main";
-    await this.#git(["-C", dest, "checkout", "-f", "-B", branch, `origin/${branch}`], { cwd: dest, timeout: 5_000, env });
+    await this.#git(
+      ["-C", dest, "checkout", "-f", "-B", "--progress", branch, `origin/${branch}`],
+      // Under the blob filter the checkout lazily fetches working-tree blobs
+      // over the network; without --progress git prints nothing while it does,
+      // so the inactivity timer would starve.
+      {
+        cwd: dest,
+        timeout: LOCAL_CLONE_TIMEOUT_MS,
+        inactivityMs: LOCAL_CLONE_INACTIVITY_MS,
+        onStderr,
+        signal: control.signal,
+        env,
+      },
+    );
   }
 
   /** Suspends the watchdog and waits on the card: the refusal, or Allow with the picked clone parent. */

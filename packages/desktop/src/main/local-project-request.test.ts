@@ -242,7 +242,7 @@ describe("LocalProjectRequests (#1228)", () => {
       ["-C", dest, "fetch", "--progress", "origin", "+refs/heads/*:refs/remotes/origin/*"],
       ["-C", dest, "remote", "set-head", "origin", "--auto"],
       ["-C", dest, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-      ["-C", dest, "checkout", "-f", "-B", "main", "origin/main"],
+      ["-C", dest, "checkout", "-f", "-B", "--progress", "main", "origin/main"],
       ["rev-parse", "HEAD"],
     ]);
     const fetchOpts = h.git.mock.calls[1]![1]!;
