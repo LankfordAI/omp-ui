@@ -13,7 +13,7 @@ import {
  * each rewrite used to trigger a full buildState + broadcast, so the renderer
  * re-rendered the whole shell at turn rate on top of the transcript stream.
  */
-const WATCHER_BROADCAST_MS = 1_000;
+const WATCHER_BROADCAST_MS = 3_000;
 
 export interface WatcherHubDeps {
   registry: Registry;

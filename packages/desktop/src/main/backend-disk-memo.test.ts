@@ -447,4 +447,126 @@ describe("MainBackend disk memo and cached history titles (#1286)", () => {
     expect(s2.projects[0]!.sessions[0]!.title).toBe("Title v2");
     expect(readSessionTitlesMock).toHaveBeenCalledTimes(2);
   });
+
+  it("absorbs same-bucket mtime churn for a live session and settles the trailing write once the bucket closes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+    const activePath = path.join(sessionsRoot, "lin-bkt", "2026-10-01_s-bkt.jsonl");
+    writeTranscript(activePath, 0.1, 100);
+    seedRegistry(registryFile, {
+      projects: [PROJECT],
+      sessions: [
+        ownedSessionRecord({ tabId: "t-bkt", sessionId: "s-bkt", lineageDir: "lin-bkt", projectCwd: PROJECT.path, cachedTitle: "Bkt", cachedModified: "2026-10-01T00:00:00.000Z" }),
+      ],
+    });
+    let hydrateTitle = "Bkt";
+    let hydrateMtime = new Date("2026-10-01T00:00:00.000Z");
+    resolveSessionLocationMock.mockResolvedValue({ where: "active", filePath: activePath });
+    hydrateSessionFileMock.mockImplementation(async () => ({
+      id: "s-bkt",
+      title: hydrateTitle,
+      status: "idle" as const,
+      mtime: hydrateMtime,
+    }));
+
+    backend = new MainBackend(win as never, registryFile, { historyEnv: { PI_CODING_AGENT_DIR: agentDir } });
+    backend.registerIpc();
+
+    // Go live like the forced-miss test: spawn a resume + publish a spend snapshot.
+    await invoke(CH.spawnSession, { origin: "resume", resumeTabId: "t-bkt", cols: 80, rows: 24 });
+    const client = rpcClients.at(-1)!;
+    const liveTotals: SpendTotals = { ...emptySpendTotals(), cost: 0.9, totalTokens: 900, premiumRequests: 2, requests: 3 };
+    const snap: SessionSpendSnapshot = {
+      version: 1,
+      processKey: "proc-bkt",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      sessionFile: activePath,
+      main: liveTotals,
+      subagents: emptySpendTotals(),
+      total: liveTotals,
+      transcripts: 0,
+      cacheWarm: emptySpendTotals(),
+    };
+    client.onFrame?.({
+      type: "extension_ui_request",
+      id: "spend-1",
+      method: "setStatus",
+      statusKey: SESSION_SPEND_STATUS_KEY,
+      statusText: JSON.stringify(snap),
+    });
+    await invoke(CH.getState);
+    const afterFill = hydrateSessionFileMock.mock.calls.length;
+
+    // Two mid-turn mtime rewrites inside one 5 s bucket: no re-hydrate.
+    hydrateMtime = new Date("2026-10-01T00:00:02.000Z");
+    hydrateTitle = "Mid-turn title";
+    backendRegistry(backend).updateSession("t-bkt", { cachedModified: "2026-10-01T00:00:02.000Z" });
+    await invoke(CH.getState);
+    vi.advanceTimersByTime(2_000);
+    await invoke(CH.getState);
+    expect(hydrateSessionFileMock.mock.calls.length).toBe(afterFill);
+
+    // Once the bucket closes, the next build re-hydrates exactly once and the
+    // trailing write's title converges.
+    vi.advanceTimersByTime(6_000);
+    const settled = (await invoke(CH.getState)) as BackendState;
+    expect(hydrateSessionFileMock.mock.calls.length).toBe(afterFill + 1);
+    expect(settled.projects[0]!.sessions[0]!.title).toBe("Mid-turn title");
+    expect(settled.projects[0]!.sessions[0]!.spend?.cost).toBeCloseTo(0.9, 6);
+  });
+
+  it("keeps dormant sessions on exact-key invalidation even within one bucket", async () => {
+    const dormantPath = path.join(sessionsRoot, "lin-drm", "2026-10-01_s-drm.jsonl");
+    writeTranscript(dormantPath, 0.3, 300);
+    seedRegistry(registryFile, {
+      projects: [PROJECT],
+      sessions: [
+        ownedSessionRecord({ tabId: "t-drm", sessionId: "s-drm", lineageDir: "lin-drm", projectCwd: PROJECT.path, cachedTitle: "Drm", cachedModified: "2026-10-01T00:00:00.000Z" }),
+      ],
+    });
+    resolveSessionLocationMock.mockResolvedValue({ where: "active", filePath: dormantPath });
+    hydrateSessionFileMock.mockResolvedValue({
+      id: "s-drm",
+      title: "Drm",
+      status: "idle" as const,
+      mtime: new Date("2026-10-01T00:00:00.000Z"),
+    });
+
+    backend = new MainBackend(win as never, registryFile, { historyEnv: { PI_CODING_AGENT_DIR: agentDir } });
+    backend.registerIpc();
+
+    await invoke(CH.getState);
+    const afterFill = hydrateSessionFileMock.mock.calls.length;
+
+    // A dormant record's mtime advancing within the same 5 s bucket still
+    // invalidates: no bucketing applies when the session is not live.
+    backendRegistry(backend).updateSession("t-drm", { cachedModified: "2026-10-01T00:00:02.000Z" });
+    await invoke(CH.getState);
+    expect(hydrateSessionFileMock.mock.calls.length).toBe(afterFill + 1);
+    expect(hydrateSessionFileMock.mock.calls.at(-1)?.[0]).toBe(dormantPath);
+  });
+
+  it("handles a null cachedModified without NaN and without crashing", async () => {
+    seedRegistry(registryFile, {
+      projects: [PROJECT],
+      sessions: [
+        ownedSessionRecord({ tabId: "t-null", sessionId: "s-null", lineageDir: "lin-null", projectCwd: PROJECT.path, cachedTitle: "Null", cachedModified: null }),
+      ],
+    });
+    resolveSessionLocationMock.mockResolvedValue({ where: "missing" });
+
+    backend = new MainBackend(win as never, registryFile, { historyEnv: { PI_CODING_AGENT_DIR: agentDir } });
+    backend.registerIpc();
+
+    const first = (await invoke(CH.getState)) as BackendState;
+    const summary = first.projects[0]!.sessions[0]!;
+    expect(summary.tabId).toBe("t-null");
+    // Missing transcripts surface the history title gap-fill; no spend, no crash.
+    expect(summary.spend).toBeNull();
+    // Consecutive builds are stable (memo key uses the literal "null" bucket).
+    const second = (await invoke(CH.getState)) as BackendState;
+    expect(second.projects[0]!.sessions[0]!.tabId).toBe("t-null");
+  });
 });

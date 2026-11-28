@@ -638,6 +638,74 @@ describe("Sidebar session list", () => {
     expect(openMenuItems()).toEqual([]);
   });
 
+  it("rebuilds rows when the signature's inputs change: reachability, query, and suppression", () => {
+    useStore.setState({
+      state: withRemote({ status: "unreachable", error: "connection lost" }),
+      // tab-1 needs a ready stream for its mark to derive "ready" (#1037).
+      rpc: { "tab-1": rpcTabState({ status: "ready" }) },
+      unread: {},
+    });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    const remote = rowButton("Remote session")!;
+    expect(remote.closest(".opacity-60")).not.toBeNull();
+
+    // Host becomes joined: the row un-dims even though every summary object is fresh.
+    act(() => {
+      useStore.setState({ state: withRemote({ status: "joined", error: null }) });
+    });
+    const reachable = rowButton("Remote session")!;
+    expect(reachable.closest(".opacity-60")).toBeNull();
+
+    // A query change re-filters the same fresh state.
+    setFilter("Remote session");
+    expect(rowButton("Owned session")).toBeUndefined();
+    expect(rowButton("Remote session")).not.toBeUndefined();
+    setFilter("");
+
+    // A mark on a local live row surfaces its attention card and suppresses
+    // the row from the lists (suppression input).
+    act(() => {
+      useStore.getState().markUnread("tab-1", "reply");
+    });
+    expect(rowButton("Owned session")).toBeUndefined();
+    // markUnread mirrors into localStorage and the shared afterEach does not
+    // reset unread, so clear it here — later suites start clean.
+    act(() => {
+      useStore.getState().clearUnread("tab-1");
+    });
+    window.localStorage.clear();
+  });
+
+  it("re-renders the row when a rendered-but-unlisted field changes (snoozedUntilMs)", () => {
+    // The signature encodes each summary in full: SessionRow renders
+    // snoozedUntilMs directly, so rescheduling a snooze must invalidate even
+    // though the builder's membership tests read none of it.
+    useStore.setState({
+      state: withRemote({ status: "joined", error: null }),
+      unread: {},
+    });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    expect(rowButton("Remote session")).not.toBeUndefined();
+    expect(document.body.textContent).not.toContain("snoozed until");
+
+    // Reschedule: the snoozed flag stays true, the until stamp moves.
+    const rescheduled = withRemote({ status: "joined", error: null });
+    const snoozedProject = rescheduled.remoteInstances[0]!.projects[0]!;
+    snoozedProject.sessions = [
+      { ...snoozedProject.sessions[0]!, snoozed: true, snoozedUntilMs: 1_700_000_000_000 },
+    ];
+    act(() => {
+      useStore.setState({ state: rescheduled });
+      setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", true);
+    });
+    // The row still exists and now carries the new until stamp — a stale
+    // signature would have kept the old summary object.
+    expect(rowButton("Remote session")).not.toBeUndefined();
+    expect(document.body.textContent).toContain("snoozed until");
+  });
+
   it("renders no aside while the desktop sidebar is collapsed", () => {
     useStore.setState({ sidebarCollapsed: true });
     renderSidebar();

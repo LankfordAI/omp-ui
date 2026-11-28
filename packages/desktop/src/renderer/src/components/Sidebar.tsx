@@ -13,7 +13,8 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildAttentionEntries, buildSidebarLists, isRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, isRoutineRun, isSessionSettled, sidebarListsSignature, type AttentionEntry, type SidebarEntry, type SidebarLists } from "../lib/sidebar-sessions";
+import type { UnreadMark } from "../store/slices/unread";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
@@ -581,6 +582,9 @@ function SelectionBar({
 
 /* ------------------------------------------------------------------ sidebar */
 
+/** Read-only empty set shared by the signature calls: the builder reads membership only. */
+const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
+
 export function Sidebar() {
   const state = useStore((st) => st.state);
   const openProjectQuickOpen = useStore((st) => st.openProjectQuickOpen);
@@ -752,15 +756,31 @@ export function Sidebar() {
     }
     return parts.join(";");
   });
-  const attention = useMemo(
-    () =>
+  // Content signature of everything buildSidebarLists/buildAttentionEntries
+  // read (plan #cut-lag): every broadcast delivers fresh IPC-deserialized
+  // summaries, so gating on `state` identity recomputed both at broadcast
+  // rate. Equal string ⇒ equal output; the suppression ids are appended for
+  // the lists gate only, since buildAttentionEntries never reads them.
+  const baseSig =
+    state === null ? "" : sidebarListsSignature(state, query, backgroundWorkTabIds, EMPTY_TAB_IDS);
+  const attentionSig = `${attentionKey}\u0000${baseSig}`;
+  const attentionKeyRef = useRef<string | null>(null);
+  const attentionUnreadRef = useRef<Readonly<Record<string, UnreadMark>> | null>(null);
+  const attentionRef = useRef<AttentionEntry[]>([]);
+  if (
+    attentionKeyRef.current !== attentionSig ||
+    attentionUnreadRef.current !== unread
+  ) {
+    attentionKeyRef.current = attentionSig;
+    attentionUnreadRef.current = unread;
+    attentionRef.current =
       state === null
         ? []
         : buildAttentionEntries(state, unread, (s) =>
             deriveSidebarSessionState(s, useStore.getState().rpc[s.tabId]),
-          ),
-    [state, unread, attentionKey],
-  );
+          );
+  }
+  const attention = attentionRef.current;
   // A session reads once (#1038): while its card heads the stack, its row is
   // suppressed from every list below — otherwise a fresh flag looks like a
   // second session appearing. Marked-but-working sessions hold no card and
@@ -769,10 +789,18 @@ export function Sidebar() {
     () => new Set(attention.map((a) => a.entry.session.tabId)),
     [attention],
   );
-  const lists = useMemo(
-    () => (state === null ? null : buildSidebarLists(state, query, backgroundWorkTabIds, attentionTabIds)),
-    [state, query, backgroundWorkTabIds, attentionTabIds],
-  );
+  const listsSig =
+    baseSig === "" ? "" : `${baseSig}\u0002${[...attentionTabIds].sort().join(",")}`;
+  const listsSigRef = useRef<string | null>(null);
+  const listsRef = useRef<SidebarLists | null>(null);
+  if (listsSigRef.current !== listsSig) {
+    listsSigRef.current = listsSig;
+    listsRef.current =
+      state === null
+        ? null
+        : buildSidebarLists(state, query, backgroundWorkTabIds, attentionTabIds);
+  }
+  const lists = listsRef.current;
   // The rows a Shift+click range walks, per section, in display order.
   const sectionEntries = useMemo(
     () =>

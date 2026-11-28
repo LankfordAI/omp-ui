@@ -1,6 +1,6 @@
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 import type { UnreadMark } from "../store/slices/unread";
-import { projectFaceFor, type ProjectFace } from "./repository-members";
+import { projectFaceFor, projectIconUrl, type ProjectFace } from "./repository-members";
 import { NO_HANDOFF, resolveSessionHandoffs, type SessionHandoff } from "./session-handoffs";
 import { NO_DISPATCH, resolveDispatchLinks, type SessionDispatch } from "./dispatched-sessions";
 
@@ -54,6 +54,58 @@ function matches(entry: SidebarEntry, q: string): boolean {
 }
 
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * Content signature of every input `buildSidebarLists`, `buildAttentionEntries`,
+ * and the row renderers read: per-session summaries in full (a hand-picked
+ * field list drifts — SessionRow renders `snoozedUntilMs`, `model`, PR links,
+ * and more, so any enumeration is one broadcast away from a stale row),
+ * project faces (name, repository key, icon), remote instance metadata
+ * (nickname, reachability, dispatch), the search query, background-work ids,
+ * and suppression ids. Equal string ⇒ equal rendered output, so the Sidebar
+ * can gate its rebuilds on this primitive instead of `BackendState` identity —
+ * every broadcast delivers fresh IPC-deserialized summaries whose object
+ * identities all change, while the content usually does not. Key order is the
+ * constructor's on every host (same JSON.parse/serialize path), so plain
+ * JSON.stringify is a faithful per-row encoding; cheap string work over the
+ * rows, no React commit.
+ */
+export function sidebarListsSignature(
+  state: BackendState,
+  query: string,
+  backgroundWorkTabIds: ReadonlySet<string>,
+  suppressTabIds: ReadonlySet<string>,
+): string {
+  const parts: string[] = [
+    query.trim().toLowerCase(),
+    // Membership is all the builder tests, so sorted ids are a faithful encoding.
+    [...backgroundWorkTabIds].sort().join(","),
+    [...suppressTabIds].sort().join(","),
+  ];
+  const visit = (s: SessionSummary): void => {
+    parts.push(JSON.stringify(s));
+  };
+  for (const group of state.projects) {
+    const p = group.project;
+    parts.push(
+      `p\u0000${p.path}\u0000${p.name}\u0000${p.repositoryKey ?? ""}\u0000${projectIconUrl(p.icon) ?? ""}`,
+    );
+    for (const s of group.sessions) visit(s);
+  }
+  for (const s of state.chats) visit(s);
+  for (const instance of state.remoteInstances) {
+    parts.push(`i\u0000${instance.id}\u0000${instance.nickname ?? ""}\u0000${instance.status}`);
+    if (instance.status === "self") continue;
+    for (const group of instance.projects) {
+      const p = group.project;
+      parts.push(
+        `p\u0000${instance.id}\u0000${p.path}\u0000${p.name}\u0000${p.repositoryKey ?? ""}\u0000${projectIconUrl(p.icon) ?? ""}`,
+      );
+      for (const s of group.sessions) visit(s);
+    }
+  }
+  return parts.join("\u0002");
+}
 
 /**
  * Whether a session is a Routine run (ADR-0100, #1255, #1304): attention-only

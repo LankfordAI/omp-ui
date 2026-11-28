@@ -94,18 +94,35 @@ function diskPins(registryFile: string): {
   };
 }
 
-/** The pin fields of the first project in the last stateChanged broadcast. */
-function broadcastPins(): { defaultModel: string | null; defaultAdvisorModel: string | null } {
-  const last = [...sent].reverse().find((m) => m.channel === CH.onStateChanged);
-  if (last === undefined) throw new Error("no stateChanged broadcast captured");
-  const state = last.args[0] as {
-    projects: Array<{ project: { defaultModel?: string | null; defaultAdvisorModel?: string | null } }>;
-  };
-  const project = state.projects[0]!.project;
-  return {
-    defaultModel: project.defaultModel ?? null,
-    defaultAdvisorModel: project.defaultAdvisorModel ?? null,
-  };
+/**
+ * The pin fields of the first project in the last stateChanged broadcast.
+ * The setProject* handlers publish fire-and-forget (plan #cut-lag), so the
+ * broadcast lands after the reply; poll until the rebuild completes. `until`
+ * lets a caller wait for the *latest* pin state when earlier broadcasts are
+ * still in flight (coalescing folds rapid writes into one trailing pass).
+ */
+async function broadcastPins(
+  until?: (pins: { defaultModel: string | null; defaultAdvisorModel: string | null }) => boolean,
+): Promise<{ defaultModel: string | null; defaultAdvisorModel: string | null }> {
+  const deadline = Date.now() + 3_000;
+  for (;;) {
+    const last = [...sent].reverse().find((m) => m.channel === CH.onStateChanged);
+    if (last !== undefined) {
+      const state = last.args[0] as {
+        projects: Array<{ project: { defaultModel?: string | null; defaultAdvisorModel?: string | null } }>;
+      };
+      const project = state.projects[0]!.project;
+      const pins = {
+        defaultModel: project.defaultModel ?? null,
+        defaultAdvisorModel: project.defaultAdvisorModel ?? null,
+      };
+      if (until === undefined || until(pins)) return pins;
+    }
+    if (Date.now() > deadline) throw new Error("no stateChanged broadcast captured");
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setImmediate(resolve);
+    await promise;
+  }
 }
 
 beforeEach(() => {
@@ -121,14 +138,14 @@ describe("project model pins (issue #257)", () => {
     const { registryFile } = setup();
     await invoke(CH.setProjectDefaultModel, "/p/a", "p/m");
     expect(diskPins(registryFile)).toMatchObject({ defaultModel: "p/m" });
-    expect(broadcastPins()).toMatchObject({ defaultModel: "p/m" });
+    expect(await broadcastPins()).toMatchObject({ defaultModel: "p/m" });
   });
 
   it("pins the default advisor model and broadcasts the updated record", async () => {
     const { registryFile } = setup();
     await invoke(CH.setProjectDefaultAdvisorModel, "/p/a", "p/m:high");
     expect(diskPins(registryFile)).toMatchObject({ defaultAdvisorModel: "p/m:high" });
-    expect(broadcastPins()).toMatchObject({ defaultAdvisorModel: "p/m:high" });
+    expect(await broadcastPins()).toMatchObject({ defaultAdvisorModel: "p/m:high" });
   });
 
   it("clears a pin with null and normalizes an empty string to a clear", async () => {
@@ -141,7 +158,9 @@ describe("project model pins (issue #257)", () => {
       defaultModel: null,
       defaultAdvisorModel: null,
     });
-    expect(broadcastPins()).toMatchObject({ defaultModel: null, defaultAdvisorModel: null });
+    expect(
+      await broadcastPins((p) => p.defaultModel === null && p.defaultAdvisorModel === null),
+    ).toMatchObject({ defaultModel: null, defaultAdvisorModel: null });
   });
 
   it("refuses an unknown project and writes nothing", async () => {
