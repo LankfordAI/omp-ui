@@ -906,10 +906,11 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
   }
 
   it("reports each ready member's rung and null for this computer and silent members", async () => {
-    const answering = ladder(async (channel) => (channel === CH.fleetGrantRung ? { rung: "full", ceiling: "full", execEnabled: true } : null));
+    const answering = ladder(async (channel) => (channel === CH.fleetGrantRung ? { rung: "full", ceiling: "manage", execEnabled: false } : null));
     const machines = await answering.dispatcher.machines();
     expect(machines.find((m) => m.key === LOCAL_MACHINE_KEY)?.grantRung).toBeNull();
-    expect(machines.find((m) => m.key === "r1")?.grantRung).toBe("full");
+    // The full probe answer rides the row (issue #1398): ceiling and exec switch included.
+    expect(machines.find((m) => m.key === "r1")).toMatchObject({ status: "ready", grantRung: "full", grantCeiling: "manage", memberExecEnabled: false });
     expect(answering.sent(CH.fleetGrantRung)).toEqual([
       { id: "r1", args: [{ instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null }] },
     ]);
@@ -918,7 +919,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     const older = ladder(async () => {
       throw new Error("unknown channel fleet:grantRung");
     });
-    expect((await older.dispatcher.machines()).find((m) => m.key === "r1")).toMatchObject({ status: "ready", grantRung: null });
+    expect((await older.dispatcher.machines()).find((m) => m.key === "r1")).toMatchObject({ status: "ready", grantRung: null, grantCeiling: null, memberExecEnabled: null });
   });
 
   it("refuses exec on this computer without contacting anyone", async () => {
@@ -957,7 +958,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     expect(unknown).toEqual({ status: "refused", reason: expect.stringContaining("box-r1") });
     expect(await h.dispatcher.exec("tab-1", { machine: "box-r1", command: "true", cwd: null, timeoutMs: null, detach: false })).toEqual({
       status: "refused",
-      reason: "fleet exec is off on this machine",
+      reason: "On box-r1: fleet exec is off on this machine",
     });
   });
 
@@ -967,7 +968,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       const h = ladder((channel) => (channel === CH.fleetExec ? new Promise(() => {}) : Promise.resolve(null)));
       const pending = h.dispatcher.exec("tab-1", { machine: "box-r1", command: "sleep 99", cwd: null, timeoutMs: null, detach: false });
       await vi.advanceTimersByTimeAsync(45_000);
-      expect(await pending).toEqual({ status: "refused", reason: "no answer from box-r1 within 45 s" });
+      expect(await pending).toEqual({ status: "refused", reason: "On box-r1: no answer within 45 s" });
     } finally {
       vi.useRealTimers();
     }
@@ -1003,6 +1004,16 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     expect(h.sent(CH.fleetGrantRaise)).toEqual([
       { id: "r1", args: [{ requester: { instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null }, targetRung: "manage", credential: "s3cret" }] },
     ]);
+  });
+
+  it("prefixes the member's grant-raise refusal with the machine name (#1398)", async () => {
+    const h = ladder(async (channel) =>
+      channel === CH.fleetGrantRaise ? { ok: false, reason: "the token or password does not match this machine" } : null,
+    );
+    expect(await h.dispatcher.requestGrant("r1", "manage", "nope")).toEqual({
+      ok: false,
+      reason: "On box-r1: the token or password does not match this machine",
+    });
   });
 
   it("refuses a grant request to a member that is not joined", async () => {
@@ -1141,7 +1152,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       const h = ladder((channel) => (channel === CH.fleetProviderKeys ? new Promise(() => {}) : Promise.resolve(null)), [remote("r1")], () => "sk-x");
       const pending = h.dispatcher.rolloutProviderKeys("r1", ["OPENAI_API_KEY"]);
       await vi.advanceTimersByTimeAsync(45_000);
-      expect(await pending).toEqual({ status: "refused", reason: "no answer from box-r1 within 45 s" });
+      expect(await pending).toEqual({ status: "refused", reason: "On box-r1: no answer within 45 s" });
     } finally {
       vi.useRealTimers();
     }
@@ -1519,7 +1530,7 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
     const h = updater(async () => ({ status: "refused", reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin" }));
     expect(await h.dispatcher.update("tab-1", { machine: "box-r1", target: "omp", action: "update", version: null })).toEqual({
       kind: "refused",
-      reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+      reason: "On box-r1: omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
     });
   });
 });
@@ -1655,7 +1666,7 @@ describe("FleetDispatcher Update all (issue #990)", () => {
         state: "skipped",
         omp: null,
         app: null,
-        reason: "fleet exec is off on this machine (Settings → Remote instances → Fleet access)",
+        reason: "On box-switchOff: fleet exec is off on this machine (Settings → Remote instances → Fleet access)",
       }),
     ]);
   });
@@ -1714,7 +1725,7 @@ describe("FleetDispatcher Update all (issue #990)", () => {
     expect(member).toMatchObject({
       state: "done",
       omp: { kind: "skipped", reason: "omp is pinned by OMP_UI_OMP_PATH there" },
-      app: { kind: "skipped", reason: "this machine installs omp-ui as a deb package; update it with its package manager" },
+      app: { kind: "skipped", reason: "On box-r1: this machine installs omp-ui as a deb package; update it with its package manager" },
     });
   });
 

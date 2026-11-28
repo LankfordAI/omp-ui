@@ -1,6 +1,11 @@
 import { useState } from "react";
 import type { RemoteInstanceInput, RemoteInstanceSummary } from "@omp-ui/core/types";
-import { FLEET_RUNGS, type FleetGrantRaiseOutcome, type FleetGrantRecord, type FleetRung } from "@omp-ui/core/fleet";
+import {
+  FLEET_RUNGS,
+  fleetRungAtLeast,
+  type FleetGrantRecord,
+  type FleetRung,
+} from "@omp-ui/core/fleet";
 import { defaultNickname, normalizeInstanceUrl } from "@omp-ui/core/remote-instances";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
@@ -140,8 +145,15 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
   const reconnectRemoteInstance = useStore((s) => s.reconnectRemoteInstance);
   const refreshRemoteInstanceState = useStore((s) => s.refreshRemoteInstanceState);
   const confirmRemoveRemoteInstance = useStore((s) => s.confirmRemoveRemoteInstance);
+  const openGrantCeremony = useStore((s) => s.openGrantCeremony);
+  const fleetMachines = useStore((s) => s.fleet?.machines ?? null);
   const [editing, setEditing] = useState(false);
-  const [requesting, setRequesting] = useState(false);
+
+  // The member's reported gates for the access line (issue #1398), read from
+  // the Fleet view's snapshot when one is loaded — Settings stays independent
+  // of the Fleet view and never probes main for it.
+  const machine = fleetMachines?.find((m) => m.key === instance.id) ?? null;
+  const accessLine = accessLineOf(machine);
 
   return (
     <Panel className="px-4 py-3">
@@ -176,6 +188,11 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
           >
             {instance.url}
           </p>
+          {accessLine !== null && (
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-faint" data-access-line>
+              {accessLine}
+            </p>
+          )}
           {instance.error !== null && (
             <p className="mt-1 text-sm leading-relaxed text-rose">{instance.error}</p>
           )}
@@ -191,8 +208,14 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
               <Button size="xs" variant="ghost" onClick={() => void refreshRemoteInstanceState(instance.id)}>
                 Refresh state
               </Button>
-              <Button size="xs" variant="ghost" onClick={() => setRequesting((v) => !v)}>
-                Request access
+              {/* Opens the shared ceremony pre-filled with the first rung this
+                  row does not effectively hold (issue #1398). */}
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => openGrantCeremony(instance.id, instance.nickname, neededRungOf(machine))}
+              >
+                Request access…
               </Button>
             </>
           )}
@@ -209,10 +232,36 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
           </Button>
         </div>
       </div>
-      {requesting && <GrantCeremony instance={instance} onDone={() => setRequesting(false)} />}
       {editing && <InstanceEditor instance={instance} />}
     </Panel>
   );
+}
+
+/** The rungs a raise can meaningfully add, ladder order. */
+const RAISE_RUNGS = ["manage", "full", "terminal"] as const satisfies readonly FleetRung[];
+
+/** The first RAISE_RUNG the row does not effectively hold; "manage" when the rung is unknown. */
+function neededRungOf(machine: { grantRung: FleetRung | null } | null): FleetRung {
+  const held = machine?.grantRung ?? null;
+  if (held === null) return "manage";
+  for (const r of RAISE_RUNGS) if (!fleetRungAtLeast(held, r)) return r;
+  return "terminal";
+}
+
+/** One line for what this app may do on that member, from its reported gates; null when none are known. */
+function accessLineOf(machine: { status: string; grantRung: FleetRung | null; grantCeiling: FleetRung | null; memberExecEnabled: boolean | null } | null): string | null {
+  if (machine === null || machine.status !== "ready" || machine.grantRung === null) return null;
+  const held = RUNG_LABEL[machine.grantRung];
+  const ceiling = machine.grantCeiling;
+  const capped = ceiling !== null && !fleetRungAtLeast(ceiling, machine.grantRung);
+  const exec = machine.memberExecEnabled;
+  if (exec === false && fleetRungAtLeast(machine.grantRung, "full")) {
+    return `Granted ${held}, but that machine has fleet exec off`;
+  }
+  if (capped) {
+    return `Effective ${RUNG_LABEL[ceiling!]} here; granted ${held}, ceiling caps it`;
+  }
+  return `Dispatch here${machine.grantRung === "dispatch" ? "" : `; ${held}`}${ceiling !== null ? ` · ceiling ${RUNG_LABEL[ceiling]}` : ""}`;
 }
 
 /** The five ladder rungs, ladder order; labels ride the Fleet view's keys. */
@@ -223,80 +272,6 @@ export const RUNG_LABEL: Record<FleetRung, string> = {
   full: "Full control",
   terminal: "Terminal",
 };
-
-/** What a manager can ask a member for: the rungs above the join default. */
-const RAISE_RUNGS = ["manage", "full", "terminal"] as const satisfies readonly FleetRung[];
-
-/**
- * The re-presentation ceremony (issue #901), manager side: asking a joined
- * member for more access re-types THAT member's join secret, which rides once
- * to its own fleet:grantRaise and is never stored or prefilled. The member
- * decides (credential, ceiling); its answer renders inline — a wrong secret
- * is an explanation, not an error notice.
- */
-function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; onDone: () => void }) {
-  const requestFleetGrant = useStore((s) => s.requestFleetGrant);
-  const [rung, setRung] = useState<(typeof RAISE_RUNGS)[number]>("manage");
-  const [secretKind, setSecretKind] = useState<SecretKind>("password");
-  const [secret, setSecret] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<FleetGrantRaiseOutcome | null>(null);
-
-  const submit = (): void => {
-    const value = secret.trim();
-    if (value === "" || busy) return;
-    setBusy(true);
-    setSecret("");
-    // Password and token both ride the one `credential` field: the member
-    // tries every verifier it holds (token, session credential, password).
-    void requestFleetGrant(instance.id, rung, value)
-      .then(setOutcome)
-      .catch((err: unknown) => setOutcome({ ok: false, reason: displayMessage(err) }))
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <div className="mt-3 space-y-2 border-t border-line-soft pt-3">
-      <p className="text-sm leading-relaxed text-ink-faint">
-        {`Ask ${instance.nickname} for more access. Re-type its password or access token — ${instance.nickname} checks it, and its own ceiling, before granting.`}
-      </p>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <ChoiceCapsule
-          label={`Access for ${instance.nickname}`}
-          value={rung}
-          options={RAISE_RUNGS.map((r) => ({ value: r, label: RUNG_LABEL[r] }))}
-          onChange={setRung}
-          optionClassName="tab-label px-2"
-        />
-        <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
-        <SecretField
-          value={secret}
-          label={secretKind === "token" ? "Access token" : "Password"}
-          disabled={busy}
-          className="min-w-[8rem] flex-1 basis-40"
-          onChange={setSecret}
-          onSave={submit}
-        />
-        <Button size="xs" variant="solid" disabled={secret.trim() === "" || busy} onClick={submit}>
-          {busy ? "Asking…" : "Ask"}
-        </Button>
-        <Button size="xs" variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-      </div>
-      {outcome !== null && (
-        <p
-          role={outcome.ok ? undefined : "alert"}
-          className={cn("text-sm leading-relaxed", outcome.ok ? "text-ink-mid" : "text-rose")}
-        >
-          {outcome.ok
-            ? `Granted ${RUNG_LABEL[outcome.rung]}.`
-            : `Refused: ${outcome.reason}`}
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
  * One dispatcher this machine has heard from (node side, issue #901): its
@@ -568,6 +543,10 @@ export function RemoteInstancesPage() {
       )}
       {instances !== null && instances.length > 0 && (
         <div className="space-y-2">
+          <p className="text-sm leading-relaxed text-ink-faint">
+            Machines you connect to — what this app may do on them is granted <em>by that machine</em>,
+            via its own settings.
+          </p>
           {instances.map((instance) => (
             <InstancePanel key={instance.id} instance={instance} />
           ))}
@@ -592,6 +571,10 @@ export function RemoteInstancesPage() {
       </Row>
       <div>
         <Label>Fleet access</Label>
+        <p className="mb-1 text-sm leading-relaxed text-ink-faint">
+          This computer as a member — controls what other machines may do <em>here</em>. The rung a
+          dispatcher holds on this machine is set in this section.
+        </p>
         <FleetAccessSection />
       </div>
       <div>
@@ -603,5 +586,11 @@ export function RemoteInstancesPage() {
 }
 
 export function RemoteInstancesFooter() {
-  return <p>A joined instance grants this app full control of that host's sessions and files. Credentials are stored encrypted by the OS credential store.</p>;
+  return (
+    <p>
+      A joined instance appears in the sidebar and its projects in the quick-open; what this app may do
+      on that host is that host's decision (its access ladder, above). Credentials are stored encrypted
+      by the OS credential store.
+    </p>
+  );
 }

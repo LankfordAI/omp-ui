@@ -20,6 +20,7 @@ const backendMock = {
   removeRemoteInstance: vi.fn(async () => {}),
   reconnectRemoteInstance: vi.fn(async () => {}),
   refreshRemoteInstanceState: vi.fn(async () => {}),
+  fleetGrantRequest: vi.fn(async (): Promise<{ ok: true; rung: "manage" }> => ({ ok: true, rung: "manage" })),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -182,5 +183,89 @@ describe("RemoteInstancesPage (issue #416)", () => {
     expect(refreshButtons[0]!.previousElementSibling?.textContent).toBe("Reconnect");
     await act(async () => refreshButtons[0]!.click());
     expect(backendMock.refreshRemoteInstanceState).toHaveBeenCalledExactlyOnceWith("inst-a");
+  });
+
+  it("names both grant directions and replaces the old full-control footer claim (#1398)", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+    });
+    render();
+    expect(document.body.textContent).toContain("Machines you connect to");
+    expect(document.body.textContent).toContain("granted by that machine");
+    expect(document.body.textContent).toContain("This computer as a member");
+  });
+
+  it("shows the member's reported access line on a joined panel when the Fleet snapshot is loaded (#1398)", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+      fleet: {
+        machines: [
+          {
+            key: "inst-a",
+            nickname: "box-a",
+            status: "ready",
+            error: null,
+            preference: "normal",
+            report: null,
+            receivedAt: 0,
+            grantRung: "dispatch",
+            grantCeiling: "manage",
+            memberExecEnabled: true,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+          },
+        ],
+        audit: [],
+        updateAll: null,
+        loading: false,
+        error: null,
+      },
+    });
+    render();
+    const line = document.body.querySelector("[data-access-line]");
+    expect(line?.textContent).toContain("ceiling Manage projects");
+  });
+
+  it("opens the shared ceremony pre-filled with the first rung the row lacks (#1398)", async () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+      fleet: {
+        machines: [
+          {
+            key: "inst-a",
+            nickname: "box-a",
+            status: "ready",
+            error: null,
+            preference: "normal",
+            report: null,
+            receivedAt: 0,
+            grantRung: "dispatch",
+            grantCeiling: "full",
+            memberExecEnabled: true,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+          },
+        ],
+        audit: [],
+        updateAll: null,
+        loading: false,
+        error: null,
+      },
+    });
+    render();
+    await act(async () => button("Request access…").click());
+    const ceremony = useStore.getState().grantCeremony;
+    expect(ceremony).toMatchObject({ instanceId: "inst-a", machineName: "box-a", neededRung: "manage" });
+    // The shared modal renders at the app root, not inside this page component;
+    // assert the store contract the dialog consumes.
+    expect(ceremony?.neededRung).toBe("manage");
   });
 });

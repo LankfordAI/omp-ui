@@ -1320,6 +1320,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   copyProjectDialog: { projectCwd: string; name: string } | null;
   openCopyProjectDialog(projectCwd: string, name: string): void;
   closeCopyProjectDialog(): void;
+  /**
+   * The shared grant-raise ceremony (issue #1398), opened from every rung
+   * refusal site. `machineName` is a display snapshot; requests resolve by
+   * `instanceId`, so a rename mid-entry cannot send the secret elsewhere.
+   * null = closed.
+   */
+  grantCeremony: { instanceId: string; machineName: string; neededRung: FleetRung } | null;
+  openGrantCeremony(instanceId: string, machineName: string, neededRung: FleetRung): void;
+  closeGrantCeremony(): void;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   /** The session tree navigator (issue #680, Phase 2): the pinned live tab

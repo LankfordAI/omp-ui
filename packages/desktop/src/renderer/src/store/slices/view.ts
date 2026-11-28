@@ -5,6 +5,7 @@ import type {
   SessionSummary,
   SessionWorktree,
 } from "@omp-ui/core/types";
+import type { FleetRung } from "@omp-ui/core/fleet";
 import type { ProjectSettingsSectionId } from "../../components/ProjectSettings";
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
@@ -80,6 +81,8 @@ export interface ViewSlice {
   migrateDialog: { tabId: string } | null;
   /** This computer's project whose Copy project dialog is open (issue #992); null = closed. */
   copyProjectDialog: UiStore["copyProjectDialog"];
+  /** The shared grant-raise ceremony modal (issue #1398); null = closed. */
+  grantCeremony: UiStore["grantCeremony"];
   /** App-global successes awaiting acknowledgment, oldest first (issue #888). */
   infoNotices: UiStore["infoNotices"];
   reportNotice(message: string): void;
@@ -144,6 +147,8 @@ export interface ViewSlice {
   closeMigrateDialog(): void;
   openCopyProjectDialog(projectCwd: string, name: string): void;
   closeCopyProjectDialog(): void;
+  openGrantCeremony(instanceId: string, machineName: string, neededRung: FleetRung): void;
+  closeGrantCeremony(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
   /** Opens the tree navigator for a live tab and arms its bridge (issue #680). */
@@ -485,6 +490,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   sessionTreeView: null,
   migrateDialog: null,
   copyProjectDialog: null,
+  grantCeremony: null,
   capabilitiesViewer: null,
 	projectSettings: null,
   ptyRedrawRevision: {},
@@ -606,6 +612,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeCopyProjectDialog() {
     set({ copyProjectDialog: null });
+  },
+  openGrantCeremony(instanceId, machineName, neededRung) {
+    set({ grantCeremony: { instanceId, machineName, neededRung } });
+  },
+  closeGrantCeremony() {
+    set({ grantCeremony: null });
   },
   openFinishWorktree(tabId) {
     set({ finishWorktreeTab: tabId });

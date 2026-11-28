@@ -29,6 +29,8 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
     preference: "normal",
     receivedAt: 1,
     grantRung: "dispatch",
+    grantCeiling: null,
+    memberExecEnabled: null,
     address: key === "local" ? null : "10.0.0.5",
     sshReachable: null,
     maintenance: null,

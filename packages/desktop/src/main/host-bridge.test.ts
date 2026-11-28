@@ -1078,6 +1078,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
     preference: "normal",
     receivedAt: 1,
     grantRung,
+    grantCeiling: null,
+    memberExecEnabled: null,
     address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
     sshReachable: null,
     maintenance: null,

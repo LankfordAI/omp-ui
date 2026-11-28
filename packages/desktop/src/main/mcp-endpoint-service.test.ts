@@ -28,6 +28,8 @@ const LOCAL: FleetMachine = {
   preference: "normal",
   receivedAt: 0,
   grantRung: null,
+  grantCeiling: null,
+  memberExecEnabled: null,
   address: null,
   sshReachable: null,
   maintenance: null,

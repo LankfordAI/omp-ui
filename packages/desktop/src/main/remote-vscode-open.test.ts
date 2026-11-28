@@ -32,6 +32,8 @@ const machine: FleetMachine = {
   report: { user: "ada" } as FleetHostReport,
   receivedAt: 0,
   grantRung: null,
+  grantCeiling: null,
+  memberExecEnabled: null,
   address: "box.tailnet",
   sshReachable: true,
   maintenance: null,

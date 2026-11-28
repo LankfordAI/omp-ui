@@ -165,10 +165,18 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
       void refreshFleet();
     },
 
-    // The ceremony's outcome renders in the panel, so it returns instead of
-    // raising: a wrong secret is an explanation, not an error notice.
-    requestFleetGrant(machineKey, rung, secret) {
-      return backend.fleetGrantRequest(machineKey, rung, secret);
+    // The ceremony's outcome renders in the dialog, so it returns instead of
+    // raising: a wrong secret is an explanation, not an error notice. On a
+    // grant the machine list carries the new rung, so re-read it (issue #1398)
+    // and let callers re-read their own loads.
+    async requestFleetGrant(machineKey, rung, secret) {
+      try {
+        const outcome = await backend.fleetGrantRequest(machineKey, rung, secret);
+        if (outcome.ok) void refreshFleet();
+        return outcome;
+      } catch (err) {
+        return { ok: false, reason: displayMessage(err) };
+      }
     },
 
     async retryFleetDispatch(pending) {

@@ -9748,6 +9748,8 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
             preference: "normal",
             receivedAt: Date.now(),
             grantRung: null,
+            grantCeiling: null,
+            memberExecEnabled: null,
             address: null,
             sshReachable: null,
             maintenance: null,

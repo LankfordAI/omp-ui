@@ -199,6 +199,28 @@ function detachedExecUpdate<Outcome extends { status: string }>(outcome: Outcome
 /** Fleet update verbs all refuse this computer: its own Settings → Updates owns it. */
 const UPDATE_LOCAL_REFUSAL = "this computer updates itself from Settings → Updates";
 
+/**
+ * Prefixes a member's own refusal with the machine it happened on (issue
+ * #1398): on the manager, "fleet exec is off on this machine" reads as this
+ * computer's switch. `On <nickname>: ` names the member without matching any
+ * string — every refusal that came back from that member rides through here.
+ */
+function onMember(name: string, reason: string): string {
+  return `On ${name}: ${reason}`;
+}
+
+/** Structural check for the `{ status: "refused"; reason: string }` member refusal shape. */
+function isRefusalOutcome(outcome: unknown): outcome is { status: "refused"; reason: string } {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    "status" in outcome &&
+    outcome.status === "refused" &&
+    "reason" in outcome &&
+    typeof outcome.reason === "string"
+  );
+}
+
 /** A member that predates the fleet update channels answers them with "unknown channel". */
 function fleetUpdateSkew<Ack extends { status: string }>(ack: Ack, name: string): Ack {
   if (ack.status === "refused" && "reason" in ack && typeof ack.reason === "string" && ack.reason.includes("unknown channel")) {
@@ -275,6 +297,8 @@ export class FleetDispatcher {
         report,
         receivedAt: this.#now(),
         grantRung: null,
+        grantCeiling: null,
+        memberExecEnabled: null,
         address: null,
         sshReachable: null,
         maintenance: null,
@@ -288,6 +312,8 @@ export class FleetDispatcher {
         report: null,
         receivedAt: null,
         grantRung: null,
+        grantCeiling: null,
+        memberExecEnabled: null,
         address: null,
         sshReachable: null,
         maintenance: null,
@@ -325,6 +351,8 @@ export class FleetDispatcher {
       report: null,
       receivedAt: null,
       grantRung: null,
+      grantCeiling: null,
+      memberExecEnabled: null,
       address: fleetMemberAddress(remote.url),
       sshReachable: null,
       maintenance: null,
@@ -350,8 +378,8 @@ export class FleetDispatcher {
           maintenance: await maintenance,
         };
       }
-      const [grantRung, sshReachable, maintenanceRecord] = await Promise.all([
-        this.#probeRung(remote.id),
+      const [grant, sshReachable, maintenanceRecord] = await Promise.all([
+        this.#probeGrantRung(remote.id),
         ssh,
         maintenance,
       ]);
@@ -374,7 +402,9 @@ export class FleetDispatcher {
         error: null,
         report: normalized,
         receivedAt: this.#now(),
-        grantRung,
+        grantRung: grant?.rung ?? null,
+        grantCeiling: grant?.ceiling ?? null,
+        memberExecEnabled: grant?.execEnabled ?? null,
         sshReachable,
         maintenance: maintenanceRecord,
       };
@@ -406,16 +436,20 @@ export class FleetDispatcher {
     return { ...this.#deps.requesterBase(), kind, sourceTabId };
   }
 
-  /** This dispatcher's rung on a member (issue #901); null for older/silent peers. */
-  async #probeRung(machineKey: string): Promise<FleetRung | null> {
+  /** This dispatcher's rung on a member (issue #901), with that member's ceiling and exec switch (issue #1398); null for older/silent peers. */
+  async #probeGrantRung(machineKey: string): Promise<{ rung: FleetRung; ceiling: FleetRung; execEnabled: boolean } | null> {
     try {
       const answer = await within(
         this.#deps.request(machineKey, CH.fleetGrantRung, [this.requester("user", null)]),
         GRANT_PROBE_TIMEOUT_MS,
       );
-      if (answer === TIMED_OUT || answer === null || typeof answer !== "object" || !("rung" in answer)) return null;
-      const rung = answer.rung;
-      return typeof rung === "string" && (FLEET_RUNGS as readonly string[]).includes(rung) ? (rung as FleetRung) : null;
+      if (answer === TIMED_OUT || answer === null || typeof answer !== "object") return null;
+      const { rung, ceiling, execEnabled } = answer as Record<string, unknown>;
+      const rungs = FLEET_RUNGS as readonly string[];
+      if (typeof rung !== "string" || !rungs.includes(rung)) return null;
+      if (typeof ceiling !== "string" || !rungs.includes(ceiling)) return null;
+      if (typeof execEnabled !== "boolean") return null;
+      return { rung: rung as FleetRung, ceiling: ceiling as FleetRung, execEnabled };
     } catch {
       return null;
     }
@@ -842,13 +876,15 @@ export class FleetDispatcher {
     const remote = this.#deps.remotes().find((r) => r.id === machineKey && r.status !== "self");
     if (remote === undefined) return { ok: false, reason: "no joined fleet instance has that id" };
     if (remote.status !== "joined") return { ok: false, reason: `${fleetMachineName(remote)} is not joined` };
+    const name = fleetMachineName(remote);
     const req: FleetGrantRaiseRequest = { requester: this.requester("user", null), targetRung: rung, credential: secret };
     try {
       const answer = await within(this.#deps.request(machineKey, CH.fleetGrantRaise, [req]), MEMBER_CALL_DEADLINE_MS);
-      if (answer === TIMED_OUT) return { ok: false, reason: `no answer from ${fleetMachineName(remote)} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
-      return answer as FleetGrantRaiseOutcome;
+      if (answer === TIMED_OUT) return { ok: false, reason: onMember(name, `no answer within ${MEMBER_CALL_DEADLINE_MS / 1000} s`) };
+      const outcome = answer as FleetGrantRaiseOutcome;
+      return outcome.ok ? outcome : { ok: false, reason: onMember(name, outcome.reason) };
     } catch (err) {
-      return { ok: false, reason: messageOf(err) };
+      return { ok: false, reason: onMember(name, messageOf(err)) };
     }
   }
 
@@ -883,14 +919,14 @@ export class FleetDispatcher {
         this.#deps.request(machineKey, CH.fleetProviderKeys, [req]) as Promise<FleetProviderKeysOutcome>,
         MEMBER_CALL_DEADLINE_MS,
       );
-      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
-      if (answer.status !== "accepted") return answer;
+      if (answer === TIMED_OUT) return { status: "refused", reason: onMember(name, `no answer within ${MEMBER_CALL_DEADLINE_MS / 1000} s`) };
+      if (answer.status !== "accepted") return { ...answer, reason: onMember(name, answer.reason) };
       return { ...answer, failed: [...localFailed, ...answer.failed] };
     } catch (err) {
       const message = messageOf(err);
       return {
         status: "refused",
-        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without Provider key rollout; update omp-ui there` : message,
+        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without Provider key rollout; update omp-ui there` : onMember(name, message),
       };
     }
   }
@@ -980,13 +1016,13 @@ export class FleetDispatcher {
         this.#deps.request(machineKey, CH.fleetUpdateMember, [memberReq]) as Promise<FleetUpdateAck>,
         MEMBER_CALL_DEADLINE_MS,
       );
-      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
+      if (answer === TIMED_OUT) return { status: "refused", reason: onMember(name, `no answer within ${MEMBER_CALL_DEADLINE_MS / 1000} s`) };
       ack = answer;
     } catch (err) {
       const message = messageOf(err);
       return {
         status: "refused",
-        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without fleet updates; update omp-ui there` : message,
+        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without fleet updates; update omp-ui there` : onMember(name, message),
       };
     }
     if (ack.status === "accepted" && "jobId" in ack) {
@@ -1000,6 +1036,12 @@ export class FleetDispatcher {
       });
       this.#settledShowing.delete(machineKey);
       this.#updateJobs.set(updateJobKey(machineKey, req.target), ack.jobId);
+    }
+    if (ack.status === "refused") {
+      // fleetUpdateSkew only rewrites the older-peer "unknown channel" answer,
+      // which already names the member; every other refusal gets the prefix.
+      const skewed = fleetUpdateSkew(ack, name);
+      return skewed.reason.includes("unknown channel") ? skewed : { ...skewed, reason: onMember(name, skewed.reason) };
     }
     return fleetUpdateSkew(ack, name);
   }
@@ -1032,7 +1074,7 @@ export class FleetDispatcher {
         // gone (member restarted, id aged out): clear the pointer and the
         // action below proceeds fresh.
         const reason = fleetUpdateSkew(polled, name).reason;
-        if (/^no answer from /.test(reason)) return { kind: "refused", reason };
+        if (/^On .*: no answer within /.test(reason)) return { kind: "refused", reason };
         this.#updateJobs.delete(jobKey);
       } else if (polled.state === "running") {
         return { kind: "poll", state: polled.state, progress: polled.progress, detail: polled.detail };
@@ -1187,7 +1229,7 @@ export class FleetDispatcher {
         name,
       );
       if (polled.status === "refused") {
-        if (/^no answer from /.test(polled.reason) && ++misses < 3) continue;
+        if (/^On .*: no answer within /.test(polled.reason) && ++misses < 3) continue;
         return { state: "failed", detail: fleetUpdateSkew(polled, name).reason };
       }
       misses = 0;
@@ -1247,14 +1289,28 @@ export class FleetDispatcher {
     return record;
   }
 
-  /** One member call inside the agent deadline; every failure reads as a refusal. */
+  /**
+   * One member call inside the agent deadline; every failure reads as a
+   * refusal. A refusal that came back from the member (or the call failing)
+   * is prefixed with that member's name (issue #1398): the strings members
+   * say — "on this machine", "this machine's ceiling" — read as the manager's
+   * own computer otherwise. Refusal payloads the member produced still ride
+   * through with the prefix, so a dispatcher-side regex (update's
+   * "no answer from ") has to match through it.
+   */
   async #memberCall<Outcome>(machineKey: string, channel: string, args: unknown[], name: string): Promise<Outcome | { status: "refused"; reason: string }> {
     try {
       const answer = await within(this.#deps.request(machineKey, channel, args), MEMBER_CALL_DEADLINE_MS);
-      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
-      return answer as Outcome;
+      if (answer === TIMED_OUT) return { status: "refused", reason: onMember(name, `no answer within ${MEMBER_CALL_DEADLINE_MS / 1000} s`) };
+      // A refusal rides the outcome shape ({ status: "refused", reason }); prefix
+      // it here, once, instead of matching member strings at every call site.
+      const outcome = answer as Outcome;
+      if (isRefusalOutcome(outcome)) {
+        return { ...outcome, reason: onMember(name, outcome.reason) };
+      }
+      return outcome;
     } catch (err) {
-      return { status: "refused", reason: messageOf(err) };
+      return { status: "refused", reason: onMember(name, messageOf(err)) };
     }
   }
 }
