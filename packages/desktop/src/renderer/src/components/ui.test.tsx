@@ -538,6 +538,54 @@ describe("activity sweeps", () => {
     expect(top[3]!.transform).toBe("translate3d(0px, 0, 0)");
   });
 
+  it("preserves sweep phase across host resizes without snapping back to start", async () => {
+    let resizeCb: ResizeObserverCallback | null = null;
+    const OrigRO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) { resizeCb = cb; }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    let boxHeight = 90;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      width: 200,
+      height: boxHeight,
+    }) as DOMRect);
+
+    const created: Array<{ currentTime: number | null; cancel: () => void; pause: () => void; play: () => void }> = [];
+    const origAnimate = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = vi.fn(() => {
+      const anim = { currentTime: 0 as number | null, cancel: vi.fn(), pause: vi.fn(), play: vi.fn() };
+      created.push(anim);
+      return anim as unknown as Animation;
+    });
+
+    try {
+      await render(
+        <div style={{ position: "relative", width: 200, height: 90, borderRadius: 12 }}>
+          <PerimeterSweep tone="copper" />
+        </div>,
+      );
+      expect(created).toHaveLength(4);
+      // Simulate elapsed phase mid-loop (1400ms into a 2800ms sweep), then resize height.
+      created[0]!.currentTime = 1400;
+      boxHeight = 130;
+      resizeCb!([], {} as ResizeObserver);
+      expect(created).toHaveLength(8);
+      for (const anim of created.slice(4)) {
+        expect(anim.currentTime).toBe(1400);
+      }
+      // Unchanged dimensions skip recreating animations altogether.
+      resizeCb!([], {} as ResizeObserver);
+      expect(created).toHaveLength(8);
+    } finally {
+      HTMLElement.prototype.animate = origAnimate;
+      globalThis.ResizeObserver = OrigRO;
+    }
+  });
+
   it("animates continuously and freezes only while paused", async () => {
     await render(<ProgressSweep />);
     const sweep = document.querySelector<HTMLElement>("[data-progress-sweep]")!;

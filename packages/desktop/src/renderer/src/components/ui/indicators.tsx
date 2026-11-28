@@ -150,7 +150,14 @@ export function perimeterEdgeKeyframes(
  * An indeterminate activity ring: one lit segment continuously loops the
  * host's real 1.5px rounded border at constant linear pixel speed on the GPU
  * compositor via 4 transform-only WAAPI edge animations clipped by
- * `.perimeter-ring-mask` (#512).
+ * `.perimeter-ring-mask`.
+ *
+ * Design contract (#512): preserves the constant-linear-speed border segment
+ * (a conic rotor and a commit-stepped dash remain rejected for PerimeterSweep;
+ * PerimeterGlow separately owns the #726 full-perimeter magic-keyword conic
+ * ring). Moving from SVG `stroke-dashoffset` to 4 transform-composited edge
+ * bars keeps identical visual motion while eliminating per-frame main-thread
+ * Blink paints.
  */
 export function PerimeterSweep({
   tone = "signal",
@@ -183,6 +190,9 @@ export function PerimeterSweep({
         ? window.matchMedia("(prefers-reduced-motion: reduce)")
         : null;
     let animations: Animation[] = [];
+    let lastWidth = -1;
+    let lastHeight = -1;
+    let lastReduced: boolean | null = null;
 
     const stop = () => {
       for (const anim of animations) anim.cancel();
@@ -198,16 +208,32 @@ export function PerimeterSweep({
     };
 
     const layout = () => {
-      stop();
       const { width, height } = host.getBoundingClientRect();
-      if (width <= 2 || height <= 2) return;
+      const reduced = motion?.matches === true;
+      if (width <= 2 || height <= 2) {
+        stop();
+        lastWidth = -1;
+        lastHeight = -1;
+        lastReduced = reduced;
+        return;
+      }
+      if (width === lastWidth && height === lastHeight && reduced === lastReduced) return;
+      const activeTime = animations[0]?.currentTime;
+      const phaseMs =
+        typeof activeTime === "number" && Number.isFinite(activeTime)
+          ? ((activeTime % PERIMETER_SWEEP_MS) + PERIMETER_SWEEP_MS) % PERIMETER_SWEEP_MS
+          : 0;
+      lastWidth = width;
+      lastHeight = height;
+      lastReduced = reduced;
+      stop();
       const specs = perimeterEdgeKeyframes(width, height, segment);
       edges.top!.style.width = `${specs.top.barLength}px`;
       edges.bottom!.style.width = `${specs.bottom.barLength}px`;
       edges.right!.style.height = `${specs.right.barLength}px`;
       edges.left!.style.height = `${specs.left.barLength}px`;
 
-      if (motion?.matches) {
+      if (reduced) {
         // Static segment resting on the top edge when reduced motion is active.
         edges.top!.style.transform = "translate3d(0, 0, 0)";
         edges.right!.style.transform = `translate3d(0, ${-specs.right.barLength}px, 0)`;
@@ -225,11 +251,11 @@ export function PerimeterSweep({
           iterations: Infinity,
           easing: "linear",
         });
+        if (phaseMs > 0) anim.currentTime = phaseMs;
         if (typeof document !== "undefined" && document.hidden) anim.pause();
         animations.push(anim);
       }
     };
-
     layout();
     const observer = new ResizeObserver(layout);
     observer.observe(host);
