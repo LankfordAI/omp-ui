@@ -123,7 +123,7 @@
   --animate-rise: rise 0.34s var(--ease-out-quint) both;
   --animate-slide-in: slide-in 0.2s var(--ease-out-quint) both;
   --animate-sweep: sweep 1.6s linear infinite;
-  --animate-sweep-loop: sweep-loop 2.8s linear infinite;
+  --animate-perimeter-spin: perimeter-spin 1.8s linear infinite;
   --animate-caret: caret 1.05s step-end infinite;
   --animate-sheet-left: sheet-in-left 0.3s var(--ease-out-quint) both;
   --animate-sheet-right: sheet-in-right 0.3s var(--ease-out-quint) both;
@@ -167,12 +167,12 @@
   }
 }
 
-@keyframes sweep-loop {
+@keyframes perimeter-spin {
   from {
-    stroke-dashoffset: 0;
+    transform: translate(-50%, -50%) rotate(0deg);
   }
   to {
-    stroke-dashoffset: -1;
+    transform: translate(-50%, -50%) rotate(360deg);
   }
 }
 
@@ -448,13 +448,19 @@
 /* Blurred once here, so no plane above needs a filter (#511). The image
  * overhangs by three blur radii so the blur never fades at the edges. */
 .backdrop-layer > img,
-.backdrop-layer > video {
+.backdrop-layer > video,
+.backdrop-layer > iframe {
   position: absolute;
   inset: calc(var(--backdrop-blur, 0px) * -3);
   width: calc(100% + var(--backdrop-blur, 0px) * 6);
   height: calc(100% + var(--backdrop-blur, 0px) * 6);
   max-width: none;
+  border: 0;
   object-fit: cover;
+}
+:root[data-backdrop-blur] .backdrop-layer > img,
+:root[data-backdrop-blur] .backdrop-layer > video,
+:root[data-backdrop-blur] .backdrop-layer > iframe {
   filter: blur(var(--backdrop-blur, 0px));
 }
 /* The root wash and the stage grain give way to the backdrop while one shows. */
@@ -555,6 +561,9 @@
 }
 @utility chrome-sunken {
   background-color: color-mix(in srgb, var(--color-sunken) max(var(--glass-alpha), var(--backdrop-floor-sunken, 0%)), transparent);
+}
+@utility chrome-overlay {
+  background-color: color-mix(in srgb, var(--color-overlay) max(var(--glass-alpha), var(--backdrop-floor-overlay, 0%)), transparent);
 }
 
 /* A glass plane at glass opacity: same token, alpha from --glass-alpha,
@@ -658,23 +667,46 @@
 
 
 
-/* A gradient ring occupying only the border zone: transparent border +
- * border-box background, masked padding-box out of border-box. The gradient
- * itself arrives per-instance via --perimeter-glow (colours + rotation are
- * dynamic; a custom property also survives jsdom's CSSOM in tests). */
-@utility perimeter-glow {
-  border: 1.5px solid transparent;
-  background-image: var(--perimeter-glow);
-  background-origin: border-box;
-  background-clip: border-box;
+/* Border-zone ring mask using padding-box minus content-box (no border), so
+ * overflow:hidden clips absolute compositor children cleanly at the outer
+ * rounded edge while masking out the interior padding/content hole. */
+@utility perimeter-ring-mask {
+  padding: 1.5px;
+  overflow: hidden;
   -webkit-mask:
-    linear-gradient(#000 0 0) padding-box,
-    linear-gradient(#000 0 0) border-box;
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) padding-box;
   -webkit-mask-composite: xor;
   mask:
-    linear-gradient(#000 0 0) padding-box,
-    linear-gradient(#000 0 0) border-box;
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) padding-box;
   mask-composite: exclude;
+}
+
+/* A gradient ring occupying only the border zone, painted by its centered
+ * compositor rotor child (`.perimeter-glow-rotor`) reading `--perimeter-glow`. */
+@utility perimeter-glow {
+  padding: 1.5px;
+  overflow: hidden;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) padding-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) padding-box;
+  mask-composite: exclude;
+}
+
+.perimeter-glow-rotor {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 40rem);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background-image: var(--perimeter-glow);
+  will-change: transform;
 }
 
 @utility text-balance-tight {

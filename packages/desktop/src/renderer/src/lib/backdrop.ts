@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import {
   backdropFloors,
   backdropKindForMime,
+  sceneFrameHtml,
   stillScene,
   type ThemeBackdropKind,
   type ThemeBackdropMime,
@@ -23,6 +24,7 @@ import type { Theme } from "./themes";
 export interface BackdropAsset {
   url: string;
   stillUrl: string;
+  sceneFrameDoc?: string;
   kind: ThemeBackdropKind;
   mime: ThemeBackdropMime;
 }
@@ -60,6 +62,7 @@ export function backdropAssetFromBytes(bytes: Uint8Array, mime: ThemeBackdropMim
     return {
       url: URL.createObjectURL(new Blob([text], { type: "image/svg+xml" })),
       stillUrl: URL.createObjectURL(new Blob([stillScene(text)], { type: "image/svg+xml" })),
+      sceneFrameDoc: sceneFrameHtml(text),
       kind: "scene",
       mime,
     };
@@ -90,11 +93,14 @@ export function applyBackdropChrome(theme: Theme, ready: boolean): void {
   const backdrop = theme.backdrop;
   if (!ready || backdrop === null) {
     delete root.dataset.backdrop;
+    delete root.dataset.backdropBlur;
     for (const property of CHROME_PROPERTIES) root.style.removeProperty(property);
     return;
   }
   const floors = backdropFloors(theme.tokens);
   root.dataset.backdrop = "";
+  if (backdrop.blur > 0) root.dataset.backdropBlur = "";
+  else delete root.dataset.backdropBlur;
   root.style.setProperty("--backdrop-floor-void", `${floors.void}%`);
   root.style.setProperty("--backdrop-floor-sunken", `${floors.sunken}%`);
   root.style.setProperty("--backdrop-floor-reading", `${floors.reading}%`);

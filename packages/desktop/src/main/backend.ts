@@ -331,14 +331,22 @@ export class MainBackend {
   /** Single-flight broadcast loop (#1286): builds never overlap; triggers during a build fold into one trailing pass. */
   private broadcastRequests = 0;
   private broadcastInFlight = false;
+  private broadcastLoopPromise: Promise<void> | null = null;
+  private disposed = false;
   private readonly broadcastWaiters: { order: number; settle: PromiseWithResolvers<void> }[] = [];
-  /** Long-poll fleet status waiters (issue #958): each resolves after the next completed broadcast. */
   readonly #broadcastWaiters = new Set<() => void>();
   /** Per-record disk-derived memo (#1286): cache hits do zero syscalls. */
   private readonly diskMemo = new Map<string, DiskMemoEntry>();
   private diskMemoSweepTimer: NodeJS.Timeout | null = null;
   /** Stat-keyed cache for readSessionTitles over historyDbCandidates + -wal siblings (#1286). */
-  private historyTitlesCache: { key: string; titles: SessionTitlesRead["titles"] } | null = null;
+  private historyTitlesCache: {
+    key: string;
+    dbKey: string;
+    walPresent: boolean;
+    readAtMs: number;
+    titles: SessionTitlesRead["titles"];
+  } | null = null;
+  private historyTitlesTrailingTimer: NodeJS.Timeout | null = null;
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   /** A neutral cwd keeps the app checkout's dotenv out of global Stats. */
@@ -3260,11 +3268,16 @@ export class MainBackend {
    * directories early. Quit ignores the promise.
    */
   killAll(): Promise<void> {
+    this.disposed = true;
     const statsSettled = this.statsCollector.dispose();
     this.usageTelemetry.dispose();
     if (this.diskMemoSweepTimer !== null) {
       clearInterval(this.diskMemoSweepTimer);
       this.diskMemoSweepTimer = null;
+    }
+    if (this.historyTitlesTrailingTimer !== null) {
+      clearTimeout(this.historyTitlesTrailingTimer);
+      this.historyTitlesTrailingTimer = null;
     }
     this.diskMemo.clear();
     this.desktopPaneStopped = true;
@@ -3284,7 +3297,13 @@ export class MainBackend {
     this.fleetTerminals.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
-    return Promise.allSettled([statsSettled, headsSettled, prsSettled, ...this.projectProbes]).then(() => undefined);
+    return Promise.allSettled([
+      statsSettled,
+      headsSettled,
+      prsSettled,
+      ...(this.broadcastLoopPromise ? [this.broadcastLoopPromise] : []),
+      ...this.projectProbes,
+    ]).then(() => undefined);
   }
 
   /** The freshest capability snapshot any live native session in this project published (Routines catalog). */
@@ -3573,26 +3592,55 @@ export class MainBackend {
     else this.diskMemo.delete(tabId);
   }
 
-  /** Stat-cached readSessionTitles keyed on every candidate db + its -wal sibling (#1286). */
-  private readCachedSessionTitles(): SessionTitlesRead["titles"] {
+  /** Async stat-cached readSessionTitles keyed on every candidate db + its -wal sibling (#1286),
+   *  throttling mid-turn -wal churn to DISK_MEMO_BUCKET_MS with one trailing invalidation. */
+  private async readCachedSessionTitles(): Promise<SessionTitlesRead["titles"]> {
     const candidates = historyDbCandidates(this.historyEnv);
-    const parts: string[] = [];
-    for (const candidate of candidates) {
-      for (const filePath of [candidate, `${candidate}-wal`]) {
-        try {
-          const st = fs.statSync(filePath);
-          parts.push(`${filePath}:${st.size}:${st.mtimeMs}`);
-        } catch {
-          parts.push(`${filePath}:absent`);
-        }
+    const statOne = async (filePath: string): Promise<{ tag: string; present: boolean }> => {
+      try {
+        const st = await fs.promises.stat(filePath);
+        return { tag: `${filePath}:${st.size}:${st.mtimeMs}`, present: true };
+      } catch {
+        return { tag: `${filePath}:absent`, present: false };
       }
-    }
-    const key = parts.join("|");
+    };
+    const [dbStats, walStats] = await Promise.all([
+      Promise.all(candidates.map((candidate) => statOne(candidate))),
+      Promise.all(candidates.map((candidate) => statOne(`${candidate}-wal`))),
+    ]);
+    const dbKey = dbStats.map((entry) => entry.tag).join("|");
+    const walKey = walStats.map((entry) => entry.tag).join("|");
+    const walPresent = walStats.some((entry) => entry.present);
+    const key = `${dbKey}|${walKey}`;
     if (this.historyTitlesCache !== null && this.historyTitlesCache.key === key) {
       return this.historyTitlesCache.titles;
     }
+    const now = Date.now();
+    const hasLiveSession = this.registry.sessions.some((r) => this.sessions.isLive(r.tabId));
+    if (
+      this.historyTitlesCache !== null &&
+      hasLiveSession &&
+      this.historyTitlesCache.dbKey === dbKey &&
+      this.historyTitlesCache.walPresent &&
+      walPresent &&
+      now - this.historyTitlesCache.readAtMs < DISK_MEMO_BUCKET_MS
+    ) {
+      if (this.historyTitlesTrailingTimer === null) {
+        const delay = Math.max(1, this.historyTitlesCache.readAtMs + DISK_MEMO_BUCKET_MS - now);
+        this.historyTitlesTrailingTimer = setTimeout(() => {
+          this.historyTitlesTrailingTimer = null;
+          if (this.historyTitlesCache !== null) this.historyTitlesCache.key = "";
+        }, delay);
+        this.historyTitlesTrailingTimer.unref();
+      }
+      return this.historyTitlesCache.titles;
+    }
+    if (this.historyTitlesTrailingTimer !== null) {
+      clearTimeout(this.historyTitlesTrailingTimer);
+      this.historyTitlesTrailingTimer = null;
+    }
     const titles = readSessionTitles(this.historyEnv).titles;
-    this.historyTitlesCache = { key, titles };
+    this.historyTitlesCache = { key, dbKey, walPresent, readAtMs: now, titles };
     return titles;
   }
 
@@ -3632,7 +3680,7 @@ export class MainBackend {
     // Issue #1034 / #1286: read-only pass over omp's history.db title index,
     // stat-cached on candidate db + -wal siblings so unchanged builds do not
     // re-open SQLite or scan up to 5,000 rows synchronously.
-    const historyTitles = this.readCachedSessionTitles();
+    const historyTitlesPromise = this.readCachedSessionTitles();
     const allSessions = this.registry.sessions;
     // CONTEXT.md **Fork**: a fork's header names a file in its source's lineage dir.
     const tabByLineage = new Map(allSessions.map((r) => [r.lineageDir, r.tabId] as const));
@@ -3659,15 +3707,16 @@ export class MainBackend {
       // longer stalls the rest. Order within a group follows the registry array.
       const sessions = await Promise.all(
         (byProject.get(project.path) ?? []).map((record) =>
-          this.summarize(record, historyTitles, tabByLineage, seenSpendFiles),
+          this.summarize(record, historyTitlesPromise, tabByLineage, seenSpendFiles),
         ),
       );
       groups.push({ project, sessions });
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
     const chats = await Promise.all(
-      chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage, seenSpendFiles)),
+      chatRecords.map((record) => this.summarize(record, historyTitlesPromise, tabByLineage, seenSpendFiles)),
     );
+    await historyTitlesPromise;
     for (const tabId of this.diskMemo.keys()) {
       if (!liveTabIds.has(tabId)) this.diskMemo.delete(tabId);
     }
@@ -3754,7 +3803,7 @@ export class MainBackend {
     // history.db index, keyed by session id. Gap-fill only — see the fallback
     // chain below. Raw strings; title-card splitting is a renderer concern
     // (parseTitleCard at display time).
-    historyTitles: SessionTitlesRead["titles"],
+    historyTitlesPromise: Promise<SessionTitlesRead["titles"]>,
     // Lineage dir → tabId over the whole registry, built once per buildState.
     tabByLineage: ReadonlyMap<string, string>,
     // Collects active/archived file paths read via spendCache so buildState can prune evicted files.
@@ -3891,6 +3940,7 @@ export class MainBackend {
     // orphan for a deleted session until `omp gc`; caching it would persist a
     // possibly-stale title into the registry.
     if (!title?.trim() && record.sessionId) {
+      const historyTitles = await historyTitlesPromise;
       const historyTitle = historyTitles[record.sessionId]?.title?.trim();
       if (historyTitle) title = historyTitle;
     }
@@ -3949,9 +3999,15 @@ export class MainBackend {
 
   /** Fans state to every sink; the window sink self-guards, so remote clients survive a closed window. */
   private broadcast(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     const waiter = { order: ++this.broadcastRequests, settle: Promise.withResolvers<void>() };
     this.broadcastWaiters.push(waiter);
-    if (!this.broadcastInFlight) void this.runBroadcastLoop();
+    if (!this.broadcastInFlight) {
+      const loop = this.runBroadcastLoop().finally(() => {
+        if (this.broadcastLoopPromise === loop) this.broadcastLoopPromise = null;
+      });
+      this.broadcastLoopPromise = loop;
+    }
     return waiter.settle.promise;
   }
 
@@ -3966,13 +4022,17 @@ export class MainBackend {
         await Promise.resolve();
         const coversThrough = this.broadcastRequests;
         let failure: unknown = null;
-        try {
-          const state = await this.buildState();
-          this.send(CH.onStateChanged, state);
-          this.fleetWake.observe(state);
-          this.#releaseBroadcastWaiters();
-        } catch (error) {
-          failure = error;
+        if (!this.disposed) {
+          try {
+            const state = await this.buildState();
+            if (!this.disposed) {
+              this.send(CH.onStateChanged, state);
+              this.fleetWake.observe(state);
+              this.#releaseBroadcastWaiters();
+            }
+          } catch (error) {
+            failure = error;
+          }
         }
         // Orders are monotonic, so the covered waiters are a contiguous prefix.
         const covered: { order: number; settle: PromiseWithResolvers<void> }[] = [];

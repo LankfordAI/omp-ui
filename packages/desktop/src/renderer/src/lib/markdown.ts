@@ -1026,16 +1026,20 @@ export function parseMarkdown(src: string): MdBlock[] {
   return parseLines(lines, 0).blocks;
 }
 
-/** One-entry cache for append-only growth (streaming): when the normalized
- * text merely grew past the cached parse, re-parse only from the last cached
- * block's start line and reuse every block before it (#858). Any other
- * change misses and parses whole — identical output to parseMarkdown. Block
- * boundaries are line-based, so slicing at a block start never splits a
- * construct, and no construct spans blank-line boundaries: a tail slice
- * parses exactly as it would in the whole document. */
-let cacheSrc = "";
-let cacheBlocks: MdBlock[] = [];
-let cacheLastStart = 0;
+/** Small LRU cache for append-only growth (streaming): concurrent tabs or
+ * simultaneous thinking + prose streams keep their own slots without evicting
+ * one another on every 100 ms flush. When the normalized text matches or merely
+ * grew past a cached entry, re-parse only from that entry's last block start
+ * line and reuse every block before it (#858). Any other change misses and
+ * parses whole — identical output to parseMarkdown. */
+interface MarkdownCacheEntry {
+  src: string;
+  blocks: MdBlock[];
+  lastStart: number;
+}
+const MARKDOWN_CACHE_LIMIT = 8;
+const markdownCache: MarkdownCacheEntry[] = [];
+
 export function parseMarkdownCached(src: string): MdBlock[] {
   if (typeof src !== "string" || src === "") return [];
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
@@ -1043,21 +1047,44 @@ export function parseMarkdownCached(src: string): MdBlock[] {
   // the source stays a prefix after normalizing (a trailing \r joined by the
   // next \n still yields the same single \n).
   const normalized = lines.join("\n");
-  if (normalized.startsWith(cacheSrc)) {
-    // cacheLastStart is the start line of cacheBlocks' LAST block, so the
-    // tail re-parse replaces that one block (it may have grown) and appends
-    // whatever arrived after it. The cache then advances to this text, so
-    // each delta re-parses only its own tail.
-    const tail = parseLines(lines, cacheLastStart);
-    cacheSrc = normalized;
-    cacheBlocks = [...cacheBlocks.slice(0, -1), ...tail.blocks];
-    cacheLastStart = tail.lastStart;
-    return cacheBlocks;
+
+  // Exact hit: promote to MRU and return cached blocks without re-parsing.
+  for (let i = markdownCache.length - 1; i >= 0; i--) {
+    const entry = markdownCache[i]!;
+    if (entry.src === normalized) {
+      if (i !== markdownCache.length - 1) {
+        markdownCache.splice(i, 1);
+        markdownCache.push(entry);
+      }
+      return entry.blocks;
+    }
   }
+
+  // Longest-prefix hit: re-parse only from the last cached block's start line.
+  let bestIndex = -1;
+  let bestLen = -1;
+  for (let i = 0; i < markdownCache.length; i++) {
+    const entry = markdownCache[i]!;
+    if (entry.src.length > bestLen && normalized.startsWith(entry.src)) {
+      bestIndex = i;
+      bestLen = entry.src.length;
+    }
+  }
+  if (bestIndex !== -1) {
+    const entry = markdownCache.splice(bestIndex, 1)[0]!;
+    const tail = parseLines(lines, entry.lastStart);
+    const next: MarkdownCacheEntry = {
+      src: normalized,
+      blocks: [...entry.blocks.slice(0, -1), ...tail.blocks],
+      lastStart: tail.lastStart,
+    };
+    markdownCache.push(next);
+    return next.blocks;
+  }
+
   const parsed = parseLines(lines, 0);
-  cacheSrc = normalized;
-  cacheBlocks = parsed.blocks;
-  cacheLastStart = parsed.lastStart;
+  markdownCache.push({ src: normalized, blocks: parsed.blocks, lastStart: parsed.lastStart });
+  if (markdownCache.length > MARKDOWN_CACHE_LIMIT) markdownCache.shift();
   return parsed.blocks;
 }
 

@@ -1,4 +1,5 @@
-import { Fragment, useEffect, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, memo, useEffect, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { relativeTime } from "../lib/format";
 import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
@@ -239,7 +240,7 @@ function IconFork() {
   );
 }
 
-export function SessionRow({
+export const SessionRow = memo(function SessionRow({
   s,
   onActivate,
   handoff,
@@ -292,7 +293,12 @@ export function SessionRow({
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
   // CONTEXT.md **Fork**: the original this row was forked from, on the same host.
-  const forkSource = useStore((st) => forkSourceOf(st.state, s.tabId));
+  const forkSource = useStore(
+    useShallow((st) => {
+      const src = forkSourceOf(st.state, s.tabId);
+      return src === null ? null : { tabId: src.tabId, title: src.title };
+    }),
+  );
   // Dispatch tether cross-highlight (#1226): a tether line naming this row lights it.
   const tetherHovered = useDispatchHover(s.tabId, "tether");
   const dispatchParent = dispatch?.parent ?? null;
@@ -776,4 +782,4 @@ export function SessionRow({
       )}
     </div>
   );
-}
+});

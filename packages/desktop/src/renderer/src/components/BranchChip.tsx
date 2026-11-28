@@ -13,7 +13,7 @@ import {
   worktreeBranchPrefix,
 } from "@omp-ui/core/worktree-branch";
 import { WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
-
+import { useTabPainting } from "./TabPaintingContext";
 /**
  * The composer's git-branch indicator and switcher (issues #35, #168): a
  * neutral chip showing the project's current branch and how far it trails its
@@ -247,8 +247,9 @@ export function BranchChip({
   // moved elsewhere. Both events fire on one alt-tab, so they share a debounce,
   // and a backgrounded window never spends a fetch. A window that stays
   // foregrounded never earns a focus event, so a poll covers it (issue #708).
+  const painting = useTabPainting();
   useEffect(() => {
-    if (projectCwd === undefined) return;
+    if (!painting || projectCwd === undefined) return;
     let timer: number | undefined;
     const scheduleNetworkRefresh = (): void => {
       if (document.visibilityState !== "visible") return;
@@ -274,7 +275,7 @@ export function BranchChip({
       window.removeEventListener("focus", scheduleNetworkRefresh);
       document.removeEventListener("visibilitychange", scheduleNetworkRefresh);
     };
-  }, [projectCwd, instanceId, refreshBranches]);
+  }, [painting, projectCwd, instanceId, refreshBranches]);
 
   // Click-outside / Escape dismissal (issue #114), matching the terminal menu
   // in Sidebar.tsx. The trigger is *inside* rootRef, so a click on it is not an

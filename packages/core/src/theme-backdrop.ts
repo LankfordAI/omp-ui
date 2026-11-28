@@ -265,6 +265,29 @@ export function stillScene(svg: string): string {
   return svg.replace(/<svg\b[^>]*>/i, (open) => open + STILL);
 }
 
+const SCENE_FRAME_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
+
+/** Wraps a validated SVG scene in an isolated HTML document for a sandboxed iframe. */
+export function sceneFrameHtml(svg: string): string {
+  const stripped = svg
+    .replace(/^\uFEFF/, "")
+    .replace(/^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!DOCTYPE[\s\S]*?>\s*)?/i, "");
+  const normalized = stripped.replace(/<svg\b([^>]*)>/i, (match, attrs: string) =>
+    /\bpreserveAspectRatio\s*=/i.test(attrs)
+      ? match
+      : `<svg${attrs} preserveAspectRatio="xMidYMid slice">`,
+  );
+  return (
+    `<!doctype html><html><head>` +
+    `<meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="${SCENE_FRAME_CSP}">` +
+    `<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}` +
+    `svg{display:block;width:100%;height:100%}</style>` +
+    `</head><body>${normalized}</body></html>`
+  );
+}
+
 /* ---------------------------------------------------------------- floors */
 
 export interface BackdropFloors {

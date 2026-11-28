@@ -164,9 +164,9 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
   });
 }
 
-function renderComposer(): void {
+function renderComposer(active = true): void {
   const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
-  act(() => root!.render(<Composer tabId={TAB} active />));
+  act(() => root!.render(<Composer tabId={TAB} active={active} />));
 }
 
 function renderRpcTab(): void {
@@ -2758,6 +2758,11 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
       ?.style.getPropertyValue("--perimeter-glow") ?? null;
   }
 
+  function ringSpinning(): boolean {
+    return document.body.querySelector<HTMLElement>("[data-perimeter-rotor]")
+      ?.classList.contains("animate-perimeter-spin") ?? false;
+  }
+
   function gradient(keywords: readonly MagicKeyword[], angle = 0): string {
     const colors = keywords.flatMap((keyword) => keywordPalette(keyword));
     return `conic-gradient(from ${angle}deg, ${colors.join(", ")}, ${colors[0]})`;
@@ -2861,32 +2866,35 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     expect(ringStyle()).toBeNull();
   });
 
-  it("shares one clock with the focused draft and keeps the active ring moving after blur", () => {
+  it("keeps the compositor active ring spinning after blur while stopping the draft shimmer rAF", () => {
     media(false, false);
     seed("running");
     patchRpc({ activeTurnKeywords: ["orchestrate"] });
     renderComposer();
     const input = typeDraft("jevify");
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(ringSpinning()).toBe(true);
     expect(frames.size).toBe(1);
+    const initialColor = document.body.querySelector<HTMLElement>('[data-kw="jevify"][data-kw-i="0"]')?.style.color;
     tick(0.25);
-    expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
+    expect(document.body.querySelector<HTMLElement>('[data-kw="jevify"][data-kw-i="0"]')?.style.color).not.toBe(initialColor);
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
 
     act(() => input.blur());
-    expect(frames.size).toBe(1);
-    tick(0.5);
-    expect(ringStyle()).toBe(gradient(["orchestrate"], 180));
-    expect(frames.size).toBe(1);
+    expect(ringSpinning()).toBe(true);
+    expect(frames.size).toBe(0);
   });
 
-  it("pins the idle draft ring to phase zero after blur", () => {
+  it("stops the idle draft ring and shimmer after blur", () => {
     media(true, false);
     seed("ready");
     renderComposer();
     const input = typeDraft("orchestrate");
-    tick(0.25);
-    expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
+    expect(ringSpinning()).toBe(true);
+    expect(frames.size).toBe(1);
     act(() => input.blur());
     expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(ringSpinning()).toBe(false);
     expect(frames.size).toBe(0);
   });
 
@@ -2897,6 +2905,7 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     renderComposer();
     const input = typeDraft("workflowz");
     expect(ringStyle()).toBe(gradient(["orchestrate", "jevify"]));
+    expect(document.body.querySelector<HTMLElement>("[data-perimeter-rotor]")?.classList.contains("motion-reduce:animate-none")).toBe(true);
     expect(frames.size).toBe(0);
     act(() => input.blur());
     tick(0.5);
@@ -2905,7 +2914,7 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     expect(frames.size).toBe(0);
   });
 
-  it("pins and resumes the active ring when reduced motion changes during a turn", () => {
+  it("pins and resumes draft shimmer when reduced motion changes", () => {
     let reduced = false;
     const motion = new EventTarget();
     Object.defineProperty(motion, "matches", { get: () => reduced });
@@ -2915,40 +2924,39 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
         ? motion
         : { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
     });
-    seed("running");
-    patchRpc({ activeTurnKeywords: ["workflowz"] });
+    seed("ready");
     renderComposer();
+    typeDraft("workflowz");
+    expect(frames.size).toBe(1);
     tick(0.25);
-    expect(ringStyle()).toBe(gradient(["workflowz"], 90));
     act(() => {
       reduced = true;
       motion.dispatchEvent(new Event("change"));
     });
-    expect(ringStyle()).toBe(gradient(["workflowz"]));
     expect(frames.size).toBe(0);
     act(() => {
       reduced = false;
       motion.dispatchEvent(new Event("change"));
     });
-    tick(0.5);
-    expect(ringStyle()).toBe(gradient(["workflowz"], 180));
     expect(frames.size).toBe(1);
   });
 
-  it("cancels the clock with no consumers and on unmount", () => {
+  it("cancels the draft shimmer rAF with no consumers and on unmount", () => {
     media(false, false);
     seed("running");
     patchRpc({ activeTurnKeywords: ["orchestrate"] });
     renderComposer();
     const input = composerInput();
     act(() => input.blur());
-    expect(frames.size).toBe(1);
+    expect(ringSpinning()).toBe(true);
+    expect(frames.size).toBe(0);
     patchRpc({ status: "ready", activeTurnKeywords: [] });
     expect(frames.size).toBe(0);
     typeDraft("jevify");
-    expect(frames.size).toBe(0);
     expect(ringStyle()).toBe(gradient(["jevify"]));
+    expect(frames.size).toBe(0);
     act(() => input.focus());
+    expect(ringSpinning()).toBe(true);
     expect(frames.size).toBe(1);
     typeDraft("plain prose");
     expect(frames.size).toBe(0);
@@ -2956,6 +2964,17 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     expect(frames.size).toBe(1);
     act(() => root!.unmount());
     root = null;
+    expect(frames.size).toBe(0);
+  });
+
+  it("suppresses glow spin and draft shimmer rAF while the tab is hidden (active=false)", () => {
+    media(false, false);
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["orchestrate"] });
+    renderComposer(false);
+    typeDraft("jevify");
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(ringSpinning()).toBe(false);
     expect(frames.size).toBe(0);
   });
 });

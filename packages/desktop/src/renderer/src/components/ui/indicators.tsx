@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import { cn } from "../../lib/cn";
 import { TONE_DOT, TONE_TEXT, type Tone } from "./tone";
 
@@ -59,13 +59,105 @@ export function ProgressSweep({
   );
 }
 
+export type PerimeterEdge = "top" | "right" | "bottom" | "left";
+
+export interface PerimeterEdgeSpec {
+  edge: PerimeterEdge;
+  barLength: number;
+  keyframes: Keyframe[];
+}
+
+const PERIMETER_SWEEP_MS = 2800;
+
+function buildEdgeKeyframes(
+  startArc: number,
+  endArc: number,
+  perimeter: number,
+  barLength: number,
+  transformFor: (uTail: number) => string,
+): Keyframe[] {
+  const edgeLength = endArc - startArc;
+  const tStart = (startArc - barLength) / perimeter;
+  const tEnd = endArc / perimeter;
+
+  if (tStart >= 0) {
+    const frames: Keyframe[] = [];
+    if (tStart > 0) frames.push({ offset: 0, transform: transformFor(-barLength) });
+    frames.push({ offset: tStart, transform: transformFor(-barLength) });
+    frames.push({ offset: tEnd, transform: transformFor(edgeLength) });
+    if (tEnd < 1) frames.push({ offset: 1, transform: transformFor(edgeLength) });
+    return frames;
+  }
+
+  // Wraps across t = 0 / t = 1 (always Top; also Right on tall narrow boxes).
+  const tWrap = tStart + 1;
+  const uAtZero = -startArc;
+  if (tWrap <= tEnd) {
+    // Degenerate oversized segment covering the entire edge continuously.
+    return [
+      { offset: 0, transform: transformFor(uAtZero) },
+      { offset: 1, transform: transformFor(uAtZero) },
+    ];
+  }
+  return [
+    { offset: 0, transform: transformFor(uAtZero) },
+    { offset: tEnd, transform: transformFor(edgeLength), easing: "steps(1, end)" },
+    { offset: tWrap, transform: transformFor(-barLength) },
+    { offset: 1, transform: transformFor(uAtZero) },
+  ];
+}
+
+/**
+ * Computes transform-only WAAPI keyframes for the four edges of a PerimeterSweep
+ * so the lit segment travels clockwise around the perimeter at constant linear
+ * pixel speed (P / duration) with seamless corner wrap-around.
+ */
+export function perimeterEdgeKeyframes(
+  width: number,
+  height: number,
+  segment = 0.2,
+): Record<PerimeterEdge, PerimeterEdgeSpec> {
+  const W = Math.max(1, width);
+  const H = Math.max(1, height);
+  const P = 2 * (W + H);
+  const clamped = Math.min(0.49, Math.max(0.01, segment));
+  const L = clamped * P;
+  return {
+    top: {
+      edge: "top",
+      barLength: L,
+      keyframes: buildEdgeKeyframes(0, W, P, L, (u) => `translate3d(${u}px, 0, 0)`),
+    },
+    right: {
+      edge: "right",
+      barLength: L,
+      keyframes: buildEdgeKeyframes(W, W + H, P, L, (u) => `translate3d(0, ${u}px, 0)`),
+    },
+    bottom: {
+      edge: "bottom",
+      barLength: L,
+      keyframes: buildEdgeKeyframes(W + H, 2 * W + H, P, L, (u) => `translate3d(${W - L - u}px, 0, 0)`),
+    },
+    left: {
+      edge: "left",
+      barLength: L,
+      keyframes: buildEdgeKeyframes(2 * W + H, P, P, L, (u) => `translate3d(0, ${H - L - u}px, 0)`),
+    },
+  };
+}
+
 /**
  * An indeterminate activity ring: one lit segment continuously loops the
- * host's real rounded border. Render it as a direct child of that host; it
- * measures the live box and follows draft growth and re-wrapping.
+ * host's real 1.5px rounded border at constant linear pixel speed on the GPU
+ * compositor via 4 transform-only WAAPI edge animations clipped by
+ * `.perimeter-ring-mask`.
  *
- * Design contract (#512): keep the continuously animated SVG path. A conic
- * rotor and a commit-stepped dash were both shipped and explicitly rejected.
+ * Design contract (#512): preserves the constant-linear-speed border segment
+ * (a conic rotor and a commit-stepped dash remain rejected for PerimeterSweep;
+ * PerimeterGlow separately owns the #726 full-perimeter magic-keyword conic
+ * ring). Moving from SVG `stroke-dashoffset` to 4 transform-composited edge
+ * bars keeps identical visual motion while eliminating per-frame main-thread
+ * Blink paints.
  */
 export function PerimeterSweep({
   tone = "signal",
@@ -77,64 +169,138 @@ export function PerimeterSweep({
   segment?: number;
   className?: string;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const pathRef = useRef<SVGPathElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLSpanElement>(null);
+  const rightRef = useRef<HTMLSpanElement>(null);
+  const bottomRef = useRef<HTMLSpanElement>(null);
+  const leftRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
-    const svg = svgRef.current;
-    const path = pathRef.current;
-    if (svg === null || path === null) return;
-    const draw = () => {
-      const { width, height } = svg.getBoundingClientRect();
-      if (width <= 2 || height <= 2) return;
-      const host = svg.parentElement;
-      const radius =
-        parseFloat(host ? getComputedStyle(host).borderTopLeftRadius : "") || 0;
-      const stroke = 1.5;
-      const inset = stroke / 2;
-      const widthInside = width - stroke;
-      const heightInside = height - stroke;
-      const r = Math.max(
-        0,
-        Math.min(radius - inset, widthInside / 2, heightInside / 2),
-      );
-      path.setAttribute(
-        "d",
-        `M ${inset + r} ${inset} H ${inset + widthInside - r} ` +
-          `A ${r} ${r} 0 0 1 ${inset + widthInside} ${inset + r} ` +
-          `V ${inset + heightInside - r} A ${r} ${r} 0 0 1 ${inset + widthInside - r} ${inset + heightInside} ` +
-          `H ${inset + r} A ${r} ${r} 0 0 1 ${inset} ${inset + heightInside - r} ` +
-          `V ${inset + r} A ${r} ${r} 0 0 1 ${inset + r} ${inset} Z`,
-      );
+    const host = hostRef.current;
+    const edges: Record<PerimeterEdge, HTMLSpanElement | null> = {
+      top: topRef.current,
+      right: rightRef.current,
+      bottom: bottomRef.current,
+      left: leftRef.current,
     };
-    draw();
-    const observer = new ResizeObserver(draw);
-    observer.observe(svg);
-    return () => observer.disconnect();
-  }, []);
+    if (host === null || !edges.top || !edges.right || !edges.bottom || !edges.left) return;
+
+    const motion =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let animations: Animation[] = [];
+    let lastWidth = -1;
+    let lastHeight = -1;
+    let lastReduced: boolean | null = null;
+
+    const stop = () => {
+      for (const anim of animations) anim.cancel();
+      animations = [];
+    };
+
+    const syncVisibility = () => {
+      const hidden = typeof document !== "undefined" && document.hidden;
+      for (const anim of animations) {
+        if (hidden) anim.pause();
+        else anim.play();
+      }
+    };
+
+    const layout = () => {
+      const { width, height } = host.getBoundingClientRect();
+      const reduced = motion?.matches === true;
+      if (width <= 2 || height <= 2) {
+        stop();
+        lastWidth = -1;
+        lastHeight = -1;
+        lastReduced = reduced;
+        return;
+      }
+      if (width === lastWidth && height === lastHeight && reduced === lastReduced) return;
+      const activeTime = animations[0]?.currentTime;
+      const phaseMs =
+        typeof activeTime === "number" && Number.isFinite(activeTime)
+          ? ((activeTime % PERIMETER_SWEEP_MS) + PERIMETER_SWEEP_MS) % PERIMETER_SWEEP_MS
+          : 0;
+      lastWidth = width;
+      lastHeight = height;
+      lastReduced = reduced;
+      stop();
+      const specs = perimeterEdgeKeyframes(width, height, segment);
+      edges.top!.style.width = `${specs.top.barLength}px`;
+      edges.bottom!.style.width = `${specs.bottom.barLength}px`;
+      edges.right!.style.height = `${specs.right.barLength}px`;
+      edges.left!.style.height = `${specs.left.barLength}px`;
+
+      if (reduced) {
+        // Static segment resting on the top edge when reduced motion is active.
+        edges.top!.style.transform = "translate3d(0, 0, 0)";
+        edges.right!.style.transform = `translate3d(0, ${-specs.right.barLength}px, 0)`;
+        edges.bottom!.style.transform = `translate3d(${width}px, 0, 0)`;
+        edges.left!.style.transform = `translate3d(0, ${height}px, 0)`;
+        return;
+      }
+
+      for (const key of ["top", "right", "bottom", "left"] as const) {
+        const el = edges[key]!;
+        el.style.transform = "";
+        if (typeof el.animate !== "function") continue;
+        const anim = el.animate(specs[key].keyframes, {
+          duration: PERIMETER_SWEEP_MS,
+          iterations: Infinity,
+          easing: "linear",
+        });
+        if (phaseMs > 0) anim.currentTime = phaseMs;
+        if (typeof document !== "undefined" && document.hidden) anim.pause();
+        animations.push(anim);
+      }
+    };
+    layout();
+    const observer = new ResizeObserver(layout);
+    observer.observe(host);
+    motion?.addEventListener("change", layout);
+    document.addEventListener("visibilitychange", syncVisibility);
+    return () => {
+      observer.disconnect();
+      motion?.removeEventListener("change", layout);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      stop();
+    };
+  }, [segment]);
 
   return (
-    <svg
-      ref={svgRef}
+    <div
+      ref={hostRef}
       aria-hidden
       data-perimeter-sweep
       className={cn(
-        "pointer-events-none absolute inset-0 h-full w-full",
+        "perimeter-ring-mask pointer-events-none absolute inset-0 rounded-[inherit]",
         TONE_TEXT[tone],
         className,
       )}
     >
-      <path
-        ref={pathRef}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        pathLength={1}
-        strokeDasharray={`${segment} ${1 - segment}`}
-        className="animate-sweep-loop motion-reduce:animate-none"
+      <span
+        ref={topRef}
+        data-sweep-edge="top"
+        className="absolute top-0 left-0 h-1.5 rounded-full bg-current will-change-transform"
       />
-    </svg>
+      <span
+        ref={rightRef}
+        data-sweep-edge="right"
+        className="absolute top-0 right-0 w-1.5 rounded-full bg-current will-change-transform"
+      />
+      <span
+        ref={bottomRef}
+        data-sweep-edge="bottom"
+        className="absolute bottom-0 left-0 h-1.5 rounded-full bg-current will-change-transform"
+      />
+      <span
+        ref={leftRef}
+        data-sweep-edge="left"
+        className="absolute top-0 left-0 w-1.5 rounded-full bg-current will-change-transform"
+      />
+    </div>
   );
 }
 
@@ -255,23 +421,46 @@ export function conicRing(colors: readonly string[], angle: number): string {
 /**
  * A full-perimeter gradient ring on the host's border — the border-level echo
  * of a gradient painted on text inside. Render it as a direct child of the
- * rounded, `relative` host it traces, like PerimeterSweep. It owns no clock:
- * `phase` ∈ [0,1) rotates the ring one full turn, so the caller's existing
- * shimmer clock drives it and reduced-motion falls out of the caller pinning
- * phase to 0. Values outside [0,1) wrap, matching keywordColors.
+ * rounded, `relative` host it traces, like PerimeterSweep. When `animate` is
+ * true, an inner square rotor spins smoothly on the GPU compositor via CSS
+ * transform (`animate-perimeter-spin`) with zero main-thread repaints; `phase`
+ * sets the base angle for static snapshots and reduced-motion states.
  */
 export function PerimeterGlow({
   colors,
+  animate = false,
   phase = 0,
   className,
 }: {
   colors: readonly string[];
+  animate?: boolean;
   phase?: number;
   className?: string;
 }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const rotorRef = useRef<HTMLSpanElement>(null);
   const angle = Math.round((((phase % 1) + 1) % 1) * 360);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    const rotor = rotorRef.current;
+    if (host === null || rotor === null) return;
+    const resize = () => {
+      const { width, height } = host.getBoundingClientRect();
+      if (width <= 0 || height <= 0) return;
+      const diameter = Math.ceil(Math.hypot(width, height));
+      rotor.style.width = `${diameter}px`;
+      rotor.style.height = `${diameter}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
+      ref={hostRef}
       aria-hidden
       data-perimeter-glow
       className={cn(
@@ -279,7 +468,16 @@ export function PerimeterGlow({
         className,
       )}
       style={{ "--perimeter-glow": conicRing(colors, angle) } as CSSProperties}
-    />
+    >
+      <span
+        ref={rotorRef}
+        data-perimeter-rotor
+        className={cn(
+          "perimeter-glow-rotor",
+          animate && "animate-perimeter-spin motion-reduce:animate-none",
+        )}
+      />
+    </div>
   );
 }
 

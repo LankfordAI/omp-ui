@@ -11,9 +11,11 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import { BlockWrapper, Decoration, EditorView, keymap, placeholder, WidgetType } from "@codemirror/view";
-import { useImperativeHandle, useLayoutEffect, useRef, type ClipboardEvent, type KeyboardEvent, type Ref } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type ClipboardEvent, type KeyboardEvent, type Ref } from "react";
+import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { composerBacktickEdit, parseComposerCode, type ComposerCode, type ComposerEdit } from "../lib/composer-code";
 import type { ComposerPaintRun } from "../lib/composer-paint";
+import { keywordColors, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 
 interface ComposerSnapshot {
   text: string;
@@ -37,6 +39,7 @@ interface ComposerEditorProps {
   compact: boolean;
   literal: boolean;
   runs: ComposerPaintRun[];
+  shimmerActive?: boolean;
   ghostSuffix: string | null;
   /** Inline hint painted after the ghost (issue #1030): ` Tab N more`. */
   ghostHint?: string | null;
@@ -166,8 +169,16 @@ const paintDecorations = EditorView.decorations.compute([parsedField, optionsFie
     for (const run of options.runs) {
       const to = from + normalizedText(run.text).length;
       if (to > from && to <= text.length) {
-        if (run.color !== undefined) ranges.push(Decoration.mark({ attributes: { style: `color: ${run.color}` } }).range(from, to));
-        else if (run.iris) ranges.push(irisMark.range(from, to));
+        if (run.color !== undefined) {
+          const attributes: Record<string, string> = { style: `color: ${run.color}` };
+          if (run.keyword !== undefined) {
+            attributes["data-kw"] = run.keyword;
+            attributes["data-kw-i"] = String(run.kwIndex ?? 0);
+          }
+          ranges.push(Decoration.mark({ attributes }).range(from, to));
+        } else if (run.iris) {
+          ranges.push(irisMark.range(from, to));
+        }
       }
       from = to;
     }
@@ -258,7 +269,7 @@ function editableTarget(view: EditorView | null, target: EventTarget): view is E
 }
 
 export function ComposerEditor(props: ComposerEditorProps) {
-  const { ref, text, disabled, literal, placeholder: hint, compact, runs, ghostSuffix, ghostHint, recall } = props;
+  const { ref, text, disabled, literal, placeholder: hint, compact, runs, shimmerActive = false, ghostSuffix, ghostHint, recall } = props;
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
   const latest = useRef(props);
@@ -403,6 +414,56 @@ export function ComposerEditor(props: ComposerEditorProps) {
       element.style.removeProperty("--composer-editor-viewport-height");
     };
   }, [compact]);
+
+  // Isolated character shimmer: mutates only the ~8-12 keyword character spans
+  // directly on the DOM without re-rendering Composer or dispatching CM6 updates.
+  useEffect(() => {
+    const paintPhase = (phase: number) => {
+      const root = editor.current?.contentDOM;
+      if (!root) return;
+      const nodes = root.querySelectorAll<HTMLElement>("[data-kw]");
+      if (nodes.length === 0) return;
+      const cache = new Map<MagicKeyword, string[]>();
+      for (const node of nodes) {
+        const kw = node.dataset.kw as MagicKeyword | undefined;
+        const idx = Number(node.dataset.kwI);
+        if (!kw || Number.isNaN(idx)) continue;
+        let palette = cache.get(kw);
+        if (!palette) {
+          palette = keywordColors(kw, phase);
+          cache.set(kw, palette);
+        }
+        const color = palette[idx];
+        if (color !== undefined) node.style.color = color;
+      }
+    };
+    if (!shimmerActive) {
+      paintPhase(0);
+      return;
+    }
+    const motion =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let raf: number | undefined;
+    const tick = () => {
+      paintPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
+      raf = requestAnimationFrame(tick);
+    };
+    const updateMotion = () => {
+      if (raf !== undefined) cancelAnimationFrame(raf);
+      raf = undefined;
+      if (motion?.matches) paintPhase(0);
+      else tick();
+    };
+    motion?.addEventListener("change", updateMotion);
+    updateMotion();
+    return () => {
+      motion?.removeEventListener("change", updateMotion);
+      if (raf !== undefined) cancelAnimationFrame(raf);
+      paintPhase(0);
+    };
+  }, [shimmerActive]);
 
   const handleFocus = (target: EventTarget, focused: boolean) => {
     if (restoringFocus.current && focused) return;

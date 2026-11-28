@@ -448,6 +448,55 @@ describe("MainBackend disk memo and cached history titles (#1286)", () => {
     expect(readSessionTitlesMock).toHaveBeenCalledTimes(2);
   });
 
+  it("throttles repeated history.db-wal churn during a live session to DISK_MEMO_BUCKET_MS", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+    const dbPath = path.join(agentDir, "history.db");
+    const walPath = `${dbPath}-wal`;
+    fs.writeFileSync(dbPath, "sqlite-placeholder", "utf8");
+    fs.writeFileSync(walPath, "wal-v1", "utf8");
+    const activePath = path.join(sessionsRoot, "lin-wal", "2026-10-01_s-wal.jsonl");
+    writeTranscript(activePath, 0.1, 100);
+    seedRegistry(registryFile, {
+      projects: [PROJECT],
+      sessions: [
+        ownedSessionRecord({ tabId: "tab-wal", sessionId: "s-wal", lineageDir: "lin-wal", projectCwd: PROJECT.path, cachedTitle: null }),
+      ],
+    });
+    resolveSessionLocationMock.mockResolvedValue({ where: "active", filePath: activePath });
+    hydrateSessionFileMock.mockResolvedValue({
+      id: "s-wal",
+      title: "Hydrated",
+      status: "idle",
+      mtime: new Date("2026-10-01T00:00:00.000Z"),
+    });
+    readSessionTitlesMock.mockReturnValue({
+      titles: { "s-wal": { title: "WAL v1", updatedAt: 1 } },
+      error: null,
+    });
+
+    backend = new MainBackend(win as never, registryFile, { historyEnv: { PI_CODING_AGENT_DIR: agentDir } });
+    backend.registerIpc();
+    await invoke(CH.spawnSession, { origin: "resume", resumeTabId: "tab-wal", cols: 80, rows: 24 });
+    await invoke(CH.getState);
+    const readsAfterBoot = readSessionTitlesMock.mock.calls.length;
+
+    // Two WAL writes within 5s while live: SQLite is not re-opened.
+    readSessionTitlesMock.mockReturnValue({
+      titles: { "s-wal": { title: "WAL v2", updatedAt: 2 } },
+      error: null,
+    });
+    fs.writeFileSync(walPath, "wal-v2-longer", "utf8");
+    vi.advanceTimersByTime(2_000);
+    await invoke(CH.getState);
+    expect(readSessionTitlesMock).toHaveBeenCalledTimes(readsAfterBoot);
+
+    // After the 5s bucket closes, the trailing invalidation triggers one fresh SQLite read.
+    vi.advanceTimersByTime(3_500);
+    await invoke(CH.getState);
+    expect(readSessionTitlesMock).toHaveBeenCalledTimes(readsAfterBoot + 1);
+  });
+
   it("absorbs same-bucket mtime churn for a live session and settles the trailing write once the bucket closes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));

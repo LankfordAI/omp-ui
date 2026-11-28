@@ -761,8 +761,10 @@ export function Sidebar() {
   // summaries, so gating on `state` identity recomputed both at broadcast
   // rate. Equal string ⇒ equal output; the suppression ids are appended for
   // the lists gate only, since buildAttentionEntries never reads them.
-  const baseSig =
-    state === null ? "" : sidebarListsSignature(state, query, backgroundWorkTabIds, EMPTY_TAB_IDS);
+  const baseSig = useMemo(
+    () => (state === null ? "" : sidebarListsSignature(state, query, backgroundWorkTabIds, EMPTY_TAB_IDS)),
+    [state, query, backgroundWorkTabIds],
+  );
   const attentionSig = `${attentionKey}\u0000${baseSig}`;
   const attentionKeyRef = useRef<string | null>(null);
   const attentionUnreadRef = useRef<Readonly<Record<string, UnreadMark>> | null>(null);

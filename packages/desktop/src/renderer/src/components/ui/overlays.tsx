@@ -196,7 +196,7 @@ export function Sheet({
         aria-label={label}
         tabIndex={-1}
         className={cn(
-          "ambient edge-lit absolute flex max-h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden border-line-strong glass-sunken",
+          "ambient edge-lit absolute flex max-h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden border-line-strong chrome-sunken",
           SHEET_POSITION[placement],
         )}
       >
@@ -271,7 +271,7 @@ export function Modal({
         aria-labelledby={labelledBy}
         tabIndex={-1}
         className={cn(
-          "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line-strong glass-overlay",
+          "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line-strong chrome-overlay",
           width,
           className,
           mobile === "fullscreen" ? "compact-modal-fullscreen" : "compact-modal-dialog",

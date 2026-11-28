@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -6,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
@@ -20,7 +22,7 @@ import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
 import { useCompactShell } from "../lib/responsive";
 import { useComposerText } from "../lib/android-shell";
-import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
+import { keywordPalette } from "../lib/keyword-colors";
 import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
@@ -102,7 +104,7 @@ export type SubmitRoute = PromptRoute | "interrupt" | "at-reset";
 const COUNTER_AT = 400;
 
 
-export function Composer({
+export const Composer = memo(function Composer({
   tabId,
   active,
   onPrompt,
@@ -229,12 +231,36 @@ export function Composer({
   });
   // Only a runtime that reports omp's queue text gets a listable chip.
   const queueListed = useStore((s) => s.rpc[tabId]?.session.queuedMessages != null);
-  const owner = useStore((s) => findOwner(s.state, tabId));
-  const record = owner?.record;
-  const dead = record?.live !== "live";
-  // #932: booted without its pinned model; main refuses prompts until a pick.
-  const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
-  // Send at reset (issue #986): the provider's next reset while the session is
+  const {
+    recordPresent,
+    recordLive,
+    recordMode,
+    cwd,
+    projectCwd,
+    recordSessionId,
+    hasWorktree,
+    instanceId,
+    recordPrivate,
+    modelHold,
+  } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      const rec = owner?.record;
+      return {
+        recordPresent: rec !== undefined,
+        recordLive: rec?.live,
+        recordMode: rec?.mode,
+        cwd: sessionCwd(rec),
+        projectCwd: rec?.projectCwd,
+        recordSessionId: rec?.sessionId ?? null,
+        hasWorktree: rec?.worktree != null,
+        instanceId: owner?.instanceId ?? null,
+        recordPrivate: rec?.private === true,
+        modelHold: rec?.modelHold ?? null,
+      };
+    }),
+  );
+  const dead = recordLive !== "live";
   // limited. Ticks so a passed reset withdraws the offer.
   const [resetNow, setResetNow] = useState(() => Date.now());
   const resetAtMs = useStore((s) => sendAtResetMs(s.rpc[tabId], resetNow));
@@ -243,7 +269,7 @@ export function Composer({
     return startVisibleInterval(() => setResetNow(Date.now()), SEND_AT_RESET_TICK_MS);
   }, [resetAtMs]);
   // A native session only: a terminal tab has no prompt channel main may inject into.
-  const holdsPrompts = record?.mode === "rpc-ui";
+  const holdsPrompts = recordMode === "rpc-ui";
   // The `?` shortcut's route (issue #1233): a native tab whose omp speaks the
   // native `btw` verb, the same gate `/btw` dispatch runs through. A terminal
   // tab's TUI answers `?` with omp's own editor; an old harness sends the
@@ -285,18 +311,12 @@ export function Composer({
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const [compactBranchRequest, setCompactBranchRequest] = useState<BranchChipExternalRequest | null>(null);
-  const cwd = sessionCwd(record);
   // The owning remote instance (issue #416): project-scoped reads go to that
   // host, and while it is not joined the composer is as inert as a dead tab —
   // nothing typed here could reach the agent.
-  const instanceId = owner?.instanceId ?? null;
   const instanceDown = useStore(
     (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
   );
-  // A session running in a worktree cannot be pointed at a second one: the
-  // branch chip's worktree section is never offered to it. Finishing the
-  // worktree moves it back to the project checkout instead (issue #334).
-  const hasWorktree = record?.worktree != null;
   // The worktree section of the branch chip (issue #227) stands in for the
   // standalone workspace chip: offered only while the session is unprompted
   // and has no worktree of its own.
@@ -305,8 +325,7 @@ export function Composer({
   // The finish-worktree offer (issues #385–#389): this tab for any worktree
   // session — a null base no longer withholds it, the dialog falls back to
   // the default branch. Undefined for plain sessions.
-  const finishTabId = record?.worktree != null ? tabId : undefined;
-
+  const finishTabId = hasWorktree ? tabId : undefined;
   const sendPrompt = useStore((s) => s.sendPrompt);
   const holdPrompt = useStore((s) => s.holdPrompt);
   const worktreeSetupState = useStore((s) => s.worktreeSetupState[tabId] ?? null);
@@ -404,7 +423,7 @@ export function Composer({
   );
   const isGitRepo = branchInfo !== undefined && branchInfo.repoRoot !== null;
   const workspacePolicy = useStore((s) =>
-    effectiveWorkspacePolicy(s.state, record?.projectCwd, instanceId),
+    effectiveWorkspacePolicy(s.state, projectCwd, instanceId),
   );
   const checkoutBusy = useStore((s) =>
     checkoutOccupant(s, cwd, tabId, instanceId) !== null,
@@ -424,7 +443,7 @@ export function Composer({
           branchInfo.defaultBranch !== null &&
           branchInfo.branches.includes(branchInfo.defaultBranch);
         const baseRef = defaultUsable ? branchInfo.defaultBranch : branchInfo.current;
-        const prefix = worktreeBranchPrefix(record?.projectCwd ?? cwd ?? "");
+        const prefix = worktreeBranchPrefix(projectCwd ?? cwd ?? "");
         return {
           mode: "worktree",
           branch: mintBranchName(prefix, baseRef ?? undefined),
@@ -436,11 +455,11 @@ export function Composer({
     } else {
       setWorkspace((prev) => (prev.mode === "checkout" ? prev : { mode: "checkout" }));
     }
-  }, [offerWorkspace, isGitRepo, workspaceTouched, planOn, workspacePolicy, checkoutBusy, branchInfo, record?.projectCwd, cwd]);
+  }, [offerWorkspace, isGitRepo, workspaceTouched, planOn, workspacePolicy, checkoutBusy, branchInfo, projectCwd, cwd]);
   const [dropping, setDropping] = useState(false);
   // The machine chip (#936): an unprompted, project-checkout session with
   // nothing materialized can be re-homed onto another checkout's machine.
-  const offerMachine = unprompted && !chat && !hasWorktree && record?.sessionId === null;
+  const offerMachine = unprompted && !chat && !hasWorktree && recordPresent && recordSessionId === null;
 
   const moveToMember = async (member: CheckoutEntry): Promise<void> => {
     setMoving(
@@ -462,8 +481,6 @@ export function Composer({
     // attempt renders its own failure.
     setWorkspaceError(null);
   };
-  /** Gradient rotation ∈ [0,1); 0 is the static palette. */
-  const [phase, setPhase] = useState(0);
 
   const editor = useRef<ComposerEditorHandle | null>(null);
   const filePicker = useRef<HTMLInputElement | null>(null);
@@ -628,8 +645,8 @@ export function Composer({
     [segments],
   );
   const glowing = glowKeyword !== null;
-  const draftPhase = focused ? phase : 0;
-  const animateKeywords = activeKeywordEffect || (focused && glowing);
+  const animateGlow = active && (activeKeywordEffect || (focused && glowing));
+  const shimmerActive = active && focused && glowing;
   const borderPalette = activeKeywordEffect
     ? activeKeywordPalette
     : !running && glowKeyword !== null
@@ -647,8 +664,8 @@ export function Composer({
    * ordinary prose, which is exactly what omp will do with it.
    */
   const runs = useMemo(
-    () => composerPaintRuns(text, known, draftPhase, firing),
-    [text, known, draftPhase, firing],
+    () => composerPaintRuns(text, known, 0, firing),
+    [text, known, firing],
   );
 
   // The listing is refetched on every open so files created mid-session
@@ -711,35 +728,6 @@ export function Composer({
     if (!unavailable && !pendingAsk) editor.current?.focus({ preventScroll: true });
   }, [unavailable, pendingAsk]);
 
-  // One clock drives the focused draft and the authoritative active-turn ring.
-  // Active work keeps moving without focus; draft paint stays at phase 0 then.
-  useEffect(() => {
-    if (!animateKeywords) {
-      setPhase(0);
-      return;
-    }
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    // rAF, not setInterval: the sweep advances a uniform delta per displayed
-    // frame (the 70 ms interval stepped visibly — issue #204), and pauses for
-    // free while the window is hidden.
-    let raf: number | undefined;
-    const tick = () => {
-      setPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
-      raf = requestAnimationFrame(tick);
-    };
-    const updateMotion = () => {
-      if (raf !== undefined) cancelAnimationFrame(raf);
-      raf = undefined;
-      if (motion.matches) setPhase(0);
-      else tick();
-    };
-    motion.addEventListener("change", updateMotion);
-    updateMotion();
-    return () => {
-      motion.removeEventListener("change", updateMotion);
-      if (raf !== undefined) cancelAnimationFrame(raf);
-    };
-  }, [animateKeywords]);
 
   useEffect(() => {
     if (active && unavailable && compactSurface === "composer-options") closeCompactSurface();
@@ -976,7 +964,7 @@ export function Composer({
                 : defaultUsable
                   ? branchInfo.defaultBranch
                   : branchInfo.current;
-            const prefix = worktreeBranchPrefix(record?.projectCwd ?? cwd ?? "");
+            const prefix = worktreeBranchPrefix(projectCwd ?? cwd ?? "");
             const autoSel: Extract<WorkspaceSelection, { mode: "worktree" }> = {
               mode: "worktree",
               branch: mintBranchName(prefix, baseRef ?? undefined),
@@ -1101,7 +1089,7 @@ export function Composer({
       workspaceTouched,
       isGitRepo,
       branchInfo,
-      record?.projectCwd,
+      projectCwd,
       converting,
       moving,
       runWorktreeConversion,
@@ -1123,7 +1111,8 @@ export function Composer({
     if (
       !unprompted ||
       chat ||
-      record === undefined ||
+      !recordPresent ||
+      projectCwd === undefined ||
       (message === "" &&
         images.length === 0 &&
         documents.length === 0 &&
@@ -1161,7 +1150,7 @@ export function Composer({
     editor.current?.focus({ preventScroll: true });
     let landed: string | null = null;
     try {
-      landed = await launchSession(record.projectCwd, {
+      landed = await launchSession(projectCwd, {
         instanceId,
         prompt: draft.text,
         images: draft.images,
@@ -1172,7 +1161,7 @@ export function Composer({
         planMode: planOn,
         worktree,
         background: true,
-        private: record.private,
+        private: recordPrivate,
       });
     } catch (err) {
       // A worktree spawn throws git's stderr: the composer's inline strip owns it.
@@ -1196,7 +1185,7 @@ export function Composer({
           ? current
           : {
               ...current,
-              branch: nextMintedWorktreeBranch(current.branch, worktreeBranchPrefix(record.projectCwd)),
+              branch: nextMintedWorktreeBranch(current.branch, worktreeBranchPrefix(projectCwd)),
               // A base this launch created exists now: the next one cuts from it.
               ...(current.baseBranch !== null && current.baseBranch.trim() !== ""
                 ? { baseRef: current.baseBranch.trim(), baseBranch: null, baseTouched: true }
@@ -1215,7 +1204,9 @@ export function Composer({
     artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, clearArtifactReferences, clearArtifactRefreshes,
     unprompted,
     chat,
-    record,
+    recordPresent,
+    projectCwd,
+    recordPrivate,
     unavailable,
     converting,
     moving,
@@ -1797,7 +1788,7 @@ export function Composer({
           {borderPalette !== null ? (
             <PerimeterGlow
               colors={borderPalette}
-              phase={activeKeywordEffect ? phase : draftPhase}
+              animate={animateGlow}
             />
           ) : (compact ? busy : busy || running) ? (
             <PerimeterSweep tone={running ? "copper" : "signal"} />
@@ -1890,7 +1881,7 @@ export function Composer({
               compact={compact}
               literal={literal}
               runs={runs}
-              // One ghost slot, upstream's precedence: the prediction suffix beats the word ghost.
+              shimmerActive={shimmerActive}
               ghostSuffix={inCode ? null : prediction.ghostSuffix ?? wordGhost.ghost?.suffix ?? null}
               ghostHint={inCode || prediction.ghostSuffix !== null ? null : prediction.hintMore === null ? null : ` · tab ${prediction.hintMore} more`}
               recall={recall.current !== null}
@@ -2210,7 +2201,7 @@ export function Composer({
       />
     </div>
   );
-}
+});
 
 /**
  * omp-ui's own `/new`: a new live session in a new tab — NOT omp's in-process

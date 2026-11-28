@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
 import { classifyApprovalDetails } from "@omp-ui/core/approval";
 import { routineToolKeyFromApprovalName } from "@omp-ui/core/routine";
@@ -65,9 +66,17 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // held frame immediately and record the tool key on the routine's stored
   // toolPolicy for future fires — only the definition changes, never this
   // run's fire-time snapshot.
-  const owner = useStore((s) => findOwner(s.state, tabId));
-  const routine = owner?.record.routine ?? null;
-  const routineInstanceId = owner?.instanceId ?? null;
+  const { routineId, routineName, routineInstanceId } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      return {
+        routineId: owner?.record.routine?.id ?? null,
+        routineName: owner?.record.routine?.name ?? null,
+        routineInstanceId: owner?.instanceId ?? null,
+      };
+    }),
+  );
+  const routine = routineId !== null ? { id: routineId, name: routineName ?? "" } : null;
   const setRoutineToolDecision = useStore((s) => s.setRoutineToolDecision);
   const reportError = useStore((s) => s.reportError);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
