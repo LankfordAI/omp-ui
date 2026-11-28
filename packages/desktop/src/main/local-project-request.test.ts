@@ -137,7 +137,7 @@ describe("LocalProjectRequests (#1228)", () => {
     const h = harness({
       answer: () => ({ kind: "allow", parent }),
       git: async (args) => {
-        if (args[0] === "clone") checkout(args[4]!);
+        if (args[0] === "clone") checkout(args[5]!); // clone argv is ["clone",…,"--",url,dest]
         return "";
       },
     });
@@ -275,7 +275,7 @@ describe("LocalProjectRequests (#1228)", () => {
       answer: () => ({ kind: "allow", parent }),
       git: async (args, opts) => {
         if (args[0] === "clone") {
-          checkout(args[4]!);
+          checkout(args[5]!); // clone argv is ["clone",…,"--",url,dest]
           opts.onStderr?.("\x1b[2KReceiving objects:  40% (12/30)\rReceiving objects: 100%\r\n");
         }
         return "";
@@ -293,7 +293,14 @@ describe("LocalProjectRequests (#1228)", () => {
   });
 });
 
-describe("execLocalGit runner (#1395)", () => {
+describe.skipIf(process.platform === "win32")("execLocalGit runner (#1395)", () => {
+  // Windows never runs this block: the stub is a `#!/bin/sh` script named
+  // `git`, which a POSIX-only PATH prefix intercepts, while spawn("git") on
+  // Windows (a) cannot execute an extensionless shell script and (b) refuses
+  // .cmd/.bat children without shell:true (CVE-2024-27980 hardening), so a
+  // script stub cannot emulate git there. The kill/cancel paths it exercises
+  // are POSIX process semantics anyway; the Windows lane covers the same
+  // runner through the mock-based #1228 suite above.
   let base: string;
   let bin: string;
   let stderrCalls: string[];
