@@ -216,10 +216,43 @@ function chunk(index: number, model: string, delta: Record<string, unknown>, fin
   })}\n\n`;
 }
 
+interface RequestToolSchema {
+  name: string;
+  properties: string[];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractRequestTools(tools: unknown): RequestToolSchema[] {
+  if (!Array.isArray(tools)) return [];
+  const result: RequestToolSchema[] = [];
+  for (const entry of tools) {
+    const record = asRecord(entry);
+    const fn = record ? asRecord(record.function) : null;
+    if (!fn || typeof fn.name !== "string") continue;
+    const params = asRecord(fn.parameters);
+    const props = params ? asRecord(params.properties) : null;
+    result.push({ name: fn.name, properties: props ? Object.keys(props) : [] });
+  }
+  return result;
+}
+
+function expectCouncilToolSchema(tools: RequestToolSchema[]): void {
+  const councilTool = tools.find((tool) => tool.name === COUNCIL_TOOL);
+  expect(councilTool, `expected ${COUNCIL_TOOL} in body.tools`).toBeDefined();
+  expect(councilTool!.properties).toEqual(expect.arrayContaining(["request", "review", "target", "plan"]));
+}
+
 interface ScriptedProvider {
   baseUrl: string;
   /** The `model` field of every completion request, in arrival order. */
   models: string[];
+  /** Parsed `body.tools` function schemas for every tool-bearing completion request, in arrival order. */
+  toolsByRequest: Array<{ model: string; tools: RequestToolSchema[] }>;
   close(): Promise<void>;
 }
 
@@ -228,6 +261,7 @@ async function scriptedProvider(
   launchMarkers: readonly string[] = [],
 ): Promise<ScriptedProvider> {
   const models: string[] = [];
+  const toolsByRequest: Array<{ model: string; tools: RequestToolSchema[] }> = [];
   const launched = new Set<string>();
   const server = createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
@@ -241,16 +275,21 @@ async function scriptedProvider(
       let model = "";
       let bodyText = "";
       let hasTools = false;
+      let tools: RequestToolSchema[] = [];
       try {
         bodyText = Buffer.concat(parts).toString("utf8");
         const body = JSON.parse(bodyText) as { model?: unknown; tools?: unknown };
         if (typeof body.model === "string") model = body.model;
         hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+        if (hasTools) tools = extractRequestTools(body.tools);
       } catch {
         // Unparseable requests do not count as tool-bearing turns.
       }
       // omp probes provider capabilities before the first tool-bearing turn.
-      if (hasTools) models.push(model);
+      if (hasTools) {
+        models.push(model);
+        toolsByRequest.push({ model, tools });
+      }
       const marker = [...launchMarkers].reverse().find((value) => bodyText.includes(value));
       const shouldLaunch = hasTools && (launchMarkers.length === 0
         ? index === 0
@@ -276,6 +315,7 @@ async function scriptedProvider(
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     models,
+    toolsByRequest,
     close: () => {
       return new Promise<void>((resolve, reject) => {
         server.closeAllConnections();
@@ -292,6 +332,7 @@ async function scriptedProvider(
 async function planCouncilProvider(): Promise<ScriptedProvider & { bodies: Array<{ model: string; body: string }> }> {
   const models: string[] = [];
   const bodies: Array<{ model: string; body: string }> = [];
+  const toolsByRequest: Array<{ model: string; tools: RequestToolSchema[] }> = [];
   let councilSent = false;
   let taskSent = false;
   const server = createServer((request, response) => {
@@ -306,8 +347,11 @@ async function planCouncilProvider(): Promise<ScriptedProvider & { bodies: Array
       const body = Buffer.concat(parts).toString("utf8");
       let model = "";
       try {
-        const parsed = JSON.parse(body) as { model?: unknown };
+        const parsed = JSON.parse(body) as { model?: unknown; tools?: unknown };
         if (typeof parsed.model === "string") model = parsed.model;
+        if (Array.isArray(parsed.tools) && parsed.tools.length > 0) {
+          toolsByRequest.push({ model, tools: extractRequestTools(parsed.tools) });
+        }
       } catch {
         // An unparseable body is recorded as "" and still answered.
       }
@@ -347,6 +391,7 @@ async function planCouncilProvider(): Promise<ScriptedProvider & { bodies: Array
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     models,
+    toolsByRequest,
     bodies,
     close: () => {
       const closed = Promise.withResolvers<void>();
@@ -544,6 +589,9 @@ describe("council extension (real omp)", () => {
             `the ${marker} agent turn end`,
           );
         }
+        const firstInert = scripted.toolsByRequest.find((entry) => entry.model === "inert");
+        expect(firstInert).toBeDefined();
+        expectCouncilToolSchema(firstInert!.tools);
         expect(scripted.models).not.toContain("trial");
       } finally {
         await stopScope(scope);
@@ -756,6 +804,10 @@ describe("council extension (real omp)", () => {
           "the member's answer reaching the plan-mode planner",
         );
         expect(planStatuses().at(-1)?.enabled).toBe(true);
+        const planCouncilBody = scripted.bodies.find((entry) => entry.model === "inert" && entry.body.includes("PLANCOUNCIL"));
+        expect(planCouncilBody).toBeDefined();
+        const parsedPlanCouncil = JSON.parse(planCouncilBody!.body) as { tools?: unknown };
+        expectCouncilToolSchema(extractRequestTools(parsedPlanCouncil.tools));
       } finally {
         await stopScope(scope);
       }

@@ -119,6 +119,7 @@ interface ExtensionApi {
   registerTool?: (definition: {
     name: string;
     label: string;
+    loadMode?: "essential" | "discoverable";
     description: string;
     parameters: unknown;
     execute: (
@@ -548,6 +549,7 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
   pi.registerTool({
     name: TOOL,
     label: "council",
+    loadMode: "essential",
     description:
       "Ask the project's omp-ui council (Project settings > Council): 1-3 member models answer " +
       "independently and read-only as background agents. A trial member set there answers too, for comparison only: it is not a council member and has no say in the outcome. " +

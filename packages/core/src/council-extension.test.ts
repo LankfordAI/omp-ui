@@ -34,6 +34,7 @@ type TextResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 
 interface ToolDefinition {
   name: string;
+  loadMode?: "essential" | "discoverable";
   description: string;
   execute: (
     toolCallId: string,
@@ -726,5 +727,21 @@ describe("generated council extension", () => {
     const result = await runTool(h, { request: "hello" }, repo);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/cannot start/);
+  });
+
+  it("registers omp-ui_council with loadMode essential across ready, empty, and unavailable states", () => {
+    const ready = harness();
+    expect(ready.tool.name).toBe(COUNCIL_TOOL);
+    expect(ready.tool.loadMode).toBe("essential");
+
+    const empty = harness({}, { instructions: null, members: [], trial: null, configWarnings: [] });
+    expect(empty.tool.name).toBe(COUNCIL_TOOL);
+    expect(empty.tool.loadMode).toBe("essential");
+
+    const unavailable = harness({
+      state: { status: "unavailable", failure: { stage: "resolve", message: "permission denied" } },
+    });
+    expect(unavailable.tool.name).toBe(COUNCIL_TOOL);
+    expect(unavailable.tool.loadMode).toBe("essential");
   });
 });
