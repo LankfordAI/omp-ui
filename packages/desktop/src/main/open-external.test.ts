@@ -7,7 +7,7 @@ const systemOpenMock = {
 };
 vi.mock("./system-open", () => systemOpenMock);
 
-const { openExternalSafe } = await import("./open-external");
+const { decideSubframeNavigation, openExternalSafe } = await import("./open-external");
 
 afterEach(() => {
   systemOpenMock.openExternal.mockClear();
@@ -38,5 +38,41 @@ describe("openExternalSafe", () => {
       openExternalSafe(url);
     }
     expect(systemOpenMock.openExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe("decideSubframeNavigation", () => {
+  it("allows main-frame events untouched", () => {
+    expect(
+      decideSubframeNavigation({ isMainFrame: true, url: "https://example.com", frameName: "omp-backdrop-scene" }),
+    ).toBe("allow");
+  });
+
+  it("allows only about:srcdoc in omp-backdrop-scene and silently denies every other navigation", () => {
+    expect(
+      decideSubframeNavigation({ isMainFrame: false, url: "about:srcdoc", frameName: "omp-backdrop-scene" }),
+    ).toBe("allow");
+    for (const url of ["https://attacker/", "http://attacker/", "about:blank", "file:///etc/passwd"]) {
+      expect(
+        decideSubframeNavigation({ isMainFrame: false, url, frameName: "omp-backdrop-scene" }),
+      ).toBe("deny-silent");
+    }
+  });
+
+  it("silently denies navigations when frameName is null or undefined", () => {
+    expect(decideSubframeNavigation({ isMainFrame: false, url: "https://attacker/", frameName: null })).toBe(
+      "deny-silent",
+    );
+    expect(decideSubframeNavigation({ isMainFrame: false, url: "about:srcdoc", frameName: undefined })).toBe(
+      "deny-silent",
+    );
+  });
+
+  it("preserves about: allow and external-open routing for unnamed plan frames", () => {
+    expect(decideSubframeNavigation({ isMainFrame: false, url: "about:srcdoc", frameName: "" })).toBe("allow");
+    expect(decideSubframeNavigation({ isMainFrame: false, url: "about:blank", frameName: "" })).toBe("allow");
+    expect(decideSubframeNavigation({ isMainFrame: false, url: "https://docs.example", frameName: "" })).toBe(
+      "deny-open-external",
+    );
   });
 });

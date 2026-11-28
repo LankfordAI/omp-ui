@@ -48,10 +48,14 @@ Instructions for coding agents working in this repository.
 ## Automated code review
 
 PRs in `LankfordAI/omp-ui` are handled by **PR-Agent** (GitHub App), which
-kicks off a review automatically when a PR opens — do not request a review
-by hand on a fresh PR.
+kicks off a review automatically on **both** PR open and every subsequent push
+(`synchronize`), updating its persistent review comment. On larger PRs a run
+often takes 5–10 minutes and webhook-triggered updates may not post a
+`Preparing review...` placeholder. Do **not** manually comment `/review` on a
+fresh PR or right after pushing new commits — that queues duplicate runs.
 
-- `/review` — request a new review run (e.g. after pushing new commits)
+- `/review` — recovery only when PR-Agent did not start after an extended wait
+  (`pr-wait` exits `1` after `--bot-grace` with `in_progress` false)
 - `/describe` — generate or refresh the PR description
 - `/improve` — request code-improvement suggestions
 - `/ask "<question>"` — ask PR-Agent a question about the PR

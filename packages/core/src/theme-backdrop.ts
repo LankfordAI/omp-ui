@@ -35,6 +35,7 @@ export const BACKDROP_BYTES_MAX = Math.max(
 );
 export const BACKDROP_BLUR_MAX = 32;
 export const BACKDROP_DEFAULT_BLUR = 12;
+export const BACKDROP_SCENE_FRAME_NAME = "omp-backdrop-scene";
 
 const ASSET_HASH = /^[0-9a-f]{64}$/;
 const BACKDROP_KEYS = ["assetHash", "kind", "mime", "blur"];
@@ -227,12 +228,51 @@ export type BackdropCheck =
   | { ok: false; message: string };
 
 const SCENE_ACTIVE = /<\s*(script|foreignObject|animate|animateTransform|animateMotion|set)\b/i;
-const SCENE_EXTERNAL = [/\b(?:href|src)\s*=\s*["']\s*(?!#|data:)/i, /@import\b/i, /url\(\s*["']?\s*(?!#|data:)/i];
+const SCENE_PARSER_DIFF_COMMENT = /--!>|<!--+>/;
+const SCENE_HTML_UNSAFE = [
+  /<\s*(?:meta|base|link|iframe|frame|frameset|object|embed|applet|form|input|button|textarea|select|a|img|picture|audio|video|source|track|portal|noscript|template|html|head|body|b|big|blockquote|br|center|code|dd|div|dl|dt|em|h[1-6]|hr|i|li|listing|menu|nobr|ol|p|pre|ruby|s|small|span|strong|strike|sub|sup|table|tt|u|ul|var)\b/i,
+  /<\s*font\b[^>]*\b(?:color|face|size)\s*=/i,
+  /\bhttp-equiv\s*=/i,
+  /\bon[a-z]+\s*=/i,
+];
+const SCENE_EXTERNAL = [
+  /\b(?:href|src)\s*=\s*(?:"\s*(?![#"']|data:)|'\s*(?![#"']|data:)|(?![#"'\s>]|data:))/i,
+  /@import\b/i,
+  /url\(\s*["']?\s*(?!#|data:)/i,
+];
+
+type PreparedSceneSvg = { ok: true; markup: string } | { ok: false; message: string };
+
+function prepareSceneSvg(svg: string): PreparedSceneSvg {
+  if (SCENE_PARSER_DIFF_COMMENT.test(svg)) {
+    return { ok: false, message: "scenes cannot contain HTML breakout, navigation, or interactive elements" };
+  }
+  const markup = svg
+    .replace(/^\uFEFF/, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!DOCTYPE[\s\S]*?>\s*)?/i, "")
+    .trim();
+  if (SCENE_ACTIVE.test(markup)) {
+    return { ok: false, message: "scenes cannot contain script, foreignObject or SMIL animation" };
+  }
+  if (SCENE_HTML_UNSAFE.some((pattern) => pattern.test(markup))) {
+    return { ok: false, message: "scenes cannot contain HTML breakout, navigation, or interactive elements" };
+  }
+  if (SCENE_EXTERNAL.some((pattern) => pattern.test(markup))) {
+    return { ok: false, message: "scenes cannot load other files" };
+  }
+  const isSingleRoot =
+    (/^<svg[\s>]/i.test(markup) && /<\/svg>$/i.test(markup)) || /^<svg\b[^>]*\/>$/i.test(markup);
+  if (!isSingleRoot) {
+    return { ok: false, message: "scenes must contain only a single root svg element" };
+  }
+  return { ok: true, markup };
+}
 
 /**
- * Defence in depth for every authoring route: images and scenes render only
- * through `<img>` (no script, no subresource loads), and videos through a muted
- * `<video>` element.
+ * Defence in depth for every authoring route: images render through `<img>`,
+ * scenes through a sandboxed `srcdoc` iframe (with `<img>` fallback), and
+ * videos through a muted `<video>` element.
  */
 export function checkBackdropBytes(bytes: Uint8Array): BackdropCheck {
   if (bytes.length === 0) return { ok: false, message: "the backdrop file is empty" };
@@ -248,12 +288,8 @@ export function checkBackdropBytes(bytes: Uint8Array): BackdropCheck {
   }
   if (bytes.length > BACKDROP_SCENE_BYTES_MAX) return { ok: false, message: "scene backdrops can be at most 4 MiB" };
   const text = new TextDecoder().decode(bytes);
-  if (SCENE_ACTIVE.test(text)) {
-    return { ok: false, message: "scenes cannot contain script, foreignObject or SMIL animation" };
-  }
-  if (SCENE_EXTERNAL.some((pattern) => pattern.test(text))) {
-    return { ok: false, message: "scenes cannot load other files" };
-  }
+  const prepared = prepareSceneSvg(text);
+  if (!prepared.ok) return prepared;
   return { ok: true, kind: "scene", mime };
 }
 
@@ -266,17 +302,16 @@ export function stillScene(svg: string): string {
 }
 
 const SCENE_FRAME_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
+  "default-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; img-src data:;";
 
-/** Wraps a validated SVG scene in an isolated HTML document for a sandboxed iframe. */
-export function sceneFrameHtml(svg: string): string {
-  const stripped = svg
-    .replace(/^\uFEFF/, "")
-    .replace(/^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!DOCTYPE[\s\S]*?>\s*)?/i, "");
-  const normalized = stripped.replace(/<svg\b([^>]*)>/i, (match, attrs: string) =>
+/** Wraps a validated SVG scene in an isolated HTML document for a sandboxed iframe, or null if unsafe. */
+export function sceneFrameHtml(svg: string): string | null {
+  const prepared = prepareSceneSvg(svg);
+  if (!prepared.ok) return null;
+  const normalized = prepared.markup.replace(/<svg\b([^>]*?)(\s*\/?)>/i, (match, attrs: string, close: string) =>
     /\bpreserveAspectRatio\s*=/i.test(attrs)
       ? match
-      : `<svg${attrs} preserveAspectRatio="xMidYMid slice">`,
+      : `<svg${attrs} preserveAspectRatio="xMidYMid slice"${close}>`,
   );
   return (
     `<!doctype html><html><head>` +

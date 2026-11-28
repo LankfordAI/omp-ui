@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog, screen } from "electron";
 import { clearDocumentScratch, clearImageScratch, formatModelRole } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
-import { openExternalSafe } from "./open-external";
+import { decideSubframeNavigation, openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
 import { installHtmlArtifactGuard } from "./html-artifact-guard";
 import { ArtifactGuestBroker } from "./artifact-guest-broker";
@@ -306,9 +306,14 @@ if (!app.requestSingleInstanceLock()) {
     // other subframe navigation and route web URLs to the system browser,
     // exactly like window.open above.
     win.webContents.on("will-frame-navigate", (details) => {
-      if (details.isMainFrame || details.url.startsWith("about:")) return;
+      const decision = decideSubframeNavigation({
+        isMainFrame: details.isMainFrame,
+        url: details.url,
+        frameName: details.frame?.name,
+      });
+      if (decision === "allow") return;
       details.preventDefault();
-      openExternalSafe(details.url);
+      if (decision === "deny-open-external") openExternalSafe(details.url);
     });
 
     // A renderer-XSS must not replace the app document (security review,

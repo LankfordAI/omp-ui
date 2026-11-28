@@ -62,7 +62,7 @@ export function backdropAssetFromBytes(bytes: Uint8Array, mime: ThemeBackdropMim
     return {
       url: URL.createObjectURL(new Blob([text], { type: "image/svg+xml" })),
       stillUrl: URL.createObjectURL(new Blob([stillScene(text)], { type: "image/svg+xml" })),
-      sceneFrameDoc: sceneFrameHtml(text),
+      sceneFrameDoc: sceneFrameHtml(text) ?? undefined,
       kind: "scene",
       mime,
     };
