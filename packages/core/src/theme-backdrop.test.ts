@@ -143,6 +143,17 @@ describe("checkBackdropBytes", () => {
     ["script", svg("<script>alert(1)</script>")],
     ["foreignObject", svg("<foreignObject/>")],
     ["SMIL", svg('<animate attributeName="x"/>')],
+    ["meta refresh breakout", svg('<meta http-equiv="refresh" content="0; url=https://attacker/"/>')],
+    ["meta inside title", svg('<title><meta http-equiv="refresh" content="0; url=https://attacker/"/></title>')],
+    ["trailing meta after closing svg", utf8('<svg></svg><meta http-equiv="refresh" content="0; url=https://attacker/"/>')],
+    ["HTML5 breakout br tag", svg("<br/>")],
+    ["anchor tag", svg('<a href="https://attacker/"/>')],
+    ["HTML5 font breakout", svg('<font color="red">x</font>')],
+    ["unquoted external href", svg("<image href=https://attacker/x.png/>")],
+    ["inline event handler", utf8('<svg onload="x"/>')],
+    ["parser-differential <!--> comment", utf8('<svg><!--><meta http-equiv="refresh" content="0; url=https://attacker/"/></svg>')],
+    ["parser-differential --!> comment", utf8('<svg><!-- ok --!><meta http-equiv="refresh" content="0; url=https://attacker/"/></svg>')],
+    ["trailing markup after root svg", utf8("<svg><rect/></svg><g/>")],
     ["external href", svg('<image href="https://example.com/a.png"/>')],
     ["@import", svg("<style>@import 'x.css';</style>")],
     ["external url()", svg('<rect fill="url(https://example.com/a.svg#g)"/>')],
@@ -174,20 +185,40 @@ describe("stillScene", () => {
 });
 
 describe("sceneFrameHtml", () => {
-  it("wraps SVG with CSP, strips XML/DOCTYPE declarations, and injects preserveAspectRatio when absent", () => {
-    const raw = `\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg viewBox="0 0 10 10"><rect/></svg>`;
+  it("wraps SVG with tightened CSP, strips XML/DOCTYPE/comments, and injects preserveAspectRatio when absent", () => {
+    const raw = `\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<!-- header --><svg viewBox="0 0 10 10"><title>Calm</title><desc>Scene</desc><style>@keyframes p{to{opacity:.5}}</style><use href="#a"/><image href="data:image/png;base64,AA=="/><rect id="a"/></svg>`;
+    expect(checkBackdropBytes(utf8(raw))).toEqual({ ok: true, kind: "scene", mime: "image/svg+xml" });
     const html = sceneFrameHtml(raw);
+    expect(html).not.toBeNull();
     expect(html).toContain('http-equiv="Content-Security-Policy"');
-    expect(html).toContain("default-src 'none'; style-src 'unsafe-inline'; img-src data:;");
+    expect(html).toContain(
+      "default-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'; img-src data:;",
+    );
     expect(html).not.toContain("<?xml");
     expect(html).not.toContain("<!DOCTYPE svg");
-    expect(html).toContain('<svg viewBox="0 0 10 10" preserveAspectRatio="xMidYMid slice"><rect/></svg>');
+    expect(html).not.toContain("<!-- header -->");
+    expect(html).toContain('<svg viewBox="0 0 10 10" preserveAspectRatio="xMidYMid slice"><title>Calm</title>');
   });
 
   it("preserves an existing preserveAspectRatio attribute", () => {
     const html = sceneFrameHtml('<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect/></svg>');
     expect(html).toContain('<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect/></svg>');
     expect(html).not.toContain("xMidYMid slice");
+  });
+
+  it.each([
+    ["meta refresh", '<svg><meta http-equiv="refresh" content="0; url=https://attacker/"/></svg>'],
+    ["meta inside title", '<svg><title><meta http-equiv="refresh" content="0; url=https://attacker/"/></title></svg>'],
+    ["trailing meta", '<svg></svg><meta http-equiv="refresh" content="0; url=https://attacker/"/>'],
+    ["br breakout", "<svg><br/></svg>"],
+    ["anchor", '<svg><a href="https://attacker/"/></svg>'],
+    ["unquoted external href", "<svg><image href=https://attacker/x.png/></svg>"],
+    ["inline handler", '<svg onload="x"/>'],
+    ["parser-differential comment", '<svg><!--><meta http-equiv="refresh" content="0; url=https://attacker/"/></svg>'],
+    ["abrupt comment close", '<svg><!-- x --!><rect/></svg>'],
+    ["trailing element", "<svg><rect/></svg><g/>"],
+  ])("returns null for unsafe SVG (%s)", (_label, raw) => {
+    expect(sceneFrameHtml(raw)).toBeNull();
   });
 });
 

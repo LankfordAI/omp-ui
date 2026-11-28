@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deriveTheme, type ThemeSource } from "@omp-ui/core/theme";
 import { sourceFromDraft } from "@omp-ui/core/theme-file";
+import { BACKDROP_SCENE_FRAME_NAME } from "@omp-ui/core/theme-backdrop";
 import type { ThemeOrigin } from "@omp-ui/core/theme-origin";
 import { applyBackdropMotion } from "../lib/backdrop-motion";
 import { applyTheme } from "../lib/themes";
@@ -87,6 +88,7 @@ describe("BackdropLayer repository scenes (#1178)", () => {
     const host1 = await mountScene(sceneTheme({ ...ORIGIN, animate: true }));
     const frame1 = host1.querySelector("iframe");
     expect(frame1).not.toBeNull();
+    expect(frame1!.getAttribute("name")).toBe(BACKDROP_SCENE_FRAME_NAME);
     expect(frame1!.getAttribute("sandbox")).toBe("");
     expect(frame1!.getAttribute("srcdoc")).toBe(SCENE_DOC);
     expect(frame1!.getAttribute("tabindex")).toBe("-1");
@@ -97,6 +99,7 @@ describe("BackdropLayer repository scenes (#1178)", () => {
     const host2 = await mountScene(sceneTheme(null));
     const frame2 = host2.querySelector("iframe");
     expect(frame2).not.toBeNull();
+    expect(frame2!.getAttribute("name")).toBe(BACKDROP_SCENE_FRAME_NAME);
     expect(frame2!.getAttribute("sandbox")).toBe("");
     expect(frame2!.getAttribute("srcdoc")).toBe(SCENE_DOC);
   });

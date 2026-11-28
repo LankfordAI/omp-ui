@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { BACKDROP_SCENE_FRAME_NAME } from "@omp-ui/core/theme-backdrop";
 import { applyBackdropChrome, loadBackdropAsset, useDraftBackdropAsset, type BackdropAsset } from "../lib/backdrop";
 import { useBackdropMotion } from "../lib/backdrop-motion";
 import { currentThemePreview, useTheme } from "../lib/themes";
@@ -128,6 +129,7 @@ export const BackdropLayer = memo(function BackdropLayer(): ReactElement | null 
       ) : useSceneFrame ? (
         <iframe
           key={asset.url}
+          name={BACKDROP_SCENE_FRAME_NAME}
           title=""
           aria-hidden
           tabIndex={-1}
