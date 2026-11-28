@@ -505,11 +505,12 @@ describe("Fleet view", () => {
     seedMachines();
     render();
 
-    // A member below Full control gets the affordance; Full-control and local rows do not.
+    // A member below Full control gets the affordance; a Full row keeps it too
+    // (its Terminal button may still need Terminal); this computer does not.
     const dispatchRow = row("inst-dispatch");
     const [request] = buttons(dispatchRow, "Request access");
     expect(request).toBeDefined();
-    expect(buttons(row("inst-full"), "Request access")).toHaveLength(0);
+    expect(buttons(row("inst-full"), "Request access")).toHaveLength(1);
     expect(buttons(row("local"), "Request access")).toHaveLength(0);
 
     // Opening it stages the shared ceremony pre-filled for the rung those actions need.
@@ -539,6 +540,32 @@ describe("Fleet view", () => {
       machineName: "mystery",
       neededRung: "full",
     });
+  });
+
+  it("keeps Request access on a Full-control row without Terminal, whose disabled Terminal tooltip points at it (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      machine({ key: "inst-full", nickname: "studio", grantRung: "full" }),
+    ]);
+    render();
+
+    const fullRow = row("inst-full");
+    const [terminal] = buttons(fullRow, "Terminal");
+    expect(terminal!.disabled).toBe(true);
+    expect(terminal!.title).toContain("use Request access");
+    expect(buttons(fullRow, "Request access")).toHaveLength(1);
+  });
+
+  it("hides Request access only when Terminal is already held (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      machine({ key: "inst-term", nickname: "shelly", grantRung: "terminal" }),
+    ]);
+    render();
+
+    expect(buttons(row("inst-term"), "Request access")).toHaveLength(0);
+    const [terminal] = buttons(row("inst-term"), "Terminal");
+    expect(terminal!.disabled).toBe(false);
   });
 
   it("offers Roll out keys on joined members only, enabled at Full control", () => {
