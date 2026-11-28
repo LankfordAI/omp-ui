@@ -56,15 +56,19 @@ function matches(entry: SidebarEntry, q: string): boolean {
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
 
 /**
- * Content signature of every input `buildSidebarLists` (and, by superset,
- * `buildAttentionEntries`) reads: per-session summary fields the builder and
- * its handoff/dispatch helpers consult, project faces (name, repository key,
- * icon), remote instance metadata (nickname, reachability, dispatch), the
- * search query, background-work ids, and suppression ids. Equal string ⇒ equal
- * list output, so the Sidebar can gate its `useMemo`s on this primitive instead
- * of `BackendState` identity — every broadcast delivers fresh IPC-deserialized
- * summaries whose object identities all change, while the content usually does
- * not. Cheap string work over the rows; no React commit.
+ * Content signature of every input `buildSidebarLists`, `buildAttentionEntries`,
+ * and the row renderers read: per-session summaries in full (a hand-picked
+ * field list drifts — SessionRow renders `snoozedUntilMs`, `model`, PR links,
+ * and more, so any enumeration is one broadcast away from a stale row),
+ * project faces (name, repository key, icon), remote instance metadata
+ * (nickname, reachability, dispatch), the search query, background-work ids,
+ * and suppression ids. Equal string ⇒ equal rendered output, so the Sidebar
+ * can gate its rebuilds on this primitive instead of `BackendState` identity —
+ * every broadcast delivers fresh IPC-deserialized summaries whose object
+ * identities all change, while the content usually does not. Key order is the
+ * constructor's on every host (same JSON.parse/serialize path), so plain
+ * JSON.stringify is a faithful per-row encoding; cheap string work over the
+ * rows, no React commit.
  */
 export function sidebarListsSignature(
   state: BackendState,
@@ -79,26 +83,7 @@ export function sidebarListsSignature(
     [...suppressTabIds].sort().join(","),
   ];
   const visit = (s: SessionSummary): void => {
-    parts.push(
-      [
-        s.tabId,
-        s.live,
-        s.snoozed === true ? "1" : "0",
-        typeof s.pinnedAtMs === "number" ? String(s.pinnedAtMs) : "",
-        s.settledAtMs === undefined ? "u" : s.settledAtMs === null ? "n" : String(s.settledAtMs),
-        s.launchedAt,
-        s.title,
-        s.projectCwd,
-        s.pendingPlan !== null ? "1" : "0",
-        s.awaitingHumanAnswer === true ? "1" : "0",
-        s.turnRunning === true ? "1" : "0",
-        s.routine != null ? "1" : "0",
-        // matches() reads planTitle; resolveSessionHandoffs reads the whole
-        // saved source; resolveDispatchLinks reads the whole fleet record.
-        s.planImplementationSource === null ? "" : JSON.stringify(s.planImplementationSource),
-        s.fleet === null ? "" : JSON.stringify(s.fleet),
-      ].join("\u0001"),
-    );
+    parts.push(JSON.stringify(s));
   };
   for (const group of state.projects) {
     const p = group.project;

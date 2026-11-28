@@ -677,6 +677,35 @@ describe("Sidebar session list", () => {
     window.localStorage.clear();
   });
 
+  it("re-renders the row when a rendered-but-unlisted field changes (snoozedUntilMs)", () => {
+    // The signature encodes each summary in full: SessionRow renders
+    // snoozedUntilMs directly, so rescheduling a snooze must invalidate even
+    // though the builder's membership tests read none of it.
+    useStore.setState({
+      state: withRemote({ status: "joined", error: null }),
+      unread: {},
+    });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    expect(rowButton("Remote session")).not.toBeUndefined();
+    expect(document.body.textContent).not.toContain("snoozed until");
+
+    // Reschedule: the snoozed flag stays true, the until stamp moves.
+    const rescheduled = withRemote({ status: "joined", error: null });
+    const snoozedProject = rescheduled.remoteInstances[0]!.projects[0]!;
+    snoozedProject.sessions = [
+      { ...snoozedProject.sessions[0]!, snoozed: true, snoozedUntilMs: 1_700_000_000_000 },
+    ];
+    act(() => {
+      useStore.setState({ state: rescheduled });
+      setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", true);
+    });
+    // The row still exists and now carries the new until stamp — a stale
+    // signature would have kept the old summary object.
+    expect(rowButton("Remote session")).not.toBeUndefined();
+    expect(document.body.textContent).toContain("snoozed until");
+  });
+
   it("renders no aside while the desktop sidebar is collapsed", () => {
     useStore.setState({ sidebarCollapsed: true });
     renderSidebar();
