@@ -461,7 +461,7 @@ export function GeneralPage() {
       </Row>
       <Row
         title="Settle sessions when their pull requests merge"
-        hint="A worktree session whose pull requests are all merged moves to Settled, with Undo. omp-ui reads pull requests with your GitHub CLI (gh). Each session's title menu can turn this off for that session."
+        hint="A worktree session whose pull requests are all merged moves to Settled, with Undo, and reclaims its worktree checkout (and local branch once verified merged) when clean. omp-ui reads pull requests with your GitHub CLI (gh). Each session's title menu can turn this off for that session."
       >
         <Switch
           on={state?.autoSettleMergedPullRequests ?? true}

@@ -11027,6 +11027,190 @@ describe("reserveCheckout & checkout-mode convertToWorktree (Slice 2)", { timeou
     expect(rpcResumed).not.toBe(rpcFirst);
     expect(rpcResumed.dead).toBe(false);
   });
+
+  it("reclaims merged-PR worktrees on settleSession (Tier 1 deletes branch, Tier 2 keeps branch, unsafe states preserved) (#1408)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    await execFileP("git", ["remote", "add", "origin", "https://github.com/acme/repo.git"], { cwd: project });
+    registry.addProject(project);
+
+    // 1. Tier 1: clean squash-merged PR matching headRefOid -> checkout & local branch removed, PR chip preserved.
+    const { tabId: tier1Tab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/merged-t1", baseRef: "main", baseBranch: null } },
+    });
+    const rpc1 = rpcInstances.at(-1)!;
+    rpc1.kill.mockImplementation(() => rpc1.exit(0));
+    const wt1 = registry.sessions.find((s) => s.tabId === tier1Tab)!.worktree!;
+    fs.writeFileSync(path.join(wt1.path, "feat.txt"), "v1\n");
+    await execFileP("git", ["add", "feat.txt"], { cwd: wt1.path });
+    await execFileP("git", ["commit", "-q", "-m", "feat"], { cwd: wt1.path });
+    const sha1 = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt1.path })).stdout.trim();
+    const pr1 = { number: 101, url: "https://github.com/acme/repo/pull/101", state: "merged" as const, checks: "passing" as const, headRefOid: sha1 };
+    registry.updateSession(tier1Tab, { pullRequests: [pr1] });
+
+    await manager.settleSession(tier1Tab);
+    const rec1 = registry.sessions.find((s) => s.tabId === tier1Tab)!;
+    expect(rec1.worktree).toBeNull();
+    expect(rec1.pullRequests).toEqual([pr1]);
+    expect(fs.existsSync(wt1.path)).toBe(false);
+    expect((await execFileP("git", ["branch", "--list", wt1.branch], { cwd: project })).stdout.trim()).toBe("");
+
+    // 2. Tier 2: remote-only headRefOid covered by matching remote tracking ref -> checkout removed, local branch kept.
+    const { tabId: tier2Tab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/merged-t2", baseRef: "main", baseBranch: null } },
+    });
+    const rpc2 = rpcInstances.at(-1)!;
+    rpc2.kill.mockImplementation(() => rpc2.exit(0));
+    const wt2 = registry.sessions.find((s) => s.tabId === tier2Tab)!.worktree!;
+    fs.writeFileSync(path.join(wt2.path, "t2.txt"), "t2\n");
+    await execFileP("git", ["add", "t2.txt"], { cwd: wt2.path });
+    await execFileP("git", ["commit", "-q", "-m", "t2"], { cwd: wt2.path });
+    const sha2 = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt2.path })).stdout.trim();
+    await execFileP("git", ["update-ref", `refs/remotes/origin/${wt2.branch}`, sha2], { cwd: project });
+    registry.updateSession(tier2Tab, {
+      pullRequests: [
+        { number: 102, url: "https://github.com/acme/repo/pull/102", state: "merged", checks: "passing", headRefOid: "beef".repeat(10) },
+      ],
+    });
+
+    await manager.settleSession(tier2Tab);
+    expect(registry.sessions.find((s) => s.tabId === tier2Tab)!.worktree).toBeNull();
+    expect(fs.existsSync(wt2.path)).toBe(false);
+    expect((await execFileP("git", ["branch", "--list", wt2.branch], { cwd: project })).stdout.trim()).toBe(wt2.branch);
+
+    // 3. Ahead of headRefOid -> preserved.
+    const { tabId: aheadTab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/merged-ahead", baseRef: "main", baseBranch: null } },
+    });
+    const rpc3 = rpcInstances.at(-1)!;
+    rpc3.kill.mockImplementation(() => rpc3.exit(0));
+    const wt3 = registry.sessions.find((s) => s.tabId === aheadTab)!.worktree!;
+    fs.writeFileSync(path.join(wt3.path, "a.txt"), "a\n");
+    await execFileP("git", ["add", "a.txt"], { cwd: wt3.path });
+    await execFileP("git", ["commit", "-q", "-m", "a"], { cwd: wt3.path });
+    const sha3Merged = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt3.path })).stdout.trim();
+    fs.writeFileSync(path.join(wt3.path, "b.txt"), "b\n");
+    await execFileP("git", ["add", "b.txt"], { cwd: wt3.path });
+    await execFileP("git", ["commit", "-q", "-m", "b"], { cwd: wt3.path });
+    registry.updateSession(aheadTab, {
+      pullRequests: [
+        { number: 103, url: "https://github.com/acme/repo/pull/103", state: "merged", checks: "passing", headRefOid: sha3Merged },
+      ],
+    });
+    await manager.settleSession(aheadTab);
+    expect(registry.sessions.find((s) => s.tabId === aheadTab)!.worktree?.path).toBe(wt3.path);
+    expect(fs.existsSync(wt3.path)).toBe(true);
+
+    // 4. Detached unpushed HEAD on empty path -> preserved.
+    const { tabId: detachedTab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/empty-detached", baseRef: "main", baseBranch: null } },
+    });
+    const rpc4 = rpcInstances.at(-1)!;
+    rpc4.kill.mockImplementation(() => rpc4.exit(0));
+    const wt4 = registry.sessions.find((s) => s.tabId === detachedTab)!.worktree!;
+    await execFileP("git", ["checkout", "-q", "--detach", "HEAD"], { cwd: wt4.path });
+    fs.writeFileSync(path.join(wt4.path, "orphan.txt"), "o\n");
+    await execFileP("git", ["add", "orphan.txt"], { cwd: wt4.path });
+    await execFileP("git", ["commit", "-q", "-m", "orphan"], { cwd: wt4.path });
+    await manager.settleSession(detachedTab);
+    expect(registry.sessions.find((s) => s.tabId === detachedTab)!.worktree?.path).toBe(wt4.path);
+    expect(fs.existsSync(wt4.path)).toBe(true);
+
+    // 5. Clean-only removal fails (locked worktree) -> record.worktree preserved.
+    const { tabId: lockedTab } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/merged-locked", baseRef: "main", baseBranch: null } },
+    });
+    const rpc5 = rpcInstances.at(-1)!;
+    rpc5.kill.mockImplementation(() => rpc5.exit(0));
+    const wt5 = registry.sessions.find((s) => s.tabId === lockedTab)!.worktree!;
+    await execFileP("git", ["worktree", "lock", wt5.path], { cwd: project });
+    await manager.settleSession(lockedTab);
+    expect(registry.sessions.find((s) => s.tabId === lockedTab)!.worktree?.path).toBe(wt5.path);
+    expect(fs.existsSync(wt5.path)).toBe(true);
+    await execFileP("git", ["worktree", "unlock", wt5.path], { cwd: project });
+  });
+
+  it("reclaimMergedWorktree reclaims a settled session's merged worktree and serializes safely against concurrent resume (#1408)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/settled-later-merged", baseRef: "main", baseBranch: null } },
+    });
+    const rpc1 = rpcInstances.at(-1)!;
+    rpc1.kill.mockImplementation(() => rpc1.exit(0));
+    const wt = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+    fs.writeFileSync(path.join(wt.path, "work.txt"), "done\n");
+    await execFileP("git", ["add", "work.txt"], { cwd: wt.path });
+    await execFileP("git", ["commit", "-q", "-m", "done"], { cwd: wt.path });
+    const sha = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt.path })).stdout.trim();
+
+    // Settle while PR is still open -> worktree stays.
+    registry.updateSession(tabId, {
+      pullRequests: [{ number: 201, url: "https://github.com/acme/repo/pull/201", state: "open", checks: "passing", headRefOid: sha }],
+    });
+    await manager.settleSession(tabId);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree?.path).toBe(wt.path);
+
+    // PR later merges -> reclaimMergedWorktree races with concurrent Resume safely on the settle queue.
+    registry.updateSession(tabId, {
+      pullRequests: [{ number: 201, url: "https://github.com/acme/repo/pull/201", state: "merged", checks: "passing", headRefOid: sha }],
+    });
+    const [reclaimed] = await Promise.all([
+      manager.reclaimMergedWorktree(tabId),
+      manager.spawn({
+        origin: "resume",
+        resumeTabId: tabId,
+        cols: 80,
+        rows: 24,
+        planMode: false,
+      }),
+    ]);
+    expect(reclaimed).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(false);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    expect((await execFileP("git", ["branch", "--list", wt.branch], { cwd: project })).stdout.trim()).toBe("");
+    const rpcResumed = rpcInstances.at(-1)!;
+    expect(rpcResumed).not.toBe(rpc1);
+    expect(rpcResumed.dead).toBe(false);
+  });
   it("runs opt-in worktreeSetup copyPaths and async postCreateCommand, emitting worktree:setupState (Slice 3.3)", async () => {
     const { manager, registry, sent } = setup();
     const project = await gitProject(base);

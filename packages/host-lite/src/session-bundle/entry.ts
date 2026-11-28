@@ -397,6 +397,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     isLive: (tabId) => manager.isLive(tabId),
     isTurnRunning: (tabId) => manager.isTurnRunning(tabId),
     settle: (tabId) => manager.settleSession(tabId),
+    reclaimMergedWorktree: (tabId) => manager.reclaimMergedWorktree(tabId),
     broadcast: () => void broadcast(),
     announceSettled: (settled) => emit(CH.onSessionsAutoSettled, settled),
     isFocused: () => false,

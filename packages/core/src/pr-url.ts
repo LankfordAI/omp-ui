@@ -59,18 +59,22 @@ async function resolveWebRemote(
   root: string,
   head: string,
   runGit: GitRunner,
+  strictConfigured = false,
 ): Promise<string | null> {
   const configured = (
     await runGit(root, ["config", "--get", `branch.${head}.remote`], {
       allowExit: [1],
     }).catch(() => "")
   ).trim();
-  if (isNamedRemote(configured)) {
-    try {
-      if ((await listRemoteNames(root, runGit)).includes(configured)) return configured;
-    } catch {
-      return null;
+  if (configured !== "") {
+    if (isNamedRemote(configured)) {
+      try {
+        if ((await listRemoteNames(root, runGit)).includes(configured)) return configured;
+      } catch {
+        return null;
+      }
     }
+    if (strictConfigured) return null;
   }
   return resolveDefaultRemote(root, runGit);
 }
@@ -91,6 +95,31 @@ export async function branchPushRepository(
     if (remote === null) return null;
     const web = parseRemoteWebUrl(await runGit(root, ["remote", "get-url", "--push", remote]));
     return web === null ? null : webPath(new URL(web).pathname).toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the push remote for `branch` and whether its fetch and push URLs
+ * point to the same repository (issue #1408). Returns null when the remote is
+ * unresolvable or when a configured `branch.<name>.remote` does not exist.
+ */
+export async function resolveBranchPushRemote(
+  projectCwd: string,
+  branch: string,
+  runGit: GitRunner = git,
+): Promise<{ remote: string; sameFetchAndPushRepo: boolean } | null> {
+  try {
+    const root = (await runGit(projectCwd, ["rev-parse", "--show-toplevel"])).trim();
+    if (root === "") return null;
+    const remote = await resolveWebRemote(root, branch, runGit, true);
+    if (remote === null) return null;
+    const fetchWeb = parseRemoteWebUrl(await runGit(root, ["remote", "get-url", remote]));
+    const pushWeb = parseRemoteWebUrl(await runGit(root, ["remote", "get-url", "--push", remote]));
+    const sameFetchAndPushRepo =
+      fetchWeb !== null && pushWeb !== null && fetchWeb.toLowerCase() === pushWeb.toLowerCase();
+    return { remote, sameFetchAndPushRepo };
   } catch {
     return null;
   }

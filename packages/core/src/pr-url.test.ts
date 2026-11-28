@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitRunner } from "./branches";
-import { parseRemoteWebUrl, pullRequestUrl } from "./pr-url";
+import { parseRemoteWebUrl, pullRequestUrl, resolveBranchPushRemote } from "./pr-url";
 
 interface FakeRepo {
   /** Remote name → URL as plain `remote get-url` prints it. */
@@ -173,6 +173,38 @@ describe("pullRequestUrl", () => {
     expect(await pullRequestUrl("/repo", "main", "dev", fakeGit({ remotes: {} }))).toBeNull();
     expect(
       await pullRequestUrl("/repo", "main", "dev", fakeGit({ remotes: { origin: "/srv/git/repo.git" } })),
+    ).toBeNull();
+  });
+});
+
+describe("resolveBranchPushRemote (issue #1408)", () => {
+  it("reports remote name and whether fetch and push URLs point to the same repo", async () => {
+    expect(
+      await resolveBranchPushRemote(
+        "/repo",
+        "feat",
+        fakeGit({ remotes: { origin: "https://github.com/Owner/Repo.git" }, pushUrls: { origin: "git@github.com:owner/repo.git" } }),
+      ),
+    ).toEqual({ remote: "origin", sameFetchAndPushRepo: true });
+
+    expect(
+      await resolveBranchPushRemote(
+        "/repo",
+        "feat",
+        fakeGit({
+          remotes: { origin: "https://github.com/upstream/repo.git" },
+          pushUrls: { origin: "git@github.com:fork/repo.git" },
+        }),
+      ),
+    ).toEqual({ remote: "origin", sameFetchAndPushRepo: false });
+
+    // Configured branch.<name>.remote that no longer exists refuses instead of falling back to origin.
+    expect(
+      await resolveBranchPushRemote(
+        "/repo",
+        "feat",
+        fakeGit({ configured: "gone", remotes: { origin: GITHUB } }),
+      ),
     ).toBeNull();
   });
 });

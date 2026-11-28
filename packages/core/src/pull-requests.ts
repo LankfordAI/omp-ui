@@ -78,6 +78,15 @@ function isPullRequestChecks(value: unknown): value is PullRequestChecks {
   return value === null || value === "passing" || value === "failing" || value === "pending";
 }
 
+function parseCommitOid(raw: unknown): string | undefined {
+  return typeof raw === "string" && /^[0-9a-f]{40,64}$/i.test(raw) ? raw.toLowerCase() : undefined;
+}
+
+/** True when the record has linked PRs and every one of them is merged. */
+export function allPullRequestsMerged(links: readonly PullRequestLink[]): boolean {
+  return links.length > 0 && links.every((link) => link.state === "merged");
+}
+
 /** Persisted links: a malformed entry drops only itself; a non-array is []. */
 export function parsePullRequestLinks(raw: unknown): PullRequestLink[] {
   if (!Array.isArray(raw)) return [];
@@ -88,7 +97,8 @@ export function parsePullRequestLinks(raw: unknown): PullRequestLink[] {
     const checks = entry.checks ?? null;
     if (typeof number !== "number" || !Number.isInteger(number) || typeof url !== "string") continue;
     if (!isPullRequestState(state) || !isPullRequestChecks(checks)) continue;
-    links.push({ number, url, state, checks });
+    const headRefOid = parseCommitOid(entry.headRefOid);
+    links.push({ number, url, state, checks, ...(headRefOid !== undefined ? { headRefOid } : {}) });
   }
   return links;
 }
@@ -99,7 +109,7 @@ function query(count: number): string {
     { length: count },
     (_, i) =>
       `b${i}:pullRequests(headRefName:$h${i},first:${PRS_PER_BRANCH},orderBy:{field:CREATED_AT,direction:DESC})` +
-      "{nodes{number url state isDraft headRepository{nameWithOwner} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}",
+      "{nodes{number url state isDraft headRefOid headRepository{nameWithOwner} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}",
   ).join(" ");
   return `query($owner:String!,$name:String!${vars}){repository(owner:$owner,name:$name){${fields}}}`;
 }
@@ -157,7 +167,14 @@ export function parsePullRequestNodes(nodes: unknown, headRepo: string | null): 
       const owner = isObject(node.headRepository) ? node.headRepository.nameWithOwner : null;
       if (typeof owner !== "string" || owner.toLowerCase() !== headRepo) continue;
     }
-    links.push({ number: node.number, url: node.url, state, checks: checksOf(node) });
+    const headRefOid = parseCommitOid(node.headRefOid);
+    links.push({
+      number: node.number,
+      url: node.url,
+      state,
+      checks: checksOf(node),
+      ...(headRefOid !== undefined ? { headRefOid } : {}),
+    });
   }
   return links;
 }

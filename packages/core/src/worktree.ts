@@ -5,6 +5,8 @@ import { git, refArg } from "./git";
 import { countCommitsBetween, createBranch, readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
+import { resolveBranchPushRemote } from "./pr-url";
+import { allPullRequestsMerged } from "./pull-requests";
 import {
   baseBranchSegment,
   composeWorktreeBranch,
@@ -16,6 +18,7 @@ import type {
   MergeBackStatus,
   MergeDestination,
   MergePreview,
+  PullRequestLink,
   WorktreeBranchRemoval,
   WorktreeSyncResult,
   SessionWorktree,
@@ -291,7 +294,38 @@ export async function linkProjectOmpDir(
  * `worktreePath` names: callers must pass only a path verified to be inside the
  * worktrees root (isWithin).
  */
-export async function removeWorktree(projectCwd: string, worktreePath: string): Promise<void> {
+export async function removeWorktree(
+  projectCwd: string,
+  worktreePath: string,
+  opts?: { requireClean?: boolean },
+): Promise<void> {
+  if (opts?.requireClean === true) {
+    if ((await readWorktreeDirty(projectCwd, worktreePath)) !== false) {
+      throw new Error(`refusing to remove dirty or unreadable worktree at ${worktreePath}`);
+    }
+    const ompLink = path.join(worktreePath, ".omp");
+    let unlinkedOmp = false;
+    try {
+      const stat = await fs.promises.lstat(ompLink);
+      if (stat.isSymbolicLink() && sameCheckoutPath(ompLink, path.join(projectCwd, ".omp"))) {
+        await fs.promises.unlink(ompLink);
+        unlinkedOmp = true;
+      }
+    } catch {
+      // No generated .omp link to unlink.
+    }
+    try {
+      await git(projectCwd, ["worktree", "remove", worktreePath], {
+        timeoutMs: REMOVE_TIMEOUT_MS,
+      });
+    } catch (err) {
+      if (unlinkedOmp) {
+        await linkProjectOmpDir(projectCwd, worktreePath).catch(() => {});
+      }
+      throw err;
+    }
+    return;
+  }
   // Unlink symlinks inside worktreePath (including omp-ui's `.omp` link and
   // any opt-in worktreeSetup symlinks) before git worktree remove / recursive rm,
   // so neither git nor Windows junction walks ever touch targets in projectCwd.
@@ -387,6 +421,27 @@ async function hasRef(cwd: string, ref: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Probe: true when `oid` resolves to a local commit object. */
+async function hasCommit(cwd: string, oid: string): Promise<boolean> {
+  if (!/^[0-9a-f]{40,64}$/i.test(oid)) return false;
+  try {
+    await git(cwd, ["cat-file", "-e", `${oid}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Probe: resolves `ref` to its commit SHA, or null when unreadable. */
+async function readCommitSha(cwd: string, ref: string): Promise<string | null> {
+  try {
+    const sha = (await git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])).trim();
+    return sha === "" ? null : sha;
+  } catch {
+    return null;
   }
 }
 
@@ -580,13 +635,125 @@ export async function isEmptyCleanWorktree(
     const dirty = await readWorktreeDirty(projectCwd, worktree.path);
     if (dirty !== false) return false;
     const resolved = await resolveMergeDestination(projectCwd, worktree.base);
-    const dest = resolved.destination ?? (await readDefaultBranch(projectCwd));
-    if (dest === null || dest === worktree.branch) return false;
-    if (!(await hasRef(projectCwd, `refs/heads/${worktree.branch}`))) return false;
-    if (!(await hasRef(projectCwd, `refs/heads/${dest}`))) return false;
-    return await isAncestor(projectCwd, worktree.branch, dest);
+    const defaultBranch = await readDefaultBranch(projectCwd);
+    const dest = resolved.destination ?? defaultBranch;
+    if (dest === null || worktree.branch === dest || worktree.branch === defaultBranch) return false;
+    const branchRef = `refs/heads/${worktree.branch}`;
+    const destRef = `refs/heads/${dest}`;
+    if (!(await hasRef(projectCwd, branchRef))) return false;
+    if (!(await hasRef(projectCwd, destRef))) return false;
+    const head = await readCommitSha(worktree.path, "HEAD");
+    if (head === null) return false;
+    return (await isAncestor(projectCwd, branchRef, destRef)) && (await isAncestor(projectCwd, head, destRef));
   } catch {
     return false;
+  }
+}
+
+export type MergedWorktreeReclaimPlan =
+  | { reclaim: false }
+  | { reclaim: true; deleteBranch: boolean; mergedCommits: string[] };
+
+/**
+ * Plans whether a worktree whose linked pull requests are all merged is safe
+ * to reclaim without running `git fetch` (issue #1408).
+ *
+ * - Tier 1 (cryptographic proof): every commit at `HEAD` and `refs/heads/<branch>`
+ *   is covered by a locally present merged PR `headRefOid` (or already landed in
+ *   local base) — safe to remove checkout cleanly and delete the local branch.
+ * - Tier 2 (remote-tracking fallback): when a merged PR's `headRefOid` is absent
+ *   locally (e.g. a commit added via GitHub web UI before merge), require matching
+ *   fetch/push remote URLs, `HEAD` covered by `refs/heads/<branch>`, and targets
+ *   covered by `refs/remotes/<remote>/<branch>` — remove checkout only and keep
+ *   the local branch intact as a safety net.
+ */
+export async function planMergedWorktreeReclaim(
+  projectCwd: string,
+  worktree: SessionWorktree,
+  pullRequests: readonly PullRequestLink[],
+): Promise<MergedWorktreeReclaimPlan> {
+  try {
+    if (!allPullRequestsMerged(pullRequests)) return { reclaim: false };
+    if ((await readWorktreeDirty(projectCwd, worktree.path)) !== false) return { reclaim: false };
+    const resolved = await resolveMergeDestination(projectCwd, worktree.base);
+    const defaultBranch = await readDefaultBranch(projectCwd);
+    const dest = resolved.destination ?? defaultBranch;
+    if (
+      (dest !== null && worktree.branch === dest) ||
+      (defaultBranch !== null && worktree.branch === defaultBranch)
+    ) {
+      return { reclaim: false };
+    }
+
+    const head = await readCommitSha(worktree.path, "HEAD");
+    if (head === null) return { reclaim: false };
+    const branchRef = `refs/heads/${worktree.branch}`;
+    const branchExists = await hasRef(projectCwd, branchRef);
+    const branchSha = branchExists ? await readCommitSha(projectCwd, branchRef) : null;
+    if (branchExists && branchSha === null) return { reclaim: false };
+    const targets = branchSha !== null && branchSha !== head ? [head, branchSha] : [head];
+
+    const uniqueOids = [
+      ...new Set(
+        pullRequests
+          .map((pr) => pr.headRefOid)
+          .filter((oid): oid is string => typeof oid === "string" && oid.length > 0),
+      ),
+    ];
+    const localMergedOids: string[] = [];
+    for (const oid of uniqueOids) {
+      if (await hasCommit(projectCwd, oid)) localMergedOids.push(oid);
+    }
+    const destRef =
+      dest !== null && (await hasRef(projectCwd, `refs/heads/${dest}`)) ? `refs/heads/${dest}` : null;
+
+    const coveredByDest = async (sha: string): Promise<boolean> =>
+      destRef !== null && (await landedInDestination(projectCwd, sha, destRef));
+
+    const coveredByOids = async (sha: string): Promise<boolean> => {
+      for (const oid of localMergedOids) {
+        if (await isAncestor(projectCwd, sha, oid)) return true;
+      }
+      return false;
+    };
+
+    // Tier 1: cryptographic proof via local merged headRefOid (or local destination).
+    if (localMergedOids.length > 0) {
+      let allCovered = true;
+      for (const sha of targets) {
+        if (!(await coveredByOids(sha)) && !(await coveredByDest(sha))) {
+          allCovered = false;
+          break;
+        }
+      }
+      if (allCovered) {
+        return { reclaim: true, deleteBranch: true, mergedCommits: localMergedOids };
+      }
+    }
+
+    // Tier 2: last-known remote-tracking fallback — runs only when at least one
+    // PR lacks a locally present headRefOid. Keeps the local branch intact.
+    const hasUnresolvedPrHead = pullRequests.some(
+      (pr) => pr.headRefOid === undefined || !localMergedOids.includes(pr.headRefOid),
+    );
+    if (!hasUnresolvedPrHead) return { reclaim: false };
+    if (!branchExists) return { reclaim: false };
+    if (!(await isAncestor(projectCwd, head, branchRef))) return { reclaim: false };
+
+    const pushRemote = await resolveBranchPushRemote(projectCwd, worktree.branch);
+    if (pushRemote === null || !pushRemote.sameFetchAndPushRepo) return { reclaim: false };
+
+    const remoteRef = `refs/remotes/${pushRemote.remote}/${worktree.branch}`;
+    if (!(await hasRef(projectCwd, remoteRef))) return { reclaim: false };
+
+    for (const sha of targets) {
+      if (!(await isAncestor(projectCwd, sha, remoteRef)) && !(await coveredByDest(sha))) {
+        return { reclaim: false };
+      }
+    }
+    return { reclaim: true, deleteBranch: false, mergedCommits: [] };
+  } catch {
+    return { reclaim: false };
   }
 }
 
@@ -1134,27 +1301,44 @@ export async function removeWorktreeBranch(
   projectCwd: string,
   branch: string,
   destinations: readonly string[],
+  opts?: { mergedCommits?: readonly string[] },
 ): Promise<WorktreeBranchRemoval> {
-  if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
+  const branchRef = `refs/heads/${branch}`;
+  if (!(await hasRef(projectCwd, branchRef))) {
     return { kind: "already-gone" };
+  }
+  // Unconditional protected-branch guards (run before both proof paths):
+  // never let a branch self-justify its own deletion (#1363) and never delete
+  // a destination branch or the repository's default branch.
+  if (destinations.includes(branch)) {
+    return { kind: "kept-no-destination" };
+  }
+  const defaultBranch = await readDefaultBranch(projectCwd);
+  if (defaultBranch !== null && branch === defaultBranch) {
+    return { kind: "kept-refused", detail: "refusing to delete the repository's default branch" };
   }
   const existing: string[] = [];
   for (const candidate of destinations) {
-    // Never let a branch self-justify its own deletion (#1363): e.g. a worktree
-    // checked out directly on `main` has base `main`, and `main` is trivially
-    // an ancestor of `main`.
-    if (candidate === branch) continue;
     if (await hasRef(projectCwd, `refs/heads/${candidate}`)) existing.push(candidate);
   }
-  if (existing.length === 0) return { kind: "kept-no-destination" };
   let merged = false;
   for (const candidate of existing) {
-    if (await landedInDestination(projectCwd, branch, candidate)) {
+    if (await landedInDestination(projectCwd, branchRef, `refs/heads/${candidate}`)) {
       merged = true;
       break;
     }
   }
-  if (!merged) return { kind: "kept-unmerged" };
+  if (!merged && opts?.mergedCommits && opts.mergedCommits.length > 0) {
+    for (const oid of opts.mergedCommits) {
+      if ((await hasCommit(projectCwd, oid)) && (await isAncestor(projectCwd, branchRef, oid))) {
+        merged = true;
+        break;
+      }
+    }
+  }
+  if (!merged) {
+    return existing.length === 0 ? { kind: "kept-no-destination" } : { kind: "kept-unmerged" };
+  }
   try {
     await git(projectCwd, ["branch", "-D", branch]);
   } catch (err) {

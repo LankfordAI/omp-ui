@@ -1,4 +1,5 @@
 import {
+  allPullRequestsMerged,
   listBranchPullRequests,
   type AutoSettledSession,
   type OwnedSessionRecord,
@@ -27,6 +28,8 @@ export interface PullRequestPollerDeps {
   isTurnRunning: (tabId: string) => boolean;
   /** The Settle reap (`SessionManager.settleSession`): true = settled. */
   settle: (tabId: string) => Promise<boolean>;
+  /** Quietly reclaims a merged worktree on an already-settled dormant session (issue #1408). */
+  reclaimMergedWorktree?: (tabId: string) => Promise<boolean>;
   /** Fans the changed rows out to every renderer and joined client. */
   broadcast: () => void;
   /** Tells renderers which sessions a merge settled, so they can offer Undo. */
@@ -36,15 +39,16 @@ export interface PullRequestPollerDeps {
   now?: () => number;
 }
 
-/** True when the record has linked PRs and every one of them is merged. */
-export function allMerged(links: readonly PullRequestLink[]): boolean {
-  return links.length > 0 && links.every((link) => link.state === "merged");
-}
-
 function sameLinks(a: readonly PullRequestLink[], b: readonly PullRequestLink[]): boolean {
   return a.length === b.length && a.every((link, i) => {
     const other = b[i]!;
-    return link.number === other.number && link.url === other.url && link.state === other.state && link.checks === other.checks;
+    return (
+      link.number === other.number &&
+      link.url === other.url &&
+      link.state === other.state &&
+      link.checks === other.checks &&
+      link.headRefOid === other.headRefOid
+    );
   });
 }
 
@@ -150,7 +154,17 @@ export class PullRequestPoller {
           // known and not all merged, now all merged. A first sighting of an
           // already-merged PR (an upgrade, a branch checked out after its
           // merge) and a session resumed after its merge are left alone.
-          if (allMerged(next) && s.pullRequests.length > 0 && !allMerged(s.pullRequests)) this.pendingSettle.add(s.tabId);
+          if (
+            allPullRequestsMerged(next) &&
+            ((s.pullRequests.length > 0 && !allPullRequestsMerged(s.pullRequests)) ||
+              (allPullRequestsMerged(s.pullRequests) &&
+                !this.deps.isLive(s.tabId) &&
+                s.settledAtMs !== null &&
+                !s.snoozed &&
+                s.worktree !== null))
+          ) {
+            this.pendingSettle.add(s.tabId);
+          }
           this.deps.updateSession(s.tabId, { pullRequests: next });
           changed = true;
         }
@@ -165,14 +179,22 @@ export class PullRequestPoller {
     for (const tabId of [...this.pendingSettle]) {
       const record = this.deps.sessions().find((s) => s.tabId === tabId);
       // Gone, reopened (a new open PR), or opted out: nothing to settle.
-      if (record === undefined || !allMerged(record.pullRequests) || !(record.autoSettleOnMerge ?? this.deps.autoSettleDefault())) {
+      if (record === undefined || !allPullRequestsMerged(record.pullRequests) || !(record.autoSettleOnMerge ?? this.deps.autoSettleDefault())) {
         this.pendingSettle.delete(tabId);
         continue;
       }
       const live = this.deps.isLive(tabId);
-      // Already settled and unsnoozed: nothing left to settle.
+      // Already settled and unsnoozed: nothing left to settle, but quietly
+      // reclaim its clean merged worktree if one still lingers on disk (#1408).
       if (!live && record.settledAtMs !== null && !record.snoozed) {
         this.pendingSettle.delete(tabId);
+        if (record.worktree !== null && this.deps.reclaimMergedWorktree !== undefined) {
+          try {
+            await this.deps.reclaimMergedWorktree(tabId);
+          } catch (err) {
+            console.warn(`[pull-requests] ${tabId}: merged worktree reclaim failed:`, err);
+          }
+        }
         continue;
       }
       // Never reap a turn: the agent may have merged the PR itself and still be reporting.

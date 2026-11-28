@@ -12,6 +12,7 @@ function harness(opts: { records: OwnedSessionRecord[]; live?: boolean; turn?: b
   let turn = opts.turn ?? false;
   const lookup = vi.fn(async () => answer);
   const settle = vi.fn(async () => true);
+  const reclaimMergedWorktree = vi.fn(async () => true);
   const announced: AutoSettledSession[][] = [];
   const poller = new PullRequestPoller({
     sessions: () => records,
@@ -20,6 +21,7 @@ function harness(opts: { records: OwnedSessionRecord[]; live?: boolean; turn?: b
     isLive: () => opts.live ?? true,
     isTurnRunning: () => turn,
     settle,
+    reclaimMergedWorktree,
     broadcast: vi.fn(),
     announceSettled: (s) => announced.push(s),
     isFocused: () => true,
@@ -29,6 +31,7 @@ function harness(opts: { records: OwnedSessionRecord[]; live?: boolean; turn?: b
     poller,
     lookup,
     settle,
+    reclaimMergedWorktree,
     announced,
     answer: (byBranch: Record<string, PullRequestLink[]>) => {
       answer = { ok: true, byBranch: new Map(Object.entries(byBranch)) };
@@ -115,12 +118,42 @@ describe("PullRequestPoller (issue #985)", () => {
     expect(h.settle).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves a dormant unsnoozed session alone when it is already settled", async () => {
+  it("quietly reclaims a merged worktree on an already-settled dormant session without settling or announcing Undo (#1408)", async () => {
+    const sha = "a".repeat(40);
     const rec = worktreeRecord({ pullRequests: [open], settledAtMs: 1_000 });
     const h = harness({ records: [rec], live: false });
-    h.answer({ feature: [merged] });
+    h.answer({ feature: [{ ...merged, headRefOid: sha }] });
+    await h.poller.poll();
+    expect(rec.pullRequests).toEqual([{ ...merged, headRefOid: sha }]);
+    expect(h.settle).not.toHaveBeenCalled();
+    expect(h.announced).toEqual([]);
+    expect(h.reclaimMergedWorktree).toHaveBeenCalledWith("t1");
+  });
+
+  it("updates persisted headRefOid and triggers one quiet reclaim when a pre-upgrade settled session backfills headRefOid (#1408)", async () => {
+    const sha = "b".repeat(40);
+    const rec = worktreeRecord({ pullRequests: [merged], settledAtMs: 1_000 });
+    const h = harness({ records: [rec], live: false });
+    h.answer({ feature: [{ ...merged, headRefOid: sha }] });
+    await h.poller.poll();
+    expect(rec.pullRequests).toEqual([{ ...merged, headRefOid: sha }]);
+    expect(h.settle).not.toHaveBeenCalled();
+    expect(h.announced).toEqual([]);
+    expect(h.reclaimMergedWorktree).toHaveBeenCalledTimes(1);
+
+    // Subsequent poll with unchanged headRefOid does not repeat reclaim (e.g. if worktree stayed dirty).
+    await h.poller.poll();
+    expect(h.reclaimMergedWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips reclaimMergedWorktree on an opted-out already-settled session (#1408)", async () => {
+    const sha = "c".repeat(40);
+    const rec = worktreeRecord({ pullRequests: [open], settledAtMs: 1_000, autoSettleOnMerge: false });
+    const h = harness({ records: [rec], live: false, autoDefault: true });
+    h.answer({ feature: [{ ...merged, headRefOid: sha }] });
     await h.poller.poll();
     expect(h.settle).not.toHaveBeenCalled();
+    expect(h.reclaimMergedWorktree).not.toHaveBeenCalled();
   });
 
   it("settles a dormant unsettled session when its open PR merges (issue #1137)", async () => {
