@@ -64,6 +64,6 @@ committable_code_suggestions = false
 [github_app]
 handle_pr_actions = ["opened", "reopened", "ready_for_review"]
 feedback_on_draft_pr = false
-handle_push_trigger = false
+handle_push_trigger = true
 pr_commands = ["/describe", "/review"]
 webhook_delivery_deduplication = true
