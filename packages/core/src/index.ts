@@ -24,8 +24,9 @@ export {
   type ParsedBranchStatus,
 } from "./branches";
 export { git } from "./git";
-export { parseRemoteWebUrl, pullRequestUrl } from "./pr-url";
+export { parseRemoteWebUrl, pullRequestUrl, resolveBranchPushRemote } from "./pr-url";
 export {
+  allPullRequestsMerged,
   listBranchPullRequests,
   parsePullRequestLinks,
   parsePullRequestNodes,
@@ -47,6 +48,8 @@ export {
   mergeWorktreeBranch,
   mintBranchHash,
   mintWorktreePath,
+  planMergedWorktreeReclaim,
+  type MergedWorktreeReclaimPlan,
   previewMerge,
   readDestinationCheckout,
   readMergeBackStatus,

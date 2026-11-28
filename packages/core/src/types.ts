@@ -657,6 +657,8 @@ export interface PullRequestLink {
   url: string;
   state: PullRequestState;
   checks: PullRequestChecks;
+  /** Head commit SHA reported by the forge (40–64 hex chars, lowercase). Omitted when absent. */
+  headRefOid?: string;
 }
 
 /** One session an automatic merge settle stopped (issue #985): what Undo restores. */

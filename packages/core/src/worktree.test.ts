@@ -15,6 +15,7 @@ import {
   mergeWorktreeBranch,
   mintBranchHash,
   mintWorktreePath,
+  planMergedWorktreeReclaim,
   previewMerge,
   readDestinationCheckout,
   readMergeBackStatus,
@@ -1675,6 +1676,56 @@ describe("removeWorktreeBranch", () => {
       (await git(dir, ["branch", "--format=%(refname:short)", "--list", "main"])).trim(),
     ).toBe("main");
   });
+
+  it("deletes an unmerged local branch when mergedCommits covers it even with no local destination branch (#1408)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "squash.txt", "squash\n", "squash work");
+    const headSha = (await git(wt, ["rev-parse", "HEAD"])).trim();
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, branch, ["deleted-candidate"], { mergedCommits: [headSha] });
+    expect(result).toEqual({ kind: "removed" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe("");
+  });
+
+  it("refuses deletion on branch/tag name collision when only the tag is covered (#1408)", async () => {
+    const dir = await tmpRepo();
+    const branch = "v1-collision";
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "unmerged.txt", "unmerged\n", "unmerged");
+    const mainSha = (await git(dir, ["rev-parse", "refs/heads/main"])).trim();
+    // Tag shares the branch name and points to main (which is covered by main).
+    await git(dir, ["tag", branch, mainSha]);
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, branch, ["main"], { mergedCommits: [mainSha] });
+    expect(result).toEqual({ kind: "kept-unmerged" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
+  });
+
+  it("refuses deleting the repo default branch or a destination branch even when a second candidate contains it (#1408)", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["checkout", "-q", "-b", "topic"]);
+    await commitFile(dir, "topic.txt", "topic\n", "topic ahead of main");
+    const topicSha = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    // Default branch main is an ancestor of topic, yet must never be deleted.
+    const defaultResult = await removeWorktreeBranch(dir, "main", ["topic"], { mergedCommits: [topicSha] });
+    expect(defaultResult).toEqual({
+      kind: "kept-refused",
+      detail: "refusing to delete the repository's default branch",
+    });
+    expect((await git(dir, ["branch", "--list", "main"])).trim()).toBe("main");
+
+    // Destination branch release/x included in destinations alongside topic (which contains release/x).
+    await git(dir, ["branch", "release/x", "main"]);
+    const destResult = await removeWorktreeBranch(dir, "release/x", ["release/x", "topic"], {
+      mergedCommits: [topicSha],
+    });
+    expect(destResult).toEqual({ kind: "kept-no-destination" });
+    expect((await git(dir, ["branch", "--list", "release/x"])).trim()).toBe("release/x");
+  });
 });
 
 describe("removeWorktree", () => {
@@ -1739,6 +1790,44 @@ describe("removeWorktree", () => {
 
     expect(fs.existsSync(wtPath)).toBe(false);
     expect(fs.readFileSync(path.join(dir, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("removes a clean checkout with generated .omp link under requireClean without --force (#1408)", async () => {
+    const dir = await tmpRepo();
+    const wtPath = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wtPath, mint(), "main");
+    fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
+    await linkProjectOmpDir(dir, wtPath);
+
+    await removeWorktree(dir, wtPath, { requireClean: true });
+
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(fs.readFileSync(path.join(dir, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("refuses dirty or locked checkouts under requireClean, leaving dirty files untouched and restoring .omp (#1408)", async () => {
+    const dir = await tmpRepo();
+    const wtPath = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wtPath, mint(), "main");
+    fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
+    await linkProjectOmpDir(dir, wtPath);
+    const dirtyFile = path.join(wtPath, "dirty.txt");
+    fs.writeFileSync(dirtyFile, "keep me\n");
+
+    await expect(removeWorktree(dir, wtPath, { requireClean: true })).rejects.toThrow();
+    expect(fs.readFileSync(dirtyFile, "utf8")).toBe("keep me\n");
+    expect(fs.lstatSync(path.join(wtPath, ".omp")).isSymbolicLink()).toBe(true);
+
+    // Clean checkout locked in git: dirty pre-check passes, .omp unlinks, git refuses without --force,
+    // and removeWorktree restores the .omp symlink before rethrowing.
+    fs.rmSync(dirtyFile);
+    await git(dir, ["worktree", "lock", wtPath]);
+    await expect(removeWorktree(dir, wtPath, { requireClean: true })).rejects.toThrow();
+    expect(fs.existsSync(wtPath)).toBe(true);
+    expect(fs.lstatSync(path.join(wtPath, ".omp")).isSymbolicLink()).toBe(true);
+    await git(dir, ["worktree", "unlock", wtPath]);
   });
 });
 
@@ -1857,6 +1946,57 @@ describe("reclaimCheckouts", () => {
     );
     expect((await git(project, ["branch", "--list", branch])).trim()).toBe("");
     expect((await git(project, ["branch", "--list", "release/x"])).trim()).toBe("release/x");
+  });
+
+  it("forwards mergedCommits and requireClean, keeping checkout and branch on dirty refusal (#1408)", async () => {
+    const project = await tmpRepo();
+    const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
+    cleanups.push(worktreesRoot);
+    const branch = mint();
+    const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
+    const base = await addWorktree(project, worktreePath, branch, null);
+    await commitFile(worktreePath, "feat.txt", "feat\n", "feat");
+    const headSha = (await git(worktreePath, ["rev-parse", "HEAD"])).trim();
+
+    // Dirty checkout under requireClean fails cleanly without touching the branch.
+    fs.writeFileSync(path.join(worktreePath, "uncommitted.txt"), "wip\n");
+    const [dirtyResult] = await reclaimCheckouts(
+      [
+        {
+          projectCwd: project,
+          worktree: { path: worktreePath, branch, base },
+          mergedCommits: [headSha],
+          requireClean: true,
+        },
+      ],
+      { worktreesRoot, survivingSessions: [], warn: () => {} },
+    );
+    expect(dirtyResult).toEqual(
+      expect.objectContaining({ checkoutKept: "failed", branchOutcome: "not-attempted" }),
+    );
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    expect(
+      (await git(project, ["branch", "--format=%(refname:short)", "--list", branch])).trim(),
+    ).toBe(branch);
+
+    // Once clean, requireClean removes the checkout and mergedCommits deletes the local branch.
+    fs.rmSync(path.join(worktreePath, "uncommitted.txt"));
+    const [cleanResult] = await reclaimCheckouts(
+      [
+        {
+          projectCwd: project,
+          worktree: { path: worktreePath, branch, base },
+          mergedCommits: [headSha],
+          requireClean: true,
+        },
+      ],
+      { worktreesRoot, survivingSessions: [], warn: () => {} },
+    );
+    expect(cleanResult).toEqual(
+      expect.objectContaining({ checkoutKept: null, branchOutcome: "removed" }),
+    );
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect((await git(project, ["branch", "--list", branch])).trim()).toBe("");
   });
 });
 
@@ -2021,5 +2161,121 @@ describe("isEmptyCleanWorktree (Slice 3.2)", () => {
     const mainWtPath = path.join(wtParent, "wt-main");
     await addWorktreeForBranch(dir, mainWtPath, "main");
     expect(await isEmptyCleanWorktree(dir, { path: mainWtPath, branch: "main", base: "main" })).toBe(false);
+  });
+
+  it("rejects clean worktree with detached unpushed HEAD and worktree on repo default branch (#1408)", async () => {
+    const dir = await tmpRepo();
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-clean-guards-"));
+    cleanups.push(wtParent);
+
+    // Branch is 0 ahead of main, but worktree HEAD is detached on an unpushed commit.
+    const detachedWt = path.join(wtParent, "wt-detached");
+    await addWorktree(dir, detachedWt, "feat/detached", "main");
+    await git(detachedWt, ["checkout", "-q", "--detach", "HEAD"]);
+    await commitFile(detachedWt, "orphan.txt", "orphan\n", "orphan detached commit");
+    expect(await isEmptyCleanWorktree(dir, { path: detachedWt, branch: "feat/detached", base: "main" })).toBe(false);
+
+    // Worktree checked out on repo default branch `main`, with recorded base pointing at
+    // another branch `topic` that contains `main`: must still refuse.
+    await git(dir, ["checkout", "-q", "-b", "topic"]);
+    await commitFile(dir, "topic.txt", "topic\n", "topic commit");
+    const mainWt = path.join(wtParent, "wt-main-default");
+    await addWorktreeForBranch(dir, mainWt, "main");
+    expect(await isEmptyCleanWorktree(dir, { path: mainWt, branch: "main", base: "topic" })).toBe(false);
+  });
+});
+
+describe("planMergedWorktreeReclaim (issue #1408)", () => {
+  const mergedPr = (headRefOid?: string) => ({
+    number: 42,
+    url: "https://github.com/acme/repo/pull/42",
+    state: "merged" as const,
+    checks: "passing" as const,
+    ...(headRefOid !== undefined ? { headRefOid } : {}),
+  });
+
+  it("approves Tier 1 (deleteBranch: true) for clean squash-merged branch matching headRefOid, and rejects dirty/ahead/detached/default", async () => {
+    const dir = await tmpRepo();
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-plan-"));
+    cleanups.push(wtParent);
+    const wtPath = path.join(wtParent, "wt-squash");
+    await addWorktree(dir, wtPath, "feat/squash", "main");
+    await commitFile(wtPath, "feature.txt", "v1\n", "feature work");
+    const mergedSha = (await git(wtPath, ["rev-parse", "HEAD"])).trim();
+    const wt = { path: wtPath, branch: "feat/squash", base: "main" };
+
+    // Tier 1: local main is unpulled, headRefOid matches HEAD and branch.
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(mergedSha)])).toEqual({
+      reclaim: true,
+      deleteBranch: true,
+      mergedCommits: [mergedSha],
+    });
+
+    // Dirty file -> refuse.
+    fs.writeFileSync(path.join(wtPath, "dirty.txt"), "wip\n");
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(mergedSha)])).toEqual({ reclaim: false });
+    fs.rmSync(path.join(wtPath, "dirty.txt"));
+
+    // Detached unpushed HEAD -> refuse.
+    await git(wtPath, ["checkout", "-q", "--detach", mergedSha]);
+    await commitFile(wtPath, "detached.txt", "detached\n", "detached commit");
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(mergedSha)])).toEqual({ reclaim: false });
+    await git(wtPath, ["checkout", "-q", "feat/squash"]);
+
+    // Extra local commit beyond headRefOid -> refuse (and never fall through to Tier 2).
+    await git(dir, ["remote", "add", "origin", "https://github.com/acme/repo.git"]);
+    await commitFile(wtPath, "extra.txt", "extra\n", "extra local commit");
+    const extraSha = (await git(wtPath, ["rev-parse", "HEAD"])).trim();
+    await git(dir, ["update-ref", "refs/remotes/origin/feat/squash", extraSha]);
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(mergedSha)])).toEqual({ reclaim: false });
+
+    // Worktree directly on default branch main -> refuse.
+    await git(dir, ["checkout", "-q", "-b", "other"]);
+    const mainWt = path.join(wtParent, "wt-main");
+    await addWorktreeForBranch(dir, mainWt, "main");
+    const mainSha = (await git(mainWt, ["rev-parse", "HEAD"])).trim();
+    expect(
+      await planMergedWorktreeReclaim(dir, { path: mainWt, branch: "main", base: "other" }, [mergedPr(mainSha)]),
+    ).toEqual({ reclaim: false });
+  });
+
+  it("uses Tier 2 (deleteBranch: false) when headRefOid is remote-only, and enforces HEAD, remote URL, and configured remote guards", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["remote", "add", "origin", "https://github.com/acme/repo.git"]);
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-plan-t2-"));
+    cleanups.push(wtParent);
+    const wtPath = path.join(wtParent, "wt-t2");
+    await addWorktree(dir, wtPath, "feat/web-commit", "main");
+    await commitFile(wtPath, "f.txt", "v1\n", "local commit");
+    const pushedSha = (await git(wtPath, ["rev-parse", "HEAD"])).trim();
+    await git(dir, ["update-ref", "refs/remotes/origin/feat/web-commit", pushedSha]);
+    const wt = { path: wtPath, branch: "feat/web-commit", base: "main" };
+    // Remote-only SHA (e.g. GitHub UI "Update branch" commit not fetched locally).
+    const remoteOnlySha = "deadbeef".repeat(5);
+
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(remoteOnlySha)])).toEqual({
+      reclaim: true,
+      deleteBranch: false,
+      mergedCommits: [],
+    });
+
+    // Detached HEAD outside local branch -> refuse (never orphan detached HEAD).
+    await git(wtPath, ["checkout", "-q", "--detach", pushedSha]);
+    await commitFile(wtPath, "side.txt", "side\n", "detached side commit");
+    const sideSha = (await git(wtPath, ["rev-parse", "HEAD"])).trim();
+    // Even if remoteRef somehow pointed at sideSha, HEAD is not in refs/heads/feat/web-commit.
+    await git(dir, ["update-ref", "refs/remotes/origin/feat/web-commit", sideSha]);
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(remoteOnlySha)])).toEqual({ reclaim: false });
+    await git(wtPath, ["checkout", "-q", "feat/web-commit"]);
+    await git(dir, ["update-ref", "refs/remotes/origin/feat/web-commit", pushedSha]);
+
+    // Mismatched fetch vs push URL -> refuse.
+    await git(dir, ["remote", "set-url", "--push", "origin", "https://github.com/fork/repo.git"]);
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(remoteOnlySha)])).toEqual({ reclaim: false });
+    await git(dir, ["remote", "set-url", "--push", "origin", "https://github.com/acme/repo.git"]);
+
+    // Missing configured branch remote -> refuse (never fall back to origin).
+    await git(dir, ["config", "branch.feat/web-commit.remote", "deleted-remote"]);
+    expect(await planMergedWorktreeReclaim(dir, wt, [mergedPr(remoteOnlySha)])).toEqual({ reclaim: false });
   });
 });

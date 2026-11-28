@@ -64,6 +64,7 @@ import {
   isHtmlPlanPath,
   applyWorktreeFiles,
   isEmptyCleanWorktree,
+  planMergedWorktreeReclaim,
   withoutAppImageRuntime,
   withoutProviderKeys,
   isWithin,
@@ -2828,7 +2829,7 @@ export class SessionManager {
     const raced = busy();
     if (raced !== null) return refused(raced);
 
-    if (!(await this.settleSession(tabId, { reclaimEmptyWorktree: false }))) {
+    if (!(await this.settleSession(tabId, { reclaimWorktree: false }))) {
       return refused("the session's process did not stop, so nothing was removed");
     }
     const current = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.worktree;
@@ -3864,7 +3865,7 @@ export class SessionManager {
 
   async settleSession(
     tabId: string,
-    opts: { reclaimEmptyWorktree?: boolean } = {},
+    opts: { reclaimWorktree?: boolean } = {},
   ): Promise<boolean> {
     this.killShell(tabId);
     // Captured before the chain runs: if a resume replaces the process while
@@ -3906,18 +3907,12 @@ export class SessionManager {
           if (clearedSnooze) this.deps.onSnoozeCleared?.(tabId);
           changed = true;
         }
-        // Silently reclaim an unshared worktree that is clean and 0 commits
-        // ahead of its base so empty worktrees don't linger on disk (Slice 3.2).
-        // Skipped when fleetFinish settles before running its own landedFinish
-        // reflog inspection and branch cleanup.
-        if (opts.reclaimEmptyWorktree !== false && rec.worktree !== null) {
-          const shared = this.deps.registry.sessions.some(
-            (s) => s.tabId !== tabId && s.worktree?.path === rec.worktree!.path,
-          );
-          if (!shared && (await isEmptyCleanWorktree(rec.projectCwd, rec.worktree))) {
-            const wt = rec.worktree;
-            this.deps.registry.updateSession(tabId, { worktree: null });
-            await this.worktreeOps.reclaimOne(rec.projectCwd, wt);
+        // Silently reclaim an unshared clean worktree that is empty (0 ahead) or
+        // whose linked pull requests are all merged (issue #1408). Skipped when
+        // fleetFinish settles before running its own landedFinish reflog inspection
+        // and branch cleanup.
+        if (opts.reclaimWorktree !== false && rec.worktree !== null) {
+          if (await this.tryReclaimWorktreeOnSettle(tabId, rec)) {
             changed = true;
           }
         }
@@ -3925,6 +3920,50 @@ export class SessionManager {
       }
       return true;
     });
+  }
+
+  /**
+   * Quietly reclaims a clean merged-PR worktree for an already-settled dormant
+   * session (issue #1408), serialized on the per-tab settle queue so a
+   * concurrent Resume never races with checkout removal.
+   */
+  async reclaimMergedWorktree(tabId: string): Promise<boolean> {
+    return this.enqueueOp(tabId, "settle", async () => {
+      if (this.live.has(tabId)) return false;
+      const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (rec === undefined || rec.settledAtMs === null || rec.snoozed || rec.worktree === null) {
+        return false;
+      }
+      const reclaimed = await this.tryReclaimWorktreeOnSettle(tabId, rec);
+      if (reclaimed) void this.deps.broadcast();
+      return reclaimed;
+    });
+  }
+
+  private async tryReclaimWorktreeOnSettle(tabId: string, rec: OwnedSessionRecord): Promise<boolean> {
+    const wt = rec.worktree;
+    if (wt === null) return false;
+    const shared = this.deps.registry.sessions.some(
+      (s) => s.tabId !== tabId && s.worktree?.path === wt.path,
+    );
+    if (shared) return false;
+    let extra: Parameters<WorktreeOps["reclaimOne"]>[2];
+    if (await isEmptyCleanWorktree(rec.projectCwd, wt)) {
+      extra = { requireClean: true, excludeTabId: tabId };
+    } else {
+      const plan = await planMergedWorktreeReclaim(rec.projectCwd, wt, rec.pullRequests);
+      if (!plan.reclaim) return false;
+      extra = {
+        requireClean: true,
+        excludeTabId: tabId,
+        keepBranch: !plan.deleteBranch,
+        ...(plan.deleteBranch ? { mergedCommits: plan.mergedCommits } : {}),
+      };
+    }
+    const cleanup = await this.worktreeOps.reclaimOne(rec.projectCwd, wt, extra);
+    if (cleanup.checkoutKept !== null) return false;
+    this.deps.registry.updateSession(tabId, { worktree: null });
+    return true;
   }
 
   private async hibernate(

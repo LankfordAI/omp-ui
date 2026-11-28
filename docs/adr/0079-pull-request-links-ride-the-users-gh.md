@@ -27,7 +27,7 @@ branch in someone else's fork and is dropped.
 
 **The owning host polls; the record carries the links.** The main process's
 `PullRequestPoller` reads worktree records, writes `pullRequests:
-{number, url, state, checks}[]` onto each `OwnedSessionRecord`, and
+{number, url, state, checks, headRefOid?}[]` onto each `OwnedSessionRecord`, and
 broadcasts. Clients — the desktop renderer, browser clients, and joined
 instances — render what the host published; none of them run gh for a
 session they do not own. It polls every 60 s while an omp-ui window has
@@ -49,6 +49,21 @@ checked out after its merge) or again after the user resumed a merged
 session. `autoSettleMergedPullRequests` (Settings → General, default on) is
 the default; `OwnedSessionRecord.autoSettleOnMerge` (the HUD title menu)
 overrides it per session.
+
+**Safe worktree and branch reclamation on merged PRs (#1408).** Never running
+`git fetch`, `SessionManager` reclaims an unshared worktree on settle (or via
+`reclaimMergedWorktree` when an already-settled session's open PR later merges
+or backfills `headRefOid`) using a clean-only removal path (no `--force`, no
+recursive `rm` fallback) and clears `record.worktree` only after verified
+removal, preserving `record.pullRequests`. When every commit at `HEAD` and
+`refs/heads/<branch>` is covered by a locally present merged `headRefOid` (or
+already landed in local base), both the checkout and the local branch are
+removed. When a PR's `headRefOid` is absent locally (for example, a commit
+added in GitHub's web UI before merge), a second tier verifies that fetch and
+push URLs match, `HEAD` is in `refs/heads/<branch>`, and targets are covered by
+the last-known `refs/remotes/<remote>/<branch>`, removing the checkout while
+keeping the local branch intact. Dirty checkouts, unpushed local commits,
+uncovered detached `HEAD`s, and the base/default branch are never reclaimed.
 
 ## Rejected
 

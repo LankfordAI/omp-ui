@@ -15,6 +15,10 @@ export interface WorktreeCheckoutDescriptor {
   keepBranch?: boolean;
   /** Destination the caller just merged into; an extra ancestry candidate (issue #385). */
   mergedInto?: string | null;
+  /** Commit SHAs proven merged on the forge; licenses branch deletion when local base is behind (issue #1408). */
+  mergedCommits?: readonly string[];
+  /** Clean-only removal without `--force` or recursive `rm` fallback (issue #1408). */
+  requireClean?: boolean;
 }
 
 export interface ReclaimCheckoutsOptions {
@@ -48,7 +52,7 @@ export async function reclaimCheckouts(
   }
 
   const reclaimed: ReclaimedCheckout[] = [];
-  for (const { projectCwd, worktree, keepBranch, mergedInto } of distinct.values()) {
+  for (const { projectCwd, worktree, keepBranch, mergedInto, mergedCommits, requireClean } of distinct.values()) {
     const result = (
       checkoutKept: ReclaimedCheckout["checkoutKept"],
       branchOutcome: ReclaimedCheckout["branchOutcome"],
@@ -72,7 +76,7 @@ export async function reclaimCheckouts(
       continue;
     }
     try {
-      await removeWorktree(projectCwd, worktree.path);
+      await removeWorktree(projectCwd, worktree.path, requireClean ? { requireClean: true } : undefined);
     } catch (error) {
       warn(`[sessions] worktree cleanup failed for ${worktree.path}:`, error);
       reclaimed.push(result("failed", "not-attempted"));
@@ -92,6 +96,7 @@ export async function reclaimCheckouts(
         projectCwd,
         worktree.branch,
         [...new Set(candidates)],
+        mergedCommits && mergedCommits.length > 0 ? { mergedCommits } : undefined,
       );
       if (outcome.kind !== "removed" && outcome.kind !== "already-gone") {
         warn(

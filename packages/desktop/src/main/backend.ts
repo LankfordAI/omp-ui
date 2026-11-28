@@ -811,6 +811,7 @@ export class MainBackend {
       isTurnRunning: (tabId) => this.sessions.isTurnRunning(tabId),
       // The Settle reap (#980/#924): rpc-ui hibernates, PTY terminates, snooze clears.
       settle: (tabId) => this.sessions.settleSession(tabId),
+      reclaimMergedWorktree: (tabId) => this.sessions.reclaimMergedWorktree(tabId),
       broadcast: () => void this.broadcast(),
       announceSettled: (sessions) => this.send(CH.onSessionsAutoSettled, sessions),
       // The unit-test fake windows carry only the sink surface: unfocused.

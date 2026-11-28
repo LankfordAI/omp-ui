@@ -97,19 +97,32 @@ export class WorktreeOps {
     }
   }
 
-  reclaim(checkouts: ReadonlyArray<WorktreeCheckoutDescriptor>) {
+  reclaim(
+    checkouts: ReadonlyArray<WorktreeCheckoutDescriptor>,
+    opts?: { excludeTabId?: string },
+  ) {
     return reclaimCheckouts(checkouts, {
       worktreesRoot: this.deps.getWorktreesRoot(),
-      survivingSessions: this.deps.registry.sessions,
+      survivingSessions:
+        opts?.excludeTabId === undefined
+          ? this.deps.registry.sessions
+          : this.deps.registry.sessions.filter((s) => s.tabId !== opts.excludeTabId),
     });
   }
 
   async reclaimOne(
     projectCwd: string,
     worktree: SessionWorktree,
-    extra?: Pick<WorktreeCheckoutDescriptor, "keepBranch" | "mergedInto">,
+    extra?: Pick<
+      WorktreeCheckoutDescriptor,
+      "keepBranch" | "mergedInto" | "mergedCommits" | "requireClean"
+    > & { excludeTabId?: string },
   ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
-    const [result] = await this.reclaim([{ projectCwd, worktree, ...extra }]);
+    const { excludeTabId, ...descriptorExtra } = extra ?? {};
+    const [result] = await this.reclaim(
+      [{ projectCwd, worktree, ...descriptorExtra }],
+      excludeTabId === undefined ? undefined : { excludeTabId },
+    );
     return result
       ? { checkoutKept: result.checkoutKept, branchOutcome: result.branchOutcome }
       : { checkoutKept: "failed", branchOutcome: "not-attempted" };
