@@ -292,3 +292,17 @@ Rejected: steering `/council …` as a slash command (refused mid-stream); a new
 `council` verdict in the plan extension (widens five wire and record surfaces
 for what refine plus one steer already expresses); building the member batch in
 the renderer (it has no frozen launch set and would read current Settings).
+
+## Amended 2026-11-28 (essential top-level tool registration, #1404)
+
+`omp-ui_council` registers with `loadMode: "essential"` on `pi.registerTool`
+unconditionally whenever the council bridge loads. On `omp` 19.1+ (where
+`tools.commands` is enabled by default), omitting `loadMode` causes
+`ExtensionToolWrapper` to default the tool to `discoverable`, stripping its
+JSON schema from `/v1/chat/completions` `body.tools` and listing it only as a
+schema-less bash command under *Tool Commands*, which caused models asked in
+prose to consult the council to fall back to `omp-ui_fleet_dispatch` (which
+registers as `essential`). Keeping `omp-ui_council` essential across ready,
+empty, and unavailable bridge states maintains parity with `omp-ui_fleet_*`
+host tools in both Build and Plan modes while adding zero schema when Council
+is disabled (the extension is omitted at spawn).
