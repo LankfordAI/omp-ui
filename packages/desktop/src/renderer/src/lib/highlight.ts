@@ -495,12 +495,24 @@ export function useHighlightTokens(
   const theme = useTheme();
 
   useEffect(() => {
-    if (!enabled || resolved === null) {
+    if (!enabled || resolved === null || code.length >= HIGHLIGHT_CHAR_CAP || hasOverlongPhysicalLine(code)) {
       setTokens(null);
       return;
     }
     let alive = true;
     void (async () => {
+      if (code.length > STREAM_HIGHLIGHT_BATCH_CHAR_CAP) {
+        const result = await advanceStreamHighlight({
+          code,
+          key: `${resolved}\u0000${shikiName(theme)}`,
+          cache: null,
+          isCurrent: () => alive,
+          tokenize: createShikiStreamTokenizer(resolved, theme),
+        });
+        if (!alive || result.kind === "stale") return;
+        setTokens(result.kind === "tokens" ? result.lines : null);
+        return;
+      }
       const lines = await tokenizeCode(resolved, code, theme);
       if (alive) setTokens(lines);
     })().catch(() => {
@@ -513,6 +525,5 @@ export function useHighlightTokens(
     // Tokens carry their colour as an inline style, so a theme switch only
     // reaches the rendered block by re-tokenizing it.
   }, [code, resolved, enabled, theme]);
-
   return tokens;
 }

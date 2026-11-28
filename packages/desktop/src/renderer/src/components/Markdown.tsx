@@ -1,6 +1,7 @@
 import {
   createContext,
   Fragment,
+  memo,
   useContext,
   useMemo,
   useState,
@@ -15,8 +16,9 @@ import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vaul
 import { parseRoutineFocusUri } from "@omp-ui/core/routine";
 import { useRoutineFocus } from "./MarkdownRoutineContext";
 import { useTabMachine } from "./MarkdownMachineContext";
+import { useTabPainting } from "./TabPaintingContext";
 import { cn } from "../lib/cn";
-import { useHighlightTokens } from "../lib/highlight";
+import { HIGHLIGHT_CHAR_CAP, useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
 import { svgImageSrc } from "../lib/svg-block";
 import { useTheme } from "../lib/themes";
@@ -489,7 +491,7 @@ function CodePre({
   );
 }
 
-function CodeBlock({
+const CodeBlock = memo(function CodeBlock({
   text,
   lang,
   trailing,
@@ -502,6 +504,7 @@ function CodeBlock({
   const isDiagram = lower === "mermaid";
   const isSvg = lower === "svg";
   const settled = trailing === undefined;
+  const painting = useTabPainting();
   // Declared ahead of the token hook: the svg gate below reads it.
   const [showSource, setShowSource] = useState(false);
   const theme = useTheme();
@@ -518,10 +521,11 @@ function CodeBlock({
   // shiki has no svg grammar; the xml grammar tokenizes SVG markup. While the
   // image shows, tokenizing is waste — same idea as HtmlPlanBlock's gate, plus
   // the fallback code block (imgSrc null) still has to pay for its tokens.
+  const canHighlight = settled && painting && text.length < HIGHLIGHT_CHAR_CAP;
   const tokens = useHighlightTokens(
     text,
     isDiagram ? undefined : isSvg ? "xml" : (lang ?? undefined),
-    isSvg ? settled && (showSource || imgSrc === null) : settled,
+    isSvg ? canHighlight && (showSource || imgSrc === null) : canHighlight,
   );
   const asImage = isSvg && imgSrc !== null && !showSource;
   const asDiagram = isDiagram && svg !== null && !showSource;
@@ -588,7 +592,7 @@ function CodeBlock({
       )}
     </div>
   );
-}
+});
 
 /**
  * A settled HTML plan document in message text: the plan rendered in its
@@ -598,7 +602,8 @@ function CodeBlock({
  */
 function HtmlPlanBlock({ text }: { text: string }) {
   const [showSource, setShowSource] = useState(false);
-  const tokens = useHighlightTokens(text, "html", showSource);
+  const painting = useTabPainting();
+  const tokens = useHighlightTokens(text, "html", showSource && painting && text.length < HIGHLIGHT_CHAR_CAP);
   return (
     <div className="md-plan overflow-hidden rounded-md border border-line bg-sunken">
       <CodeHeader
@@ -670,7 +675,7 @@ function TableGrid({ table, trailing }: { table: MdTableTail; trailing?: ReactNo
 }
 
 /** `trailing` is the streaming caret; it rides the last block so it never orphans. */
-function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
+const Block = memo(function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
   switch (block.kind) {
     case "code":
       // A settled html fence holding a whole plan document renders as the plan;
@@ -756,9 +761,9 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
         </p>
       );
   }
-}
+});
 
-export function Markdown({
+export const Markdown = memo(function Markdown({
   text,
   className,
   trailing,
@@ -789,4 +794,4 @@ export function Markdown({
       ))}
     </div>
   );
-}
+});

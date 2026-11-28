@@ -1834,6 +1834,8 @@ export function TranscriptView({
     if (!el || !content) return;
     let lastElWidth = -1;
     let lastContentWidth = -1;
+    let lastObservedElWidth = -1;
+    let lastObservedContentWidth = -1;
     const measureHanging = () => {
       // Gutter slack (issue #392). getBoundingClientRect on both: under the
       // content's `zoom` it reports visual px for either element, offsetWidth
@@ -1863,7 +1865,7 @@ export function TranscriptView({
         view.style.setProperty("--transcript-axis", `${a.left - v.left + a.width / 2}px`);
       }
     };
-    const observer = new ResizeObserver(() => {
+    const observer = new ResizeObserver((entries) => {
       if (followingRef.current) pinToBottom();
       else {
         const anchor = readingAnchorRef.current;
@@ -1879,9 +1881,29 @@ export function TranscriptView({
           } else readingAnchorRef.current = null;
         }
       }
-      measureHanging();
+      // Skip getBoundingClientRect() during height-only 100 ms streaming flushes.
+      const list = Array.isArray(entries) ? entries : [];
+      let widthChanged = list.length === 0;
+      for (const entry of list) {
+        const observedWidth = entry.contentBoxSize?.[0]?.inlineSize ?? entry.contentRect?.width;
+        if (observedWidth === undefined) {
+          widthChanged = true;
+          continue;
+        }
+        if (entry.target === el) {
+          if (observedWidth !== lastObservedElWidth) {
+            if (lastObservedElWidth !== -1) widthChanged = true;
+            lastObservedElWidth = observedWidth;
+          }
+        } else if (entry.target === content) {
+          if (observedWidth !== lastObservedContentWidth) {
+            if (lastObservedContentWidth !== -1) widthChanged = true;
+            lastObservedContentWidth = observedWidth;
+          }
+        }
+      }
+      if (widthChanged) measureHanging();
     });
-    // Measure once synchronously so the first paint already hangs or stacks.
     measureHanging();
     observer.observe(el); // clientHeight and width changes: window resize, zoom
     observer.observe(content); // content height changes: cards, images, markdown

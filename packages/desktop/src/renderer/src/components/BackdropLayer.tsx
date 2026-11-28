@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { applyBackdropChrome, loadBackdropAsset, useDraftBackdropAsset, type BackdropAsset } from "../lib/backdrop";
 import { useBackdropMotion } from "../lib/backdrop-motion";
 import { currentThemePreview, useTheme } from "../lib/themes";
@@ -33,7 +33,7 @@ function subscribeVisibility(cb: () => void): () => void {
   return () => document.removeEventListener("visibilitychange", cb);
 }
 
-export function BackdropLayer(): ReactElement | null {
+export const BackdropLayer = memo(function BackdropLayer(): ReactElement | null {
   const theme = useTheme();
   const motion = useBackdropMotion();
   const reducedMotion = useSyncExternalStore(subscribeReducedMotion, prefersReducedMotion);
@@ -106,6 +106,7 @@ export function BackdropLayer(): ReactElement | null {
   useEffect(() => () => applyBackdropChrome(theme, false), [theme]);
 
   if (src === null || asset === null) return null;
+  const useSceneFrame = asset.kind === "scene" && animate && asset.sceneFrameDoc !== undefined;
   return (
     <div aria-hidden className="backdrop-layer">
       {asset.kind === "video" ? (
@@ -124,6 +125,17 @@ export function BackdropLayer(): ReactElement | null {
           onLoadedData={() => setReadySrc(asset.url)}
           onError={() => setReadySrc(null)}
         />
+      ) : useSceneFrame ? (
+        <iframe
+          key={asset.url}
+          title=""
+          aria-hidden
+          tabIndex={-1}
+          sandbox=""
+          srcDoc={asset.sceneFrameDoc}
+          onLoad={() => setReadySrc(asset.url)}
+          onError={() => setReadySrc(null)}
+        />
       ) : (
         <img
           alt=""
@@ -135,4 +147,4 @@ export function BackdropLayer(): ReactElement | null {
       )}
     </div>
   );
-}
+});

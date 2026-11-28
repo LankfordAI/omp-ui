@@ -7,6 +7,7 @@ import { formatDuration } from "../lib/duration";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { useStore } from "../store";
 import { Section } from "./RailSection";
+import { useTabPainting } from "./TabPaintingContext";
 import { Button, Chip, Dot, Empty, IconButton, IconRefresh } from "./ui";
 import { CompletionRing, JobWidgetBlocks, JobWidgetGlance } from "./JobWidget";
 
@@ -45,9 +46,9 @@ export function JobsPane({ tabId }: { tabId: string }) {
   const killAsyncJob = useStore((s) => s.killAsyncJob);
   const openSubagent = useStore((s) => s.openSubagent);
   const closeSubagent = useStore((s) => s.closeSubagent);
-  // Second ticks while a job runs or a notice source still reports (#1235).
-  const now = useNow((snapshot?.running.length ?? 0) > 0 || Object.values(notices).some((n) => n.running));
-
+  const painting = useTabPainting();
+  // Second ticks while a job runs or a notice source still reports (#1235), gated on visible tab.
+  const now = useNow(painting && ((snapshot?.running.length ?? 0) > 0 || Object.values(notices).some((n) => n.running)));
   const refresh = (
     <IconButton label="refresh background jobs" onClick={() => void refreshAsyncJobs(tabId)}>
       <IconRefresh />

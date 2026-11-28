@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { cn } from "../lib/cn";
 import { shortModelLabel } from "../lib/format";
 import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
-import { findInstance, findOwner, findRecord, useStore } from "../store";
+import { findInstance, findOwner, useStore } from "../store";
 import { Capsule, CAPSULE_SEGMENT, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { ModelPalette } from "./ModelSelector";
@@ -48,13 +49,33 @@ export function AdvisorControl({
 }) {
   // The session's owning instance (issue #416): its project pins and advisor
   // defaults live on that host, keyed by projectKey in the store.
-  const record = useStore((s) => findRecord(s.state, tabId));
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const {
+    recordPresent,
+    projectCwd,
+    isChat,
+    advisorOn,
+    recordLive,
+    advisorModel,
+    instanceId,
+  } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      const rec = owner?.record;
+      return {
+        recordPresent: rec !== undefined,
+        projectCwd: rec?.projectCwd,
+        isChat: rec?.chat === true,
+        advisorOn: rec?.advisor === true,
+        recordLive: rec?.live === "live",
+        advisorModel: rec?.advisorModel ?? null,
+        instanceId: owner?.instanceId ?? null,
+      };
+    }),
+  );
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setSessionAdvisor = useStore((s) => s.setSessionAdvisor);
   const setAdvisorModel = useStore((s) => s.setAdvisorModel);
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
-  const projectCwd = record?.projectCwd;
   const setProjectDefaultAdvisorModel = useStore((s) => s.setProjectDefaultAdvisorModel);
   // The instance's dev/test advisor override (issue #372): identical in the
   // desktop and remote renderers because both read the same backend state.
@@ -62,7 +83,7 @@ export function AdvisorControl({
   // The project's advisor pin (issue #257): undefined when the tab has no
   // registered project, null when the project simply has no pin yet.
   const projectAdvisorPin = useStore((s) => {
-    if (projectCwd === undefined || record?.chat === true) return undefined;
+    if (projectCwd === undefined || isChat) return undefined;
     const groups = instanceId === null ? s.state?.projects : findInstance(s.state, instanceId)?.projects;
     const group = groups?.find((g) => g.project.path === projectCwd);
     return group === undefined ? null : (group.project.defaultAdvisorModel ?? null);
@@ -99,17 +120,17 @@ export function AdvisorControl({
     onClose: () => setLevelMenu(false),
   });
 
-  if (record === undefined) return null;
+  if (!recordPresent) return null;
 
-  const on = record.advisor;
-  const live = record.live === "live";
+  const on = advisorOn;
+  const live = recordLive;
   const gated = gateAdvisor !== null;
   /** Display precedence (issue #372): the instance's gate wins over every
    *  saved choice; nothing here writes back. This reports the configured
    *  selection, not a runtime observation — lineage overlays and the
    *  advisor-stats extension remain the runtime evidence. */
-  const effective = gateAdvisor ?? record.advisorModel ?? defaults?.model ?? null;
-  const inherited = !gated && record.advisorModel === null;
+  const effective = gateAdvisor ?? advisorModel ?? defaults?.model ?? null;
+  const inherited = !gated && advisorModel === null;
 
   /** The effective model and its thinking level, split apart (omp encodes the
    * level as a `:level` suffix on the selector). */
@@ -134,7 +155,7 @@ export function AdvisorControl({
     if (disabled === true) return;
     // The switch owns the enabled flag only: it persists the session's SAVED
     // selector, never the displayed gate (issue #372).
-    void setSessionAdvisor(tabId, !on, record.advisorModel);
+    void setSessionAdvisor(tabId, !on, advisorModel);
   };
 
   const pinNote =
@@ -317,7 +338,7 @@ export function AdvisorControl({
           }}
           projectPin={projectAdvisorPin}
           onPinChange={
-            projectCwd === undefined || record?.chat === true
+            projectCwd === undefined || isChat
               ? undefined
               : (selector) => void setProjectDefaultAdvisorModel(projectCwd, selector, instanceId)
           }

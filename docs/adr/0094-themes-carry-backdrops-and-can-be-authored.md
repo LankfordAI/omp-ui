@@ -132,3 +132,10 @@ Local authored themes gain `kind: "video"` backdrops (`video/mp4` and `video/web
 - **Android WebView contract.** Android WebView keeps `mediaPlaybackRequiresUserGesture = true` for v1: video backdrops load and display their decoded first frame statically, catching any autoplay rejection without error.
 - **Static specimens.** `ThemeSpecimen` cards render video backdrops via a static URL-keyed `<video preload="auto" muted playsInline>` with no `autoPlay` or `loop`, pausing defensively on mount and `loadeddata`, and gating translucent floor paint on `loadeddata` so undecodable videos stay opaque.
 - **Transport.** Video bytes reuse `settings:readThemeBackdrop` (base64 → `Uint8Array` → one cached `Blob` URL per SHA-256 hash), fitting comfortably within the remote WebSocket server's 64 MiB payload ceiling (~21.4 MiB envelope at 16 MiB).
+
+## Amendment (2026-11-28): compositor-accelerated animated SVG scenes
+
+Animating SVG scenes render inside `<iframe sandbox="" srcDoc>` rather than `<img src={blobUrl}>` so Chromium's GPU compositor thread drives CSS `transform`/`opacity` animations with zero per-frame Blink main-thread paints and full-viewport tile re-rasterizations.
+
+- **Isolation.** `sceneFrameHtml(svg)` (`@omp-ui/core/theme-backdrop`) strips leading XML/DOCTYPE headers, injects `preserveAspectRatio="xMidYMid slice"` when absent so iframe sizing matches `object-fit: cover`, and wraps the scene with `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">` alongside `sandbox=""` (no scripts, no same-origin access, no external loads, `tabIndex={-1}`, `aria-hidden`). Electron's `will-frame-navigate` already permits `about:srcdoc`.
+- **Still-frame path unchanged.** When motion is off, `document.hidden`, `prefers-reduced-motion: reduce`, or `origin.animate === false`, `BackdropLayer` continues to render `<img src={asset.stillUrl}>` (`stillScene`), keeping zero animation cost at idle and latching `applyBackdropChrome` without flashing on motion/visibility transitions.

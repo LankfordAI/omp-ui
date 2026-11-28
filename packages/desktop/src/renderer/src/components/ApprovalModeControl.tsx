@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { ApprovalMode } from "@omp-ui/core/types";
 import { APPROVAL_SETTING_KEY } from "@omp-ui/core/omp-settings-keys";
 import { APPROVAL_MODES } from "@omp-ui/core/approval";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { ASK_AND_REMEMBER_MIN_OMP, supportsAskAndRemember } from "../lib/ask-and-remember";
-import { findOwner, findRecord, useStore } from "../store";
+import { findOwner, useStore } from "../store";
 import { Capsule, Label } from "./ui";
 
 /**
@@ -37,14 +38,20 @@ export function ApprovalModeControl({
   layout?: "inline" | "sheet";
   className?: string;
 }) {
-  const record = useStore((s) => findRecord(s.state, tabId));
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const { mode, isRoutine, isPty, projectCwd, instanceId } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      const rec = owner?.record;
+      return {
+        mode: rec?.approvalMode ?? null,
+        isRoutine: rec?.routine != null,
+        isPty: rec?.mode === "pty",
+        projectCwd: rec?.projectCwd ?? null,
+        instanceId: owner?.instanceId ?? null,
+      };
+    }),
+  );
   const setSessionApprovalMode = useStore((s) => s.setSessionApprovalMode);
-  const mode = record?.approvalMode ?? null;
-  // A Routine run's approval is its compiled tool policy (ADR-0100): main
-  // refuses session:setApprovalMode there, so no picker or chip renders.
-  const isRoutine = record?.routine != null;
-  // A mode change relaunches the session: a local one on this computer's
   // installed omp, a joined-instance one on the remote, whose running
   // version is the best proxy.
   const askAndRemember = useStore((s) =>
@@ -60,8 +67,8 @@ export function ApprovalModeControl({
     return (
       <ApprovalSheet
         mode={mode}
-        isPty={record?.mode === "pty"}
-        projectCwd={record?.projectCwd ?? null}
+        isPty={isPty}
+        projectCwd={projectCwd}
         instanceId={instanceId}
         askAndRemember={askAndRemember}
         className={className}

@@ -73,7 +73,7 @@ describe("startFdWatchdog (issue #184)", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("logs a baseline once, alerts on breach (rate-limited), then recovers", () => {
+  it("logs a baseline once, alerts on breach (rate-limited), then recovers", async () => {
     vi.useFakeTimers();
     try {
       const log = vi.fn();
@@ -83,29 +83,30 @@ describe("startFdWatchdog (issue #184)", () => {
         platform: "linux",
         intervalMs: 1_000,
         limits: { maxTotal: 2 },
-        listFds: () => current.map((_, i) => String(i)),
-        readFdTarget: (p) => {
+        listFds: async () => current.map((_, i) => String(i)),
+        readFdTarget: async (p) => {
           const sep = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
           return current[Number(p.slice(sep + 1))]!;
         },
-        listChildren: () => [],
+        listChildren: async () => [],
         log,
       });
 
+      await vi.advanceTimersByTimeAsync(0);
       expect(log).toHaveBeenCalledTimes(1);
       expect(log.mock.calls[0]![0]).toContain("baseline");
 
       current = ["socket:[1]", "socket:[2]", "socket:[3]"];
-      vi.advanceTimersByTime(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(log).toHaveBeenCalledTimes(2);
       expect(log.mock.calls[1]![0]).toContain("ALERT");
 
       // Rate-limited while elevated.
-      vi.advanceTimersByTime(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(log).toHaveBeenCalledTimes(2);
 
       current = ["socket:[1]"];
-      vi.advanceTimersByTime(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(log).toHaveBeenCalledTimes(3);
       expect(log.mock.calls[2]![0]).toContain("recovered");
 

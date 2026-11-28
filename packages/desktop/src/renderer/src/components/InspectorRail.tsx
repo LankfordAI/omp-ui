@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { liveOutputSpeaking, type LiveAudioEntry } from "@omp-ui/core/live-voice";
 import type { CacheWarmingMethod, SpendTotals } from "@omp-ui/core/session-spend";
 import { PLAN_TRANSCRIPT_COMMAND, PLAN_TRANSCRIPT_STATUS_KEY } from "@omp-ui/core/plan";
@@ -20,7 +21,7 @@ import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { runningJobCount } from "../lib/async-jobs";
 import type { ProposedPlan, SessionSummary } from "@omp-ui/core/types";
 import type { VibeWorker, VibeWorkerState } from "@omp-ui/core/vibe";
-import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
+import { pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
 import { dispatchedSpendFingerprint, dispatchedSpendForTab, type DispatchedSpendSummary } from "../lib/dispatched-spend";
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
@@ -1097,7 +1098,18 @@ const PLAN_LABEL: Record<ProposedPlan["status"], string> = {
  * tracking it. Settled plans stay as a dim record of the session's plan history.
  */
 function PlansPane({ tabId }: { tabId: string }) {
-  const record = useStore((s) => findRecord(s.state, tabId));
+  const { sessionId, awaitingHumanAnswer, pendingPlanFilePath, plansSig } = useStore(
+    useShallow((s) => {
+      const rec = findRecord(s.state, tabId);
+      const list = proposedPlansFor(rec);
+      return {
+        sessionId: rec?.sessionId ?? null,
+        awaitingHumanAnswer: rec?.awaitingHumanAnswer === true,
+        pendingPlanFilePath: rec?.pendingPlan?.planFilePath ?? null,
+        plansSig: list.length === 0 ? "" : list.map((p) => `${p.key}\u0000${p.status}\u0000${p.title}`).join("\u0001"),
+      };
+    }),
+  );
   const reviewPath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
   const tabReady = useStore((s) => s.rpc[tabId]?.status === "ready");
@@ -1119,9 +1131,12 @@ function PlansPane({ tabId }: { tabId: string }) {
 
   useEffect(() => {
     void refreshTranscriptStatus(tabId).catch(() => {});
-  }, [tabId, tabReady, transcriptAdvertised, record?.sessionId, refreshTranscriptStatus]);
+  }, [tabId, tabReady, transcriptAdvertised, sessionId, refreshTranscriptStatus]);
 
-  const records = proposedPlansFor(record);
+  const records = useMemo(
+    () => (plansSig === "" ? ([] as readonly ProposedPlan[]) : proposedPlansFor(findRecord(useStore.getState().state, tabId))),
+    [plansSig, tabId],
+  );
 
   const savedCopy = receipt?.status === "failed" ? receipt.planFilePath : undefined;
 
@@ -1129,7 +1144,7 @@ function PlansPane({ tabId }: { tabId: string }) {
   const canRepresent =
     tabReady &&
     reviewPath === undefined &&
-    record?.awaitingHumanAnswer !== true &&
+    !awaitingHumanAnswer &&
     !planUnavailable &&
     !representing;
   const represent = (plan: ProposedPlan): void => {
@@ -1176,7 +1191,7 @@ function PlansPane({ tabId }: { tabId: string }) {
       {records.length === 0 && <Empty title="No proposed plans" hint="A plan-mode draft appears here once the agent writes it up." />}
       {records.map((plan) => {
         const actionable = plan.status === "pending" && plan.key === reviewPath;
-        const interrupted = isInterruptedPlan(plan, record, reviewPath);
+        const interrupted = plan.status === "pending" && plan.key !== reviewPath && pendingPlanFilePath !== plan.key;
         const tone = interrupted ? "copper" : PLAN_TONE[plan.status];
         const label = interrupted ? "interrupted" : PLAN_LABEL[plan.status];
         return (
@@ -1276,11 +1291,17 @@ function PlansPane({ tabId }: { tabId: string }) {
  * an empty state.
  */
 function DiffsPane({ tabId }: { tabId: string }) {
-  const record = useStore((s) => findRecord(s.state, tabId));
-  // The session's owning instance (issue #416): the diff is read from that host.
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
-  const cwd = sessionCwd(record);
-  const base = record?.worktree?.base ?? null;
+  const { cwd, base, instanceId } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      const rec = owner?.record;
+      return {
+        cwd: sessionCwd(rec),
+        base: rec?.worktree?.base ?? null,
+        instanceId: owner?.instanceId ?? null,
+      };
+    }),
+  );
   const key = cwd === undefined ? undefined : projectKey(instanceId, cwd);
   // A checkout through the composer chip (issue #35) updates this slice; the
   // pane re-reads so it never shows the previous branch's diff.
@@ -1543,14 +1564,13 @@ function MemberTabs({
   );
 }
 
-export function InspectorRail({ tabId, active = true }: { tabId: string; active?: boolean }) {
+export const InspectorRail = memo(function InspectorRail({ tabId, active = true }: { tabId: string; active?: boolean }) {
   const [sel, setSel] = useState<RailSelection>(() => selection.get(tabId) ?? DEFAULT_SELECTION);
   const baseId = useId();
   const compact = useCompactShell();
   const viewportWidth = useViewportWidth();
   const surface = useStore((s) => s.compactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
-  const runtime = useStore((s) => s.rpc[tabId]);
   const open = useStore((s) => s.inspectorOpen);
   const setOpen = useStore((s) => s.setInspectorOpen);
   const inspectorWidth = useStore((s) => s.inspectorWidth);
@@ -1609,9 +1629,8 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
     split,
   });
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
-  const record = useStore((s) => findRecord(s.state, tabId));
-  const badges = inspectorBadges(runtime, record);
-  const chat = record?.chat === true;
+  const badges = useStore(useShallow((s) => inspectorBadges(s.rpc[tabId], findRecord(s.state, tabId))));
+  const chat = useStore((s) => findRecord(s.state, tabId)?.chat === true);
   const groups = GROUPS
     .map((group) => ({
       ...group,
@@ -1770,4 +1789,4 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
       </div>
     </aside>
   );
-}
+});

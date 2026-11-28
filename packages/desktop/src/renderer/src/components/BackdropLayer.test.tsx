@@ -9,10 +9,18 @@ import { applyBackdropMotion } from "../lib/backdrop-motion";
 import { applyTheme } from "../lib/themes";
 import { BackdropLayer } from "./BackdropLayer";
 
+const SCENE_DOC = "<!doctype html><html><body><svg></svg></body></html>";
 const mockAsset = {
-  current: { url: "blob:anim", stillUrl: "blob:still", kind: "scene", mime: "image/svg+xml" } as {
+  current: {
+    url: "blob:anim",
+    stillUrl: "blob:still",
+    sceneFrameDoc: SCENE_DOC,
+    kind: "scene",
+    mime: "image/svg+xml",
+  } as {
     url: string;
     stillUrl: string;
+    sceneFrameDoc?: string;
     kind: "image" | "scene" | "video";
     mime: string;
   },
@@ -34,7 +42,13 @@ afterEach(() => {
   root = null;
   document.body.replaceChildren();
   applyBackdropChromeMock.mockReset();
-  mockAsset.current = { url: "blob:anim", stillUrl: "blob:still", kind: "scene", mime: "image/svg+xml" };
+  mockAsset.current = {
+    url: "blob:anim",
+    stillUrl: "blob:still",
+    sceneFrameDoc: SCENE_DOC,
+    kind: "scene",
+    mime: "image/svg+xml",
+  };
   Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
   window.matchMedia = originalMatchMedia;
   vi.restoreAllMocks();
@@ -50,7 +64,7 @@ function sceneTheme(origin: ThemeOrigin | null): ThemeSource {
 
 const ORIGIN = { repository: "o/r", path: "a.json", commit: "a".repeat(40), blob: "b".repeat(40) };
 
-async function rendered(source: ThemeSource): Promise<string | null> {
+async function mountScene(source: ThemeSource): Promise<HTMLDivElement> {
   applyBackdropMotion(true);
   applyTheme(deriveTheme(source));
   const host = document.createElement("div");
@@ -59,19 +73,62 @@ async function rendered(source: ThemeSource): Promise<string | null> {
   await act(async () => {
     root!.render(<BackdropLayer />);
   });
-  return host.querySelector("img")?.getAttribute("src") ?? null;
+  return host;
 }
 
 describe("BackdropLayer repository scenes (#1178)", () => {
   it("keeps an installed theme's scene still until its Animate switch is on", async () => {
-    expect(await rendered(sceneTheme({ ...ORIGIN, animate: false }))).toBe("blob:still");
+    const host = await mountScene(sceneTheme({ ...ORIGIN, animate: false }));
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:still");
   });
 
-  it("animates an installed scene the user allowed, and any non-repository scene", async () => {
-    expect(await rendered(sceneTheme({ ...ORIGIN, animate: true }))).toBe("blob:anim");
+  it("animates an installed scene the user allowed, and any non-repository scene, inside a sandboxed iframe", async () => {
+    const host1 = await mountScene(sceneTheme({ ...ORIGIN, animate: true }));
+    const frame1 = host1.querySelector("iframe");
+    expect(frame1).not.toBeNull();
+    expect(frame1!.getAttribute("sandbox")).toBe("");
+    expect(frame1!.getAttribute("srcdoc")).toBe(SCENE_DOC);
+    expect(frame1!.getAttribute("tabindex")).toBe("-1");
+    expect(host1.querySelector("img")).toBeNull();
+
     act(() => root!.unmount());
     root = null;
-    expect(await rendered(sceneTheme(null))).toBe("blob:anim");
+    const host2 = await mountScene(sceneTheme(null));
+    const frame2 = host2.querySelector("iframe");
+    expect(frame2).not.toBeNull();
+    expect(frame2!.getAttribute("sandbox")).toBe("");
+    expect(frame2!.getAttribute("srcdoc")).toBe(SCENE_DOC);
+  });
+
+  it("swaps animating scenes back to stillUrl img when motion is off, hidden, or reduced-motion", async () => {
+    const host = await mountScene(sceneTheme(null));
+    expect(host.querySelector("iframe")).not.toBeNull();
+
+    await act(async () => {
+      applyBackdropMotion(false);
+    });
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:still");
+
+    await act(async () => {
+      applyBackdropMotion(true);
+    });
+    expect(host.querySelector("iframe")).not.toBeNull();
+
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:still");
+  });
+
+  it("falls back to img when sceneFrameDoc is absent", async () => {
+    mockAsset.current = { url: "blob:anim", stillUrl: "blob:still", kind: "scene", mime: "image/svg+xml" };
+    const host = await mountScene(sceneTheme(null));
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:anim");
   });
 });
 

@@ -1,5 +1,6 @@
 import { createElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useShallow } from "zustand/react/shallow";
 import {
   composeHtmlArtifactDocument,
   HEIGHT_HASH_PREFIX,
@@ -178,7 +179,16 @@ function ArtifactActions({
 }) {
   const theme = useTheme();
   const enabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
-  const owner = useStore((s) => findOwner(s.state, tabId));
+  const { ownerPresent, native, sessionId } = useStore(
+    useShallow((s) => {
+      const owner = findOwner(s.state, tabId);
+      return {
+        ownerPresent: owner !== undefined,
+        native: owner?.instanceId === null && owner.record.mode === "rpc-ui",
+        sessionId: owner?.record.sessionId ?? null,
+      };
+    }),
+  );
   const revision = useStore((s) => s.artifactLibraryRevision);
   const [lookup, setLookup] = useState<ArtifactSourceLookup | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,7 +196,6 @@ function ArtifactActions({
   const [titling, setTitling] = useState(false);
   const [keepTitle, setKeepTitle] = useState(title);
   const resolution = useRef(0);
-  const native = owner?.instanceId === null && owner.record.mode === "rpc-ui";
   useEffect(() => {
     let canceled = false;
     const generation = ++resolution.current;
@@ -198,8 +207,8 @@ function ArtifactActions({
         const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(artifactCanonicalJson(item.args)));
         sourceHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
       }
-      if (owner === undefined) return;
-      const next = await backend.artifactResolveSource({ tabId, sessionId: owner.record.sessionId, toolCallId: item.toolCallId || null, sourceHash, ...(item.artifactDraft ? { draftId: item.artifactDraft.draftId } : {}) });
+      if (!ownerPresent) return;
+      const next = await backend.artifactResolveSource({ tabId, sessionId, toolCallId: item.toolCallId || null, sourceHash, ...(item.artifactDraft ? { draftId: item.artifactDraft.draftId } : {}) });
       if (canceled || generation !== resolution.current) return;
       setLookup(next); setError(null);
       if (next.status === "draft") { onHistorical(false); onResolvedDraft(next.draft.draftId); }
@@ -207,7 +216,7 @@ function ArtifactActions({
       else { onResolvedDraft(null); onHistorical(false); }
     })().catch((reason: unknown) => { if (!canceled && generation === resolution.current) setError(displayMessage(reason)); });
     return () => { canceled = true; };
-  }, [enabled, native, owner, item.args, item.artifactDraft, item.status, item.toolCallId, tabId, revision, onResolvedDraft, onHistorical]);
+  }, [enabled, native, ownerPresent, sessionId, item.args, item.artifactDraft, item.status, item.toolCallId, tabId, revision, onResolvedDraft, onHistorical]);
   const keep = async (accept: boolean): Promise<void> => {
     if (lookup?.status !== "draft") return;
     resolution.current++;

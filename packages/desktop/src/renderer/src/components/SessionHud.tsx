@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useShallow } from "zustand/react/shallow";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
@@ -1793,14 +1794,26 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   // The owning remote instance (issue #416): the nickname chip, and the target
   // of every project-scoped action this HUD fires (new session, capabilities).
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
-  const instance = useStore((s) => (instanceId === null ? undefined : findInstance(s.state, instanceId)));
+  const instance = useStore(
+    useShallow((s) => {
+      if (instanceId === null) return null;
+      const found = findInstance(s.state, instanceId);
+      return found === undefined ? null : { url: found.url, nickname: found.nickname };
+    }),
+  );
   // Fleet provenance (issue #899): who dispatched this session, as a quiet chip.
   const fleetFrom = useStore((s) => findRecord(s.state, tabId)?.fleet?.requestedBy ?? null);
   // Routine provenance (ADR-0100): the routine's own name, pinned on the record.
   const routineName = useStore((s) => findRecord(s.state, tabId)?.routine?.name ?? null);
   // The dispatching session (#1226, ADR-0098): the same R1–R6 resolution as the
   // sidebar; the cached map keeps the reference stable per state.
-  const dispatcher = useStore((s) => (s.state === null ? null : resolveDispatchLinks(s.state).get(tabId)?.parent ?? null));
+  const dispatcher = useStore(
+    useShallow((s) => {
+      if (s.state === null) return null;
+      const parent = resolveDispatchLinks(s.state).get(tabId)?.parent;
+      return parent ? { tabId: parent.session.tabId, title: parent.session.title } : null;
+    }),
+  );
   const openDispatcher = useStore((s) => s.openSession);
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
@@ -1846,13 +1859,19 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   const costCap = useStore((s) => s.rpc[tabId]?.costCap);
   const openSettings = useStore((s) => s.openSettings);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
-  const projectFace = useStore((s) => sessionProjectFace(s.state, tabId));
+  const projectFace = useStore(useShallow((s) => sessionProjectFace(s.state, tabId)));
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
   const openProjectSettingsForRoster = useStore((s) => s.openProjectSettings);
-  const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
-  // Linked pull requests (#985); an older remote host publishes none. The
-  // record array is replaced on change, so the selector stays referentially stable.
-  const pullRequests = useStore((s) => findRecord(s.state, tabId)?.pullRequests);
+  const worktree = useStore(useShallow((s) => findRecord(s.state, tabId)?.worktree ?? null));
+  // Linked pull requests (#985); an older remote host publishes none.
+  const pullRequestsKey = useStore((s) => {
+    const prs = findRecord(s.state, tabId)?.pullRequests;
+    return prs && prs.length > 0 ? JSON.stringify(prs) : "";
+  });
+  const pullRequests = useMemo(
+    () => (pullRequestsKey === "" ? undefined : findRecord(useStore.getState().state, tabId)?.pullRequests),
+    [pullRequestsKey, tabId],
+  );
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   // The tree navigator needs a live process (its bridge publishes over
@@ -2016,7 +2035,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
       <span className="min-w-0 truncate">{projectFace.name}</span>
     </span>
   );
-  const instanceChip = instance !== undefined && (
+  const instanceChip = instance !== null && (
     <Chip mono title={instance.url} className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
       {instance.nickname}
     </Chip>
@@ -2026,7 +2045,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
       <button
         type="button"
         title="Open the session that dispatched this one"
-        onClick={() => void openDispatcher(dispatcher.session.tabId)}
+        onClick={() => void openDispatcher(dispatcher.tabId)}
         className={cn(
           "inline-flex max-w-64 shrink-0 items-center gap-1 rounded border px-1.5 py-px text-xs leading-4 transition-colors",
           TONE_CHIP.neutral,
@@ -2034,7 +2053,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
           !compact && "[app-region:no-drag]",
         )}
       >
-        ↩ <span className="truncate">{`Dispatched by ${dispatcher.session.title}`}</span>
+        ↩ <span className="truncate">{`Dispatched by ${dispatcher.title}`}</span>
       </button>
     ) : routineName !== null ? (
       <Chip

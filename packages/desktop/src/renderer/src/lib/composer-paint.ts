@@ -6,6 +6,8 @@ export interface ComposerPaintRun {
   text: string;
   color?: string;
   iris?: boolean;
+  keyword?: MagicKeyword;
+  kwIndex?: number;
 }
 
 /** Splits draft text into keyword-color and resolved-mention paint runs. */
@@ -21,8 +23,9 @@ export function composerPaintRuns(
   let mentionIndex = 0;
   for (const segment of magicKeywordSegments(text, firing)) {
     if (segment.keyword !== null) {
-      keywordColors(segment.keyword, phase).forEach((color, index) => {
-        out.push({ text: segment.text[index]!, color });
+      const kw = segment.keyword;
+      keywordColors(kw, phase).forEach((color, index) => {
+        out.push({ text: segment.text[index]!, color, keyword: kw, kwIndex: index });
       });
     } else {
       const segmentStart = base;

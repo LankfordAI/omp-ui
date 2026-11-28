@@ -358,13 +358,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ];
     set((current) => {
       let changed = false;
-      const rpc = { ...current.rpc };
+      let rpc = current.rpc;
       for (const summary of summaries) {
         const availability = summary.bridgeAvailability;
         const tab = rpc[summary.tabId];
         if (availability === undefined || tab === undefined) continue;
+        const needPlan = !availability.plan && tab.plan?.unavailable !== "bridge-unavailable";
+        const needAdvisor = !availability.advisorStats && tab.advisorStats?.unavailable !== "bridge-unavailable";
+        if (!needPlan && !needAdvisor) continue;
+        if (!changed) {
+          rpc = { ...current.rpc };
+          changed = true;
+        }
         const nextTab = { ...tab };
-        if (!availability.plan) {
+        if (needPlan) {
           nextTab.plan = {
             enabled: false,
             planFilePath: null,
@@ -373,7 +380,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             unavailable: "bridge-unavailable",
           };
         }
-        if (!availability.advisorStats) {
+        if (needAdvisor) {
           nextTab.advisorStats = {
             available: false,
             unavailable: "bridge-unavailable",
@@ -387,10 +394,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             totalTokens: 0, advisors: [], configWarnings: [],
           };
         }
-        if (!availability.plan || !availability.advisorStats) {
-          rpc[summary.tabId] = nextTab;
-          changed = true;
-        }
+        rpc[summary.tabId] = nextTab;
       }
       return changed ? { rpc } : {};
     });

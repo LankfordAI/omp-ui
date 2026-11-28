@@ -70,26 +70,66 @@ export function thresholdViolations(
   return out;
 }
 
-/** Direct children of `selfPid`, from /proc stat ppid fields. */
-function listChildrenFromProc(selfPid: number): { pid: number; comm: string }[] {
-  const out: { pid: number; comm: string }[] = [];
-  for (const entry of fs.readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    const pid = Number(entry);
-    if (pid === selfPid) continue;
-    try {
-      const stat = fs.readFileSync(path.join("/proc", entry, "stat"), "utf8");
-      // pid (comm) state ppid … — comm may contain spaces/parens, so anchor on
-      // the last ")"; ppid is the second field after it.
-      const close = stat.lastIndexOf(")");
-      if (close === -1) continue;
-      const comm = stat.slice(stat.indexOf("(") + 1, close);
-      const rest = stat.slice(close + 2).split(" ");
-      if (Number(rest[1]) === selfPid) out.push({ pid, comm });
-    } catch {
-      // Exited mid-scan.
+/** Direct children of `selfPid`: fast path via /proc/self/task/<tid>/children, async /proc fallback. */
+async function listChildrenFromProcAsync(selfPid: number): Promise<{ pid: number; comm: string }[]> {
+  try {
+    const tids = await fs.promises.readdir("/proc/self/task");
+    const childPids = new Set<number>();
+    let readAny = false;
+    await Promise.all(
+      tids.map(async (tid) => {
+        try {
+          const raw = await fs.promises.readFile(path.join("/proc/self/task", tid, "children"), "utf8");
+          readAny = true;
+          for (const token of raw.trim().split(/\s+/)) {
+            if (!token) continue;
+            const pid = Number(token);
+            if (Number.isInteger(pid) && pid > 0 && pid !== selfPid) childPids.add(pid);
+          }
+        } catch {
+          // Thread exited mid-scan or CONFIG_PROC_CHILDREN unavailable.
+        }
+      }),
+    );
+    if (readAny) {
+      const results = await Promise.all(
+        [...childPids].map(async (pid) => {
+          try {
+            const comm = (await fs.promises.readFile(path.join("/proc", String(pid), "comm"), "utf8")).trim();
+            return { pid, comm };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return results.filter((entry): entry is { pid: number; comm: string } => entry !== null);
     }
+  } catch {
+    // Fall through to bounded async /proc scan.
   }
+
+  const entries = (await fs.promises.readdir("/proc")).filter((entry) => /^\d+$/.test(entry));
+  const out: { pid: number; comm: string }[] = [];
+  const CONCURRENCY = 16;
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < entries.length) {
+      const entry = entries[cursor++]!;
+      const pid = Number(entry);
+      if (pid === selfPid) continue;
+      try {
+        const stat = await fs.promises.readFile(path.join("/proc", entry, "stat"), "utf8");
+        const close = stat.lastIndexOf(")");
+        if (close === -1) continue;
+        const comm = stat.slice(stat.indexOf("(") + 1, close);
+        const rest = stat.slice(close + 2).split(" ");
+        if (Number(rest[1]) === selfPid) out.push({ pid, comm });
+      } catch {
+        // Exited mid-scan.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, entries.length) }, () => worker()));
   return out;
 }
 
@@ -104,10 +144,10 @@ export interface FdWatchdogOptions {
   logDir: string;
   intervalMs?: number;
   limits?: Partial<FdWatchdogLimits>;
-  // Test seams — real defaults read /proc:
-  listFds?: (dir: string) => string[];
-  readFdTarget?: (fdPath: string) => string;
-  listChildren?: (selfPid: number) => { pid: number; comm: string }[];
+  // Test seams — real defaults read /proc asynchronously:
+  listFds?: (dir: string) => string[] | Promise<string[]>;
+  readFdTarget?: (fdPath: string) => string | Promise<string>;
+  listChildren?: (selfPid: number) => { pid: number; comm: string }[] | Promise<{ pid: number; comm: string }[]>;
   log?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -126,57 +166,90 @@ export function startFdWatchdog(opts: FdWatchdogOptions): () => void {
     ...opts.limits,
     ...(envMaxTotal !== undefined ? { maxTotal: envMaxTotal } : {}),
   };
-  const listFds = opts.listFds ?? ((dir: string) => fs.readdirSync(dir));
-  const readFdTarget = opts.readFdTarget ?? ((p: string) => fs.readlinkSync(p));
-  const listChildren = opts.listChildren ?? listChildrenFromProc;
+  const listFds = opts.listFds ?? ((dir: string) => fs.promises.readdir(dir));
+  const readFdTarget = opts.readFdTarget ?? ((p: string) => fs.promises.readlink(p));
+  const listChildren = opts.listChildren ?? listChildrenFromProcAsync;
   const log = opts.log ?? ((line: string) => appendMainLog(opts.logDir, "fd-watchdog.log", line));
 
-  const snapshot = (): FdSnapshot | null => {
+  const takeSnapshot = async (): Promise<FdSnapshot | null> => {
     try {
-      const fds = listFds("/proc/self/fd");
+      const fds = await listFds("/proc/self/fd");
       const targets: string[] = [];
-      for (const fd of fds) {
-        try {
-          targets.push(readFdTarget(path.join("/proc/self/fd", fd)));
-        } catch {
-          // fd churn between readdir and readlink.
-        }
-      }
-      const children = listChildren(process.pid).map((c) => {
-        let total = 0;
-        try {
-          total = listFds(`/proc/${c.pid}/fd`).length;
-        } catch {
-          // Exited between the ppid scan and the fd read.
-        }
-        return { ...c, total };
-      });
+      await Promise.all(
+        fds.map(async (fd) => {
+          try {
+            targets.push(await readFdTarget(path.join("/proc/self/fd", fd)));
+          } catch {
+            // fd churn between readdir and readlink.
+          }
+        }),
+      );
+      const rawChildren = await listChildren(process.pid);
+      const children = await Promise.all(
+        rawChildren.map(async (c) => {
+          let total = 0;
+          try {
+            total = (await listFds(`/proc/${c.pid}/fd`)).length;
+          } catch {
+            // Exited between the child scan and the fd read.
+          }
+          return { ...c, total };
+        }),
+      );
       return { at: Date.now(), total: fds.length, byType: summarizeTargets(targets), children };
     } catch {
       return null;
     }
   };
 
-  const baseline = snapshot();
-  if (baseline) log(`baseline ${JSON.stringify(baseline)}`);
+  let baseline: FdSnapshot | null = null;
   let elevated = false;
   let lastElevatedLog = 0;
-  const timer = setInterval(() => {
-    const snap = snapshot();
-    if (!snap || !baseline) return;
-    const violations = thresholdViolations(snap, baseline, limits);
-    const now = Date.now();
-    if (violations.length > 0) {
-      if (!elevated || now - lastElevatedLog >= ELEVATED_LOG_EVERY_MS) {
-        log(`ALERT ${violations.join("; ")} | ${JSON.stringify(snap)}`);
-        lastElevatedLog = now;
-      }
-      elevated = true;
-    } else if (elevated) {
-      log(`recovered ${JSON.stringify(snap)}`);
-      elevated = false;
+  let inFlight = false;
+  let stopped = false;
+
+  const runBaseline = async (): Promise<void> => {
+    inFlight = true;
+    try {
+      const snap = await takeSnapshot();
+      if (stopped || !snap) return;
+      baseline = snap;
+      log(`baseline ${JSON.stringify(baseline)}`);
+    } finally {
+      inFlight = false;
     }
+  };
+
+  const runTick = async (): Promise<void> => {
+    if (stopped || inFlight || !baseline) return;
+    inFlight = true;
+    try {
+      const snap = await takeSnapshot();
+      if (stopped || !snap || !baseline) return;
+      const violations = thresholdViolations(snap, baseline, limits);
+      const now = Date.now();
+      if (violations.length > 0) {
+        if (!elevated || now - lastElevatedLog >= ELEVATED_LOG_EVERY_MS) {
+          log(`ALERT ${violations.join("; ")} | ${JSON.stringify(snap)}`);
+          lastElevatedLog = now;
+        }
+        elevated = true;
+      } else if (elevated) {
+        log(`recovered ${JSON.stringify(snap)}`);
+        elevated = false;
+      }
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  void runBaseline();
+  const timer = setInterval(() => {
+    void runTick();
   }, intervalMs);
   timer.unref();
-  return () => clearInterval(timer);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }

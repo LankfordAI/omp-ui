@@ -7,6 +7,7 @@ import {
   backdropFloors,
   checkBackdropBytes,
   isThemeBackdrop,
+  sceneFrameHtml,
   stillScene,
 } from "./theme-backdrop";
 
@@ -169,6 +170,24 @@ describe("stillScene", () => {
 
   it("returns non-SVG text unchanged", () => {
     expect(stillScene("not a scene")).toBe("not a scene");
+  });
+});
+
+describe("sceneFrameHtml", () => {
+  it("wraps SVG with CSP, strips XML/DOCTYPE declarations, and injects preserveAspectRatio when absent", () => {
+    const raw = `\uFEFF<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg viewBox="0 0 10 10"><rect/></svg>`;
+    const html = sceneFrameHtml(raw);
+    expect(html).toContain('http-equiv="Content-Security-Policy"');
+    expect(html).toContain("default-src 'none'; style-src 'unsafe-inline'; img-src data:;");
+    expect(html).not.toContain("<?xml");
+    expect(html).not.toContain("<!DOCTYPE svg");
+    expect(html).toContain('<svg viewBox="0 0 10 10" preserveAspectRatio="xMidYMid slice"><rect/></svg>');
+  });
+
+  it("preserves an existing preserveAspectRatio attribute", () => {
+    const html = sceneFrameHtml('<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect/></svg>');
+    expect(html).toContain('<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect/></svg>');
+    expect(html).not.toContain("xMidYMid slice");
   });
 });
 

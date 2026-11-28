@@ -24,6 +24,7 @@ import { linkify } from "./Markdown";
 import { MarkdownMachineProvider } from "./MarkdownMachineProvider";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
 import { RoutineFocusProvider } from "./RoutineFocusProvider";
+import { TabPaintingContext } from "./TabPaintingContext";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton, CouncilSettingsButton } from "./TranscriptView";
 import { HostModelPicker } from "./HostModelPicker";
 import { ModelPalette } from "./ModelSelector";
@@ -725,10 +726,12 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
     </div>
   );
   return (
-    <MarkdownMachineProvider tabId={tabId}>
-      <MarkdownVaultProvider tabId={tabId}>
-        <RoutineFocusProvider tabId={tabId}>{content}</RoutineFocusProvider>
-      </MarkdownVaultProvider>
-    </MarkdownMachineProvider>
+    <TabPaintingContext.Provider value={active}>
+      <MarkdownMachineProvider tabId={tabId}>
+        <MarkdownVaultProvider tabId={tabId}>
+          <RoutineFocusProvider tabId={tabId}>{content}</RoutineFocusProvider>
+        </MarkdownVaultProvider>
+      </MarkdownMachineProvider>
+    </TabPaintingContext.Provider>
   );
 });

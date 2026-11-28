@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressHalo, ProgressRing, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressHalo, ProgressRing, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing, perimeterEdgeKeyframes } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -490,8 +490,8 @@ describe("UpdateCard", () => {
 describe("activity sweeps", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("continuously spins the original rounded SVG dash", async () => {
-    vi.spyOn(SVGElement.prototype, "getBoundingClientRect").mockReturnValue({
+  it("mounts four transform-composited edge bars clipped by perimeter-ring-mask", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       width: 200,
       height: 90,
     } as DOMRect);
@@ -500,17 +500,42 @@ describe("activity sweeps", () => {
         <PerimeterSweep tone="copper" />
       </div>,
     );
-    const ring = document.querySelector<SVGSVGElement>("[data-perimeter-sweep]")!;
-    const path = ring.querySelector("path")!;
+    const ring = document.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring.classList.contains("text-copper")).toBe(true);
-    expect(path.getAttribute("stroke-linecap")).toBe("round");
-    expect(path.getAttribute("stroke-dasharray")).toBe("0.2 0.8");
-    expect(path.getAttribute("fill")).toBe("none");
-    expect(path.getAttribute("stroke")).toBe("currentColor");
-    expect(path.getAttribute("stroke-width")).toBe("1.5");
-    expect(path.getAttribute("pathLength")).toBe("1");
-    expect(path.classList.contains("animate-sweep-loop")).toBe(true);
-    expect(path.classList.contains("motion-reduce:animate-none")).toBe(true);
+    expect(ring.classList.contains("perimeter-ring-mask")).toBe(true);
+    const edges = [...ring.querySelectorAll<HTMLElement>("[data-sweep-edge]")].map(
+      (el) => el.dataset.sweepEdge,
+    );
+    expect(edges).toEqual(["top", "right", "bottom", "left"]);
+  });
+
+  it("computes constant-speed monotonic keyframes across all four edges including wrap-around", () => {
+    const W = 200;
+    const H = 90;
+    const P = 2 * (W + H);
+    const segment = 0.2;
+    const L = segment * P;
+    const specs = perimeterEdgeKeyframes(W, H, segment);
+
+    for (const key of ["top", "right", "bottom", "left"] as const) {
+      const frames = specs[key].keyframes;
+      expect(specs[key].barLength).toBeCloseTo(L);
+      expect(frames[0]!.offset).toBe(0);
+      expect(frames.at(-1)!.offset).toBe(1);
+      for (let i = 1; i < frames.length; i++) {
+        expect(Number(frames[i]!.offset)).toBeGreaterThanOrEqual(Number(frames[i - 1]!.offset));
+      }
+    }
+
+    // Verify constant pixel speed P on top active segment [0, W/P]: u goes 0 -> W
+    const top = specs.top.keyframes;
+    expect(top[0]!.transform).toBe("translate3d(0px, 0, 0)");
+    expect(top[1]!.offset).toBeCloseTo(W / P);
+    expect(top[1]!.transform).toBe(`translate3d(${W}px, 0, 0)`);
+    expect(top[1]!.easing).toBe("steps(1, end)");
+    expect(top[2]!.offset).toBeCloseTo(1 - L / P);
+    expect(top[2]!.transform).toBe(`translate3d(${-L}px, 0, 0)`);
+    expect(top[3]!.transform).toBe("translate3d(0px, 0, 0)");
   });
 
   it("animates continuously and freezes only while paused", async () => {
@@ -536,15 +561,21 @@ describe("PerimeterGlow", () => {
     );
   });
 
-  it("renders an inert ring rotated by the wrapped phase", async () => {
+  it("renders an inert ring rotated by the wrapped phase and toggles compositor spin via animate", async () => {
     await render(<PerimeterGlow colors={["red", "blue"]} phase={-0.25} />);
     const el = document.querySelector<HTMLElement>("[data-perimeter-glow]")!;
+    const rotor = el.querySelector<HTMLElement>("[data-perimeter-rotor]")!;
     expect(el.getAttribute("aria-hidden")).toBe("true");
     expect(el.classList.contains("perimeter-glow")).toBe(true);
     expect(el.classList.contains("pointer-events-none")).toBe(true);
     expect(el.style.getPropertyValue("--perimeter-glow")).toBe(
       "conic-gradient(from 270deg, red, blue, red)",
     );
+    expect(rotor.classList.contains("animate-perimeter-spin")).toBe(false);
+
+    act(() => root!.render(<PerimeterGlow colors={["red", "blue"]} animate />));
+    expect(rotor.classList.contains("animate-perimeter-spin")).toBe(true);
+    expect(rotor.classList.contains("motion-reduce:animate-none")).toBe(true);
   });
 });
 

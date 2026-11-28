@@ -284,13 +284,10 @@ export default function App() {
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
   const shareConfirmTab = useStore((s) => s.shareConfirmTab);
   const scheduleDialogTab = useStore((s) => s.scheduleDialogTab);
-  const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
   const shareLiveTab = useStore((s) => s.shareLiveTab);
   const shareLiveConfirm = useStore((s) => s.shareLiveConfirmTab);
-  const sessionTreeView = useStore((s) => s.sessionTreeView);
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
-  const state = useStore((s) => s.state);
   const newSessionDialog = useStore((s) => s.newSessionDialog);
   const projectQuickOpen = useStore((s) => s.projectQuickOpen);
   const migrateDialog = useStore((s) => s.migrateDialog);
@@ -318,7 +315,10 @@ export default function App() {
       s.routinesInstanceId
     );
   });
-  const fleetTerminals = useStore((s) => s.state?.fleetTerminals ?? EMPTY_FLEET_TERMINALS);
+  const fleetTerminals = useStore((s) => {
+    const list = s.state?.fleetTerminals;
+    return list && list.length > 0 ? list : EMPTY_FLEET_TERMINALS;
+  });
   // A shown terminal that was closed (here or in another window) leaves the pane to the tabs.
   const shownFleetTerminal = fleetTerminals.some((ft) => ft.terminalId === fleetTerminal) ? fleetTerminal : null;
   const experimentDialog = useStore((s) => s.experimentDialog);
@@ -345,32 +345,33 @@ export default function App() {
   // The dialog reads its project from the owning registry — this app's own,
   // or a joined remote instance's (issue #416) — so a removed project (or a
   // vanished instance) auto-closes it.
-  const projectSettingsProject =
-    projectSettings === null
-      ? null
-      : (projectSettings.instanceId === null
-          ? state?.projects
-          : findInstance(state, projectSettings.instanceId)?.projects
-        )?.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
+  const projectSettingsProject = useStore((s) => {
+    const ps = s.projectSettings;
+    if (ps === null) return null;
+    const groups = ps.instanceId === null
+      ? s.state?.projects
+      : findInstance(s.state, ps.instanceId)?.projects;
+    return groups?.find((g) => g.project.path === ps.projectCwd)?.project ?? null;
+  });
 
   // The viewer is pinned to the record it captured: a focus change never
   // retargets it, but deleting the pinned session closes it (the same
   // lookup-enforced auto-close as the project dialog above).
-  const capabilitiesModal =
-    capabilitiesViewer === null ||
-    (capabilitiesViewer.tabId !== undefined &&
-      state !== null &&
-      findOwner(state, capabilitiesViewer.tabId) === undefined)
-      ? null
-      : capabilitiesViewer;
+  const capabilitiesModal = useStore((s) => {
+    const cv = s.capabilitiesViewer;
+    if (cv === null) return null;
+    if (cv.tabId !== undefined && s.state !== null && findOwner(s.state, cv.tabId) === undefined) return null;
+    return cv;
+  });
 
   // The tree navigator pins to its record too: deleting the session closes
   // the viewer, like the capabilities modal above (issue #680).
-  const treeModal =
-    sessionTreeView === null ||
-    (state !== null && findOwner(state, sessionTreeView.tabId) === undefined)
-      ? null
-      : sessionTreeView;
+  const treeModal = useStore((s) => {
+    const tv = s.sessionTreeView;
+    if (tv === null) return null;
+    if (s.state !== null && findOwner(s.state, tv.tabId) === undefined) return null;
+    return tv;
+  });
 
   // Turning the feature off must not leave an open Lab or dialog behind: close
   // both, which stops the Lab's refresh timer through closeLab.
