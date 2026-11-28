@@ -423,7 +423,10 @@ const resume = (manager: SessionManager): Promise<{ tabId: string }> =>
   });
 
 beforeEach(() => {
-  if (base) fs.rmSync(base, { recursive: true, force: true });
+  // A previous test's killed git child can still hold this folder as cwd for
+  // a beat; without a retry budget the rmdir races it and dies EBUSY on
+  // Windows (issue #503 class). force+retry absorbs the beat.
+  if (base) fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   fakePtys.length = 0;
   fakeShells.length = 0;
   rpcInstances.length = 0;
@@ -10918,7 +10921,7 @@ describe("project scope guidance arm (#1226, #1227)", () => {
   });
 });
 
-describe("reserveCheckout & checkout-mode convertToWorktree (Slice 2)", () => {
+describe("reserveCheckout & checkout-mode convertToWorktree (Slice 2)", { timeout: 30_000 }, () => {
   it("serializes two blank Build tabs on the same project and releases the claim on settle or Plan switch", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     const tab2 = "tab-2";

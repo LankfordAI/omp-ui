@@ -38,10 +38,13 @@ beforeEach(() => {
   registryFile = path.join(base, "registry.json");
 });
 
+// killAll outwaits every in-flight git probe (#503, #909) and a cold Windows
+// runner can take longer than the 10s default hook budget, which fails the
+// whole file as a hook timeout rather than a test failure.
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((be) => be.killAll()));
   fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-});
+}, 30_000);
 
 function bootWithProject(projectPath: string): MainBackend {
   const project = {
