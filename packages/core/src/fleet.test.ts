@@ -341,7 +341,9 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       "omp-ui_fleet_exec_poll",
       "omp-ui_fleet_update",
       "omp-ui_fleet_send",
+      "omp-ui_fleet_stop",
       "omp-ui_fleet_finish",
+      "omp-ui_fleet_settle",
       "omp-ui_fleet_grant_raise",
     ]);
   });
@@ -1022,6 +1024,43 @@ describe("omp-ui_fleet_finish landedOn (#1013)", () => {
     expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", bogus: true })).toEqual({
       ok: false,
       reason: 'unknown argument "bogus"',
+    });
+  });
+});
+
+describe("omp-ui_fleet_stop / omp-ui_fleet_settle arguments (#1400)", () => {
+  it("parses dispatchId only, trimmed, discriminating stop from settle", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_stop", { dispatchId: " d-1 " })).toEqual({
+      ok: true,
+      tool: "stop",
+      args: { dispatchId: "d-1" },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_settle", { dispatchId: "d-1" })).toEqual({
+      ok: true,
+      tool: "settle",
+      args: { dispatchId: "d-1" },
+    });
+    const bare = parseFleetToolArguments("omp-ui_fleet_stop", { dispatchId: "d-1" });
+    if (!bare.ok || bare.tool !== "stop") throw new Error("bare stop args must parse");
+    expect(Object.keys(bare.args)).toEqual(["dispatchId"]);
+  });
+
+  it("refuses unknown keys and blank, absent, or wrong-typed dispatchId", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_stop", { dispatchId: "d-1", landedOn: "x" })).toEqual({
+      ok: false,
+      reason: 'unknown argument "landedOn"',
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_settle", { dispatchId: "  " })).toEqual({
+      ok: false,
+      reason: "dispatchId must be a non-empty string",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_settle", {})).toEqual({
+      ok: false,
+      reason: "dispatchId must be a non-empty string",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_settle", { dispatchId: 7 })).toEqual({
+      ok: false,
+      reason: "dispatchId must be a non-empty string",
     });
   });
 });

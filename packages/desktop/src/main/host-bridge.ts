@@ -70,6 +70,8 @@ import {
   type FleetProjectManageOutcome,
   type FleetSendOutcome,
   type FleetFinishOutcome,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
   fleetFinishText,
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
@@ -170,6 +172,10 @@ export interface FleetBridgeDeps {
   send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
   /** Cleans up an already-landed worktree session this tab dispatched (issue #978); refusals ride the outcome. */
   finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
+  /** Aborts the running turn of a session this tab dispatched (issue #1400); refusals ride the outcome. */
+  stop(tabId: string, dispatchId: string): Promise<FleetStopOutcome>;
+  /** Reaps a session this tab dispatched (issue #1400); refusals ride the outcome. */
+  settle(tabId: string, dispatchId: string): Promise<FleetSettleOutcome>;
   /** Card-gated grant raise on a joined member (#1393); the control suspends the watchdog while the card waits. */
   grantRaise(tabId: string, args: FleetToolGrantRaiseArgs, control: HostCallControl): Promise<FleetGrantRaiseOutcome>;
 }
@@ -1067,6 +1073,18 @@ export class HostBridge {
         const outcome = await deps.finish(tabId, parsed.args);
         this.deps.log(`omp-ui_fleet_finish from ${tabId}: ${parsed.args.dispatchId} ${outcome.status}`);
         reply(hostToolTextResult(call.id, fleetFinishText(`dispatch ${parsed.args.dispatchId}`, outcome)));
+        return;
+      }
+      if (parsed.tool === "stop") {
+        const outcome = await deps.stop(tabId, parsed.args.dispatchId);
+        this.deps.log(`omp-ui_fleet_stop from ${tabId}: ${parsed.args.dispatchId} ${outcome.status}`);
+        reply(hostToolTextResult(call.id, outcome.status === "refused" ? `refused — ${outcome.reason}` : `stopped: ${outcome.status}`));
+        return;
+      }
+      if (parsed.tool === "settle") {
+        const outcome = await deps.settle(tabId, parsed.args.dispatchId);
+        this.deps.log(`omp-ui_fleet_settle from ${tabId}: ${parsed.args.dispatchId} ${outcome.status}`);
+        reply(hostToolTextResult(call.id, outcome.status === "refused" ? `refused — ${outcome.reason}` : `settled`));
         return;
       }
       const machines = await deps.machines();

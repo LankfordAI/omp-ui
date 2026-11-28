@@ -303,6 +303,10 @@ export interface FleetDispatcherLike {
   send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
   /** omp-ui_fleet_finish (#978): clean up an already-landed worktree session this tab dispatched. */
   finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
+  /** omp-ui_fleet_stop (#1400): abort the running turn of a child this tab dispatched. */
+  stop(tabId: string, dispatchId: string): Promise<FleetStopOutcome>;
+  /** omp-ui_fleet_settle (#1400): reap a child this tab dispatched. */
+  settle(tabId: string, dispatchId: string): Promise<FleetSettleOutcome>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -799,6 +803,8 @@ export class SessionManager {
               update: (tabId, args) => fleet().update(tabId, args),
               send: (tabId, args) => fleet().send(tabId, args),
               finish: (tabId, args) => fleet().finish(tabId, args),
+              stop: (tabId, dispatchId) => fleet().stop(tabId, dispatchId),
+              settle: (tabId, dispatchId) => fleet().settle(tabId, dispatchId),
             },
           }),
     });
