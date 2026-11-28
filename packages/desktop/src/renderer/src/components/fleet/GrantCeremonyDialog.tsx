@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import {
   FLEET_BINDING_REFUSAL,
   FLEET_RAISE_RUNGS,
@@ -6,7 +6,8 @@ import {
   type FleetGrantRaiseOutcome,
   type FleetRung,
 } from "@omp-ui/core/fleet";
-import { displayMessage } from "../../backend";
+import { backend, displayMessage } from "../../backend";
+import { useLoad } from "../../lib/load";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { ChoiceCapsule, Modal } from "../ui";
@@ -25,7 +26,13 @@ export function GrantCeremonyDialog(): ReactElement | null {
   const ceremony = useStore((s) => s.grantCeremony);
   const closeGrantCeremony = useStore((s) => s.closeGrantCeremony);
   const requestFleetGrant = useStore((s) => s.requestFleetGrant);
-  const fleetMachines = useStore((s) => s.fleet?.machines ?? null);
+  // Pre-checks need this machine's *current* gates: the store's fleet snapshot
+  // is the Fleet view's poll and can be arbitrarily old (Settings and the Copy
+  // dialog never load it), so the dialog fetches its own machine row on open —
+  // the same read machines() does — and retries it whenever the ceremony opens.
+  const readMachines = useCallback(() => backend.fleetMachines(), [ceremony]);
+  const { load: machinesLoad } = useLoad(readMachines);
+  const machines = machinesLoad.status === "loaded" ? machinesLoad.value : null;
   const [kind, setKind] = useState<"password" | "token">("password");
   const [rung, setRung] = useState<FleetRung>(ceremony?.neededRung ?? "manage");
   const [busy, setBusy] = useState(false);
@@ -33,9 +40,9 @@ export function GrantCeremonyDialog(): ReactElement | null {
 
   if (ceremony === null) return null;
   const machineName = ceremony.machineName;
-  // Pre-checks read the Fleet view's snapshot when one is loaded; without it
-  // the member's own refusal is the check.
-  const machine = fleetMachines?.find((m) => m.key === ceremony.instanceId) ?? null;
+  // Without a fresh answer (still loading, probe failed) the member's own
+  // refusal is the check.
+  const machine = machines?.find((m) => m.key === ceremony.instanceId) ?? null;
   const ceiling = machine?.grantCeiling ?? null;
   const execEnabled = machine?.memberExecEnabled ?? null;
   const heldRung = machine?.grantRung ?? null;
