@@ -1452,22 +1452,22 @@ export class MainBackend {
         [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
           this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
           this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
           this.registeredProjectPath(projectPath);
           this.registry.setProjectBrowserClock(projectPath, on);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.setProjectWorkspacePolicy]: async (projectPath: string, policy: WorkspacePolicy | null) => {
           this.registeredProjectPath(projectPath);
           this.registry.setProjectWorkspacePolicy(projectPath, policy);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.setProjectLastFinishOutcome]: async (
           projectPath: string,
@@ -1475,18 +1475,18 @@ export class MainBackend {
         ) => {
           this.registeredProjectPath(projectPath);
           this.registry.setProjectLastFinishOutcome(projectPath, outcome);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.setProjectWorktreeSetup]: async (
           projectPath: string,
           setup: ProjectWorktreeSetup | null,
         ) => {
           this.registeredProjectPath(projectPath);
-          if (this.registry.setProjectWorktreeSetup(projectPath, setup)) await this.broadcast();
+          if (this.registry.setProjectWorktreeSetup(projectPath, setup)) void this.broadcast();
         },
         [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
           this.registeredProjectPath(projectPath);
-          if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
+          if (this.registry.setProjectKnowledgeHome(projectPath, home)) void this.broadcast();
         },
         [CH.setProjectIcon]: (projectPath: string, req: ProjectIconRequest) => this.setProjectIcon(projectPath, req),
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
@@ -1629,11 +1629,11 @@ export class MainBackend {
         // re-arming a dismissed card from Settings needs its own pair.
         [CH.clearDismissedAppUpdate]: async () => {
           this.registry.setSetting("dismissedAppUpdateVersion", null);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.clearDismissedOmpUpdate]: async () => {
           this.registry.setSetting("dismissedOmpUpdateVersion", null);
-          await this.broadcast();
+          void this.broadcast();
         },
         [CH.toggleFavorite]: async (key: string) => {
           this.registry.toggleFavorite(key);
