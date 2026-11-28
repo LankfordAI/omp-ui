@@ -267,6 +267,40 @@ describe("RemoteInstancesPage (issue #416)", () => {
     expect(line?.textContent).not.toContain("Dispatch here");
   });
 
+  it("hides Request access on a row already granted everything its ceiling allows (#1398)", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+      fleet: {
+        machines: [
+          {
+            key: "inst-a",
+            nickname: "box-a",
+            status: "ready",
+            error: null,
+            preference: "normal",
+            report: null,
+            receivedAt: 0,
+            grantRung: "terminal",
+            grantCeiling: "terminal",
+            memberExecEnabled: true,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+          },
+        ],
+        audit: [],
+        updateAll: null,
+        loading: false,
+        error: null,
+      },
+    });
+    render();
+    expect(button("Refresh state").textContent).toBe("Refresh state");
+    expect([...document.body.querySelectorAll("button")].some((b) => b.textContent === "Request access…")).toBe(false);
+  });
+
   it("pre-fills the ceremony with a rung its ceiling allows, never a disabled one (#1398)", async () => {
     useStore.setState({
       state: backendState({

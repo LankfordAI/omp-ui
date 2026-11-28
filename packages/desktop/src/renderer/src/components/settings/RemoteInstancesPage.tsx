@@ -210,14 +210,18 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
                 Refresh state
               </Button>
               {/* Opens the shared ceremony pre-filled with the first rung this
-                  row does not effectively hold (issue #1398). */}
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => openGrantCeremony(instance.id, instance.nickname, neededRungOf(machine))}
-              >
-                Request access…
-              </Button>
+                  row does not effectively hold (issue #1398). A row already at
+                  the top of its ceiling has nothing to ask for: the button
+                  hides instead of collecting a secret for a no-op raise. */}
+              {(machine === null || needsAnythingOf(machine)) && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => openGrantCeremony(instance.id, instance.nickname, neededRungOf(machine))}
+                >
+                  Request access…
+                </Button>
+              )}
             </>
           )}
           <Button size="xs" variant="ghost" onClick={() => setEditing((v) => !v)}>
@@ -254,6 +258,14 @@ function neededRungOf(machine: { grantRung: FleetRung | null; grantCeiling: Flee
     if (!fleetRungAtLeast(held, r) && (ceiling === null || fleetRungRank(r) <= fleetRungRank(ceiling))) return r;
   }
   return "terminal";
+}
+
+/** True when some raise rung is neither held nor above the row's ceiling; false when the row is fully granted. */
+function needsAnythingOf(machine: { grantRung: FleetRung | null; grantCeiling: FleetRung | null }): boolean {
+  const held = machine.grantRung ?? null;
+  if (held === null) return true;
+  const ceiling = machine.grantCeiling;
+  return RAISE_RUNGS.some((r) => !fleetRungAtLeast(held, r) && (ceiling === null || fleetRungRank(r) <= fleetRungRank(ceiling)));
 }
 
 /** One line for what this app may do on that member, from its reported gates; null when none are known. */
