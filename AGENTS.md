@@ -45,6 +45,20 @@ Instructions for coding agents working in this repository.
   it by hand.
 - Wrap a `#N` that is not an issue in backticks.
 
+## Automated code review
+
+PRs in `LankfordAI/omp-ui` are handled by **PR-Agent** (GitHub App), which
+kicks off a review automatically when a PR opens — do not request a review
+by hand on a fresh PR.
+
+- `/review` — request a new review run (e.g. after pushing new commits)
+- `/describe` — generate or refresh the PR description
+- `/improve` — request code-improvement suggestions
+- `/ask "<question>"` — ask PR-Agent a question about the PR
+
+Other PR-Agent commands exist (`/update_changelog`, `/ci`, ...) but are not
+part of this repo's usual flow.
+
 ## Feature requests and bugs → GitHub issues
 
 **Every incoming feature request or bug report MUST be captured as a GitHub
