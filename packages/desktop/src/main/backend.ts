@@ -3680,7 +3680,7 @@ export class MainBackend {
     // Issue #1034 / #1286: read-only pass over omp's history.db title index,
     // stat-cached on candidate db + -wal siblings so unchanged builds do not
     // re-open SQLite or scan up to 5,000 rows synchronously.
-    const historyTitles = await this.readCachedSessionTitles();
+    const historyTitlesPromise = this.readCachedSessionTitles();
     const allSessions = this.registry.sessions;
     // CONTEXT.md **Fork**: a fork's header names a file in its source's lineage dir.
     const tabByLineage = new Map(allSessions.map((r) => [r.lineageDir, r.tabId] as const));
@@ -3707,15 +3707,16 @@ export class MainBackend {
       // longer stalls the rest. Order within a group follows the registry array.
       const sessions = await Promise.all(
         (byProject.get(project.path) ?? []).map((record) =>
-          this.summarize(record, historyTitles, tabByLineage, seenSpendFiles),
+          this.summarize(record, historyTitlesPromise, tabByLineage, seenSpendFiles),
         ),
       );
       groups.push({ project, sessions });
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
     const chats = await Promise.all(
-      chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage, seenSpendFiles)),
+      chatRecords.map((record) => this.summarize(record, historyTitlesPromise, tabByLineage, seenSpendFiles)),
     );
+    await historyTitlesPromise;
     for (const tabId of this.diskMemo.keys()) {
       if (!liveTabIds.has(tabId)) this.diskMemo.delete(tabId);
     }
@@ -3802,7 +3803,7 @@ export class MainBackend {
     // history.db index, keyed by session id. Gap-fill only — see the fallback
     // chain below. Raw strings; title-card splitting is a renderer concern
     // (parseTitleCard at display time).
-    historyTitles: SessionTitlesRead["titles"],
+    historyTitlesPromise: Promise<SessionTitlesRead["titles"]>,
     // Lineage dir → tabId over the whole registry, built once per buildState.
     tabByLineage: ReadonlyMap<string, string>,
     // Collects active/archived file paths read via spendCache so buildState can prune evicted files.
@@ -3939,6 +3940,7 @@ export class MainBackend {
     // orphan for a deleted session until `omp gc`; caching it would persist a
     // possibly-stale title into the registry.
     if (!title?.trim() && record.sessionId) {
+      const historyTitles = await historyTitlesPromise;
       const historyTitle = historyTitles[record.sessionId]?.title?.trim();
       if (historyTitle) title = historyTitle;
     }
