@@ -228,7 +228,78 @@ describe("RemoteInstancesPage (issue #416)", () => {
     });
     render();
     const line = document.body.querySelector("[data-access-line]");
-    expect(line?.textContent).toContain("ceiling Manage projects");
+    expect(line?.textContent).toContain("Dispatch here");
+    expect(line?.textContent).toContain("that machine's ceiling Manage projects");
+  });
+
+  it("never claims Dispatch for a member whose owner lowered this app to Observe (#1398)", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+      fleet: {
+        machines: [
+          {
+            key: "inst-a",
+            nickname: "box-a",
+            status: "ready",
+            error: null,
+            preference: "normal",
+            report: null,
+            receivedAt: 0,
+            grantRung: "observe",
+            grantCeiling: "full",
+            memberExecEnabled: true,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+          },
+        ],
+        audit: [],
+        updateAll: null,
+        loading: false,
+        error: null,
+      },
+    });
+    render();
+    const line = document.body.querySelector("[data-access-line]");
+    expect(line?.textContent).toContain("Observe only");
+    expect(line?.textContent).not.toContain("Dispatch here");
+  });
+
+  it("pre-fills the ceremony with a rung its ceiling allows, never a disabled one (#1398)", async () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" })],
+      }),
+      fleet: {
+        machines: [
+          {
+            key: "inst-a",
+            nickname: "box-a",
+            status: "ready",
+            error: null,
+            preference: "normal",
+            report: null,
+            receivedAt: 0,
+            grantRung: "observe",
+            grantCeiling: "manage",
+            memberExecEnabled: true,
+            address: null,
+            sshReachable: null,
+            maintenance: null,
+          },
+        ],
+        audit: [],
+        updateAll: null,
+        loading: false,
+        error: null,
+      },
+    });
+    render();
+    await act(async () => button("Request access…").click());
+    // Ceiling manage: terminal disabled, manage preselected — not "full".
+    expect(useStore.getState().grantCeremony).toMatchObject({ instanceId: "inst-a", neededRung: "manage" });
   });
 
   it("opens the shared ceremony pre-filled with the first rung the row lacks (#1398)", async () => {

@@ -41,14 +41,21 @@ export function GrantCeremonyDialog(): ReactElement | null {
   const heldRung = machine?.grantRung ?? null;
   const known = machine !== null && machine.status === "ready" && heldRung !== null;
   const aboveCeiling = ceiling !== null && fleetRungRank(rung) > fleetRungRank(ceiling);
-  const execWarning = execEnabled === false && (rung === "full" || rung === "terminal");
+  // A preselected rung the capsule disables is confusing and, once a secret is
+  // typed, a raise the pre-check already predicts will fail. When the store's
+  // needed rung is above the ceiling, fall back to the first enabled one.
+  const effectiveRung =
+    ceiling !== null && fleetRungRank(rung) > fleetRungRank(ceiling)
+      ? (FLEET_RAISE_RUNGS.find((r) => fleetRungRank(r) <= fleetRungRank(ceiling)) ?? rung)
+      : rung;
+  const execWarning = execEnabled === false && (effectiveRung === "full" || effectiveRung === "terminal");
   const bindingRefusal = outcome !== null && !outcome.ok && outcome.reason.endsWith(FLEET_BINDING_REFUSAL);
 
   const submit = (secret: string): void => {
-    if (busy) return;
+    if (busy || aboveCeiling) return;
     setBusy(true);
     setOutcome(null);
-    void requestFleetGrant(ceremony.instanceId, rung, secret)
+    void requestFleetGrant(ceremony.instanceId, effectiveRung, secret)
       .then((o) => setOutcome(o))
       .catch((err: unknown) => setOutcome({ ok: false, reason: displayMessage(err) }))
       .finally(() => setBusy(false));
@@ -76,7 +83,7 @@ export function GrantCeremonyDialog(): ReactElement | null {
         >
           <ChoiceCapsule
             label={`Access for ${machineName}`}
-            value={rung}
+            value={effectiveRung}
             options={FLEET_RAISE_RUNGS.map((r) => ({
               value: r,
               label: RUNG_LABEL[r],

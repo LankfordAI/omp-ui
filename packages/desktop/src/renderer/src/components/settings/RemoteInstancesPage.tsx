@@ -3,6 +3,7 @@ import type { RemoteInstanceInput, RemoteInstanceSummary } from "@omp-ui/core/ty
 import {
   FLEET_RUNGS,
   fleetRungAtLeast,
+  fleetRungRank,
   type FleetGrantRecord,
   type FleetRung,
 } from "@omp-ui/core/fleet";
@@ -240,28 +241,35 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
 /** The rungs a raise can meaningfully add, ladder order. */
 const RAISE_RUNGS = ["manage", "full", "terminal"] as const satisfies readonly FleetRung[];
 
-/** The first RAISE_RUNG the row does not effectively hold; "manage" when the rung is unknown. */
-function neededRungOf(machine: { grantRung: FleetRung | null } | null): FleetRung {
+/**
+ * The first RAISE_RUNG the row does not effectively hold and its ceiling
+ * allows; "manage" when the row reports nothing. Never a rung the dialog
+ * would disable — a disabled preselect re-creates the doomed secret entry.
+ */
+function neededRungOf(machine: { grantRung: FleetRung | null; grantCeiling: FleetRung | null } | null): FleetRung {
   const held = machine?.grantRung ?? null;
+  const ceiling = machine?.grantCeiling ?? null;
   if (held === null) return "manage";
-  for (const r of RAISE_RUNGS) if (!fleetRungAtLeast(held, r)) return r;
+  for (const r of RAISE_RUNGS) {
+    if (!fleetRungAtLeast(held, r) && (ceiling === null || fleetRungRank(r) <= fleetRungRank(ceiling))) return r;
+  }
   return "terminal";
 }
 
 /** One line for what this app may do on that member, from its reported gates; null when none are known. */
 function accessLineOf(machine: { status: string; grantRung: FleetRung | null; grantCeiling: FleetRung | null; memberExecEnabled: boolean | null } | null): string | null {
   if (machine === null || machine.status !== "ready" || machine.grantRung === null) return null;
+  // grantRung is the member's already-capped effective rung (min(grant, ceiling)),
+  // so every claim here leads from what this app actually holds.
   const held = RUNG_LABEL[machine.grantRung];
   const ceiling = machine.grantCeiling;
-  const capped = ceiling !== null && !fleetRungAtLeast(ceiling, machine.grantRung);
-  const exec = machine.memberExecEnabled;
-  if (exec === false && fleetRungAtLeast(machine.grantRung, "full")) {
+  const ceilingNote = ceiling !== null ? ` · that machine's ceiling ${RUNG_LABEL[ceiling]}` : "";
+  if (machine.memberExecEnabled === false && fleetRungAtLeast(machine.grantRung, "full")) {
     return `Granted ${held}, but that machine has fleet exec off`;
   }
-  if (capped) {
-    return `Effective ${RUNG_LABEL[ceiling!]} here; granted ${held}, ceiling caps it`;
-  }
-  return `Dispatch here${machine.grantRung === "dispatch" ? "" : `; ${held}`}${ceiling !== null ? ` · ceiling ${RUNG_LABEL[ceiling]}` : ""}`;
+  if (machine.grantRung === "observe") return `Observe only — that machine grants nothing above reading its report${ceilingNote}`;
+  if (fleetRungAtLeast(machine.grantRung, "dispatch")) return `Dispatch here${machine.grantRung === "dispatch" ? "" : `; ${held}`}${ceilingNote}`;
+  return `Granted ${held}${ceilingNote}`;
 }
 
 /** The five ladder rungs, ladder order; labels ride the Fleet view's keys. */

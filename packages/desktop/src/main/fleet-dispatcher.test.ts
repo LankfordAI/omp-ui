@@ -1533,6 +1533,14 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       reason: "On box-r1: omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
     });
   });
+
+  it("never prefixes the older-peer unknown-channel rewrite twice (#1398)", async () => {
+    const h = updater(async () => ({ status: "refused", reason: "unknown channel fleet:updateMember" }));
+    expect(await h.dispatcher.update("tab-1", { machine: "box-r1", target: "omp", action: "update", version: null })).toEqual({
+      kind: "refused",
+      reason: "box-r1 runs an omp-ui without fleet updates; update omp-ui there",
+    });
+  });
 });
 
 describe("FleetDispatcher Update all (issue #990)", () => {

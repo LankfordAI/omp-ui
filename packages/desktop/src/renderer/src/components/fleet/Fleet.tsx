@@ -282,7 +282,7 @@ function MachineRow({
             size="xs"
             variant="ghost"
             disabled={!holdsTerminal}
-            title={holdsTerminal ? `Open a login shell on ${name}; closing the terminal ends it` : "Needs the Terminal rung on this machine — use Request access"}
+            title={holdsTerminal ? `Open a login shell on ${name}; closing the terminal ends it` : "Needs the Terminal rung on that machine — use Request access"}
             onClick={() => void openFleetTerminal(machine.key, TERMINAL_OPEN_COLS, TERMINAL_OPEN_ROWS)}
           >
             Terminal
@@ -292,7 +292,7 @@ function MachineRow({
             size="xs"
             variant="ghost"
             disabled={!holdsFull(machine)}
-            title={!holdsFull(machine) ? "Needs Full control on this machine — use Request access" : undefined}
+            title={!holdsFull(machine) ? "Needs Full control on that machine — use Request access" : undefined}
             onClick={() => onRollout(machine)}
           >
             Roll out keys
@@ -306,7 +306,7 @@ function MachineRow({
               report?.packageFormat === "container"
                 ? "Containerized member — pull and redeploy the container image to update omp-ui or omp"
                 : !holdsFull(machine)
-                  ? "Needs Full control on this machine — use Request access"
+                  ? "Needs Full control on that machine — use Request access"
                   : undefined
             }
             onClick={() => onUpdate(machine)}

@@ -530,7 +530,7 @@ describe("Fleet view", () => {
     expect(full!.disabled).toBe(false);
     const [dispatch] = buttons(row("inst-dispatch"), "Roll out keys");
     expect(dispatch!.disabled).toBe(true);
-    expect(dispatch!.title).toBe("Needs Full control on this machine — use Request access");
+    expect(dispatch!.title).toBe("Needs Full control on that machine — use Request access");
   });
 
   it("stages the rollout confirmation with only the checked, injectable env names", async () => {
@@ -611,7 +611,7 @@ describe("Fleet view", () => {
     expect(full!.disabled).toBe(false);
     const [manage] = buttons(row("inst-below"), "Update versions…");
     expect(manage!.disabled).toBe(true);
-    expect(manage!.title).toBe("Needs Full control on this machine — use Request access");
+    expect(manage!.title).toBe("Needs Full control on that machine — use Request access");
   });
 
   it("shows the last maintenance we started as a status chip", () => {

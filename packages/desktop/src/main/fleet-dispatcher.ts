@@ -1039,9 +1039,10 @@ export class FleetDispatcher {
     }
     if (ack.status === "refused") {
       // fleetUpdateSkew only rewrites the older-peer "unknown channel" answer,
-      // which already names the member; every other refusal gets the prefix.
-      const skewed = fleetUpdateSkew(ack, name);
-      return skewed.reason.includes("unknown channel") ? skewed : { ...skewed, reason: onMember(name, skewed.reason) };
+      // which already names the member — detect that case on the original
+      // reason, before the rewrite, so it is not prefixed twice.
+      if (ack.reason.includes("unknown channel")) return fleetUpdateSkew(ack, name);
+      return { ...ack, reason: onMember(name, ack.reason) };
     }
     return fleetUpdateSkew(ack, name);
   }
