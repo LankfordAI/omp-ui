@@ -17,8 +17,10 @@ import {
  * The routines gallery's slide-over inspector (ports the Artifacts page's
  * detail surface): everything a row can answer without leaving the list —
  * schedule, resolved config, artifact binding, recent runs — plus the enable
- * switch and Run now. Full editing stays in `RoutineEditor`, reached via
- * "Edit full routine →".
+ * switch and Run now. It is the quick-glance surface reached from a row's
+ * Inspect button, transcript review links, and the waiting-approval attention
+ * strip; a direct row/card click lands in the full-pane editor instead.
+ * Full editing stays in `RoutineEditor`, reached via "Edit full routine →".
  */
 export interface RoutineInspectorProps {
   routine: RoutineRecord;

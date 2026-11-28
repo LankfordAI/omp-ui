@@ -24,8 +24,10 @@ import {
 
 /**
  * What the wide pane shows: an inspected routine's drawer, the full editor for
- * a saved routine or a new draft, or nothing (the gallery alone). Compact mode
- * folds "routine" into the editor drill-down it always had.
+ * a saved routine or a new draft, or nothing (the gallery alone). A row/card
+ * click opens the editor directly; the drawer is reached via a row's Inspect
+ * button, transcript review links, or the waiting-approval attention strip.
+ * Compact mode folds "routine" into the editor drill-down it always had.
  */
 type Selection = { kind: "routine"; id: string } | { kind: "editor"; id: string } | { kind: "new" } | null;
 
@@ -202,7 +204,8 @@ export function RoutinesView() {
         : null;
   const waitingRuns = useMemo(() => runs.filter((r) => r.outcome === "waiting-approval"), [runs]);
   // The wide pane drills into the full editor only from an explicit entry:
-  // "new" (draft) or "editor" (reached via the drawer's Edit / row Inspect → Edit).
+  // "new" (draft) or "editor" (reached by direct row/card click, the drawer's
+  // "Edit full routine →", or a row Inspect → Edit).
   const editorOpen = selection !== null && (selection.kind === "new" || selection.kind === "editor");
   const waitingCount = waitingRuns.length;
   const enabledCount = routines.filter((r) => r.enabled).length;
@@ -553,7 +556,7 @@ export function RoutinesView() {
               <tr
                 key={routine.id}
                 data-routine-row={routine.id}
-                onClick={() => pick({ kind: "routine", id: routine.id })}
+                onClick={() => openEditorFor(routine.id)}
                 className={cn(
                   "cursor-pointer transition-colors",
                   isInspected ? "bg-raised/90 edge-lit" : "hover:bg-hover/50",
@@ -652,8 +655,8 @@ export function RoutinesView() {
           >
             <button
               type="button"
-              onClick={() => pick({ kind: "routine", id: routine.id })}
-              aria-label={`Inspect ${routine.name}`}
+              onClick={() => openEditorFor(routine.id)}
+              aria-label={`Open ${routine.name}`}
               className="block border-b border-line-soft bg-sunken px-3 pb-2.5 pt-8 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
             >
               <span className="block truncate font-mono text-lg font-semibold text-ink">

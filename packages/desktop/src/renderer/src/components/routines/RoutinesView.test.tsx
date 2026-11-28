@@ -136,11 +136,9 @@ function routineTab(tab: "config" | "policy" | "history"): HTMLButtonElement {
   return found;
 }
 
-/** Wide-mode drill-down: row click opens the drawer, Edit opens the full editor. */
+/** Wide-mode drill-down: a row click lands directly in the full editor. */
 async function openEditor(id = "a".repeat(22)): Promise<void> {
   act(() => document.querySelector<HTMLElement>(`[data-routine-row="${id}"]`)!.click());
-  await settle();
-  await act(async () => buttonNamed("Edit full routine →").click());
   await settle();
 }
 
@@ -463,14 +461,25 @@ describe("RoutinesView review-link focus (ADR-0100 amendment)", () => {
 });
 
 describe("RoutinesView inspector drawer", () => {
-  it("row click opens the drawer, Escape closes it, and the switch toggles via updateRoutine", async () => {
+  it("row click opens the full editor directly", async () => {
+    const host = render();
+    await settle();
+    expect(host.querySelector("[data-routine-inspector]")).toBeNull();
+
+    act(() => document.querySelector<HTMLElement>(`[data-routine-row="${"a".repeat(22)}"]`)!.click());
+    await settle();
+    expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
+    expect(host.querySelector("[data-routine-inspector]")).toBeNull();
+  });
+
+  it("Inspect opens the drawer, Escape closes it, and the switch toggles via updateRoutine", async () => {
     const updateRoutine = vi.fn(async (_id: string, patch: unknown) => ({ ...routine(), ...(patch as Partial<RoutineRecord>) }));
     useStore.setState({ updateRoutine });
     const host = render();
     await settle();
     expect(host.querySelector("[data-routine-inspector]")).toBeNull();
 
-    act(() => document.querySelector<HTMLElement>(`[data-routine-row="${"a".repeat(22)}"]`)!.click());
+    await act(async () => buttonNamed("Inspect").click());
     await settle();
     const drawer = host.querySelector("[data-routine-inspector]")!;
     expect(drawer.textContent).toContain("Morning overview");
@@ -487,10 +496,13 @@ describe("RoutinesView inspector drawer", () => {
     expect(host.querySelector("[data-routine-inspector]")).toBeNull();
   });
 
-  it("Edit full routine drills to the editor and ← All routines reopens the drawer", async () => {
+  it("Inspect opens the drawer, Edit full routine drills to the editor, ← All routines returns to the drawer", async () => {
     const host = render();
     await settle();
-    await openEditor();
+    await act(async () => buttonNamed("Inspect").click());
+    await settle();
+    await act(async () => buttonNamed("Edit full routine →").click());
+    await settle();
     expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
     expect(host.querySelector("[data-routine-inspector]")).toBeNull();
 
