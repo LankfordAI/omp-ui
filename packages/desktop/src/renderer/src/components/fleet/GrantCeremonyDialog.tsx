@@ -47,14 +47,14 @@ export function GrantCeremonyDialog(): ReactElement | null {
   const execEnabled = machine?.memberExecEnabled ?? null;
   const heldRung = machine?.grantRung ?? null;
   const known = machine !== null && machine.status === "ready" && heldRung !== null;
-  const aboveCeiling = ceiling !== null && fleetRungRank(rung) > fleetRungRank(ceiling);
-  // A preselected rung the capsule disables is confusing and, once a secret is
-  // typed, a raise the pre-check already predicts will fail. When the store's
-  // needed rung is above the ceiling, fall back to the first enabled one.
+  // The selection the user works with is the raw capsule state; a needed rung
+  // above the ceiling displays as the first ceiling-allowed option instead, so
+  // the gate, the warnings, and the send all read the same rung.
   const effectiveRung =
     ceiling !== null && fleetRungRank(rung) > fleetRungRank(ceiling)
       ? (FLEET_RAISE_RUNGS.find((r) => fleetRungRank(r) <= fleetRungRank(ceiling)) ?? rung)
       : rung;
+  const aboveCeiling = ceiling !== null && FLEET_RAISE_RUNGS.every((r) => fleetRungRank(r) > fleetRungRank(ceiling));
   const execWarning = execEnabled === false && (effectiveRung === "full" || effectiveRung === "terminal");
   const bindingRefusal = outcome !== null && !outcome.ok && outcome.reason.endsWith(FLEET_BINDING_REFUSAL);
 
@@ -85,7 +85,7 @@ export function GrantCeremonyDialog(): ReactElement | null {
           onSubmit={submit}
           onCancel={closeGrantCeremony}
           busy={busy}
-          canSubmit={!busy}
+          canSubmit={!busy && !aboveCeiling}
           submitLabel="Ask"
         >
           <ChoiceCapsule
