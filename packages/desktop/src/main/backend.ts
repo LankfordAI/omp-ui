@@ -307,9 +307,15 @@ const STATE_SWEEP_MS = 10 * 60_000;
 /** Re-walk disk spend plans after this window so subagent artifacts stay fresh (#1286). */
 const SPEND_PLAN_TTL_MS = 30_000;
 
+/** Bucket width for live-session memo keys; must be ≥ WATCHER_BROADCAST_MS
+ *  so consecutive throttled watcher rebuilds usually land in one bucket. */
+const DISK_MEMO_BUCKET_MS = 5_000;
+
 interface DiskMemoEntry {
   key: string;
   liveAtFill: boolean;
+  /** Exact cachedModified string observed at fill; drives the trailing-settle re-hydrate. */
+  exactModified: string | null;
   filledAt: number;
   spendPlanAt: number;
   loc: SessionLocation;
@@ -3590,8 +3596,36 @@ export class MainBackend {
     return titles;
   }
 
-  private static diskMemoKey(record: OwnedSessionRecord): string {
-    return `${record.lineageDir}|${record.sessionId}|${record.cachedTitle}|${record.cachedModified}`;
+  private static diskMemoKey(record: OwnedSessionRecord, isLive: boolean): string {
+    // Live sessions append to their transcript on every turn step, rewriting
+    // cachedModified per broadcast; the bucket absorbs that churn. Dormant and
+    // archived sessions keep the exact mtime: nothing rewrites them, so
+    // invalidation stays exactly as precise as today. A trailing settle (see
+    // memoTrailingMiss) converges the final same-bucket write.
+    if (!isLive) return `${record.lineageDir}|${record.sessionId}|${record.cachedTitle}|${record.cachedModified ?? "null"}`;
+    const parsed = record.cachedModified === null ? Number.NaN : Date.parse(record.cachedModified);
+    const bucket = Number.isFinite(parsed) ? Math.floor(parsed / DISK_MEMO_BUCKET_MS) : "null";
+    return `${record.lineageDir}|${record.sessionId}|${record.cachedTitle}|${bucket}`;
+  }
+
+  /**
+   * Trailing settle: a same-bucket write after fill reads as a memo hit now,
+   * but once this bucket has closed, one rebuild re-hydrates so the final
+   * title/status/fork-parent always converge. Bounded staleness:
+   * DISK_MEMO_BUCKET_MS. Only bucketed (live-at-fill) entries settle; dormant
+   * entries key on the exact mtime, so a write already invalidates them.
+   * Unparseable or null mtimes never settle (Date.parse → NaN comparisons are
+   * false), matching the "null" bucket key.
+   */
+  private static memoTrailingMiss(
+    record: OwnedSessionRecord,
+    cached: DiskMemoEntry,
+    now: number,
+  ): boolean {
+    if (!cached.liveAtFill || cached.exactModified === record.cachedModified) return false;
+    const parsed = record.cachedModified === null ? Number.NaN : Date.parse(record.cachedModified);
+    if (!Number.isFinite(parsed)) return false;
+    return now >= Math.floor(parsed / DISK_MEMO_BUCKET_MS + 1) * DISK_MEMO_BUCKET_MS;
   }
 
   private async buildState(): Promise<BackendState> {
@@ -3730,12 +3764,13 @@ export class MainBackend {
     const liveSpend = this.sessions.sessionSpendSnapshot(record.tabId);
     const useLiveSpend = liveSpend?.available === true;
     const now = Date.now();
-    const lookupKey = MainBackend.diskMemoKey(record);
+    const lookupKey = MainBackend.diskMemoKey(record, isLive);
     const cached = this.diskMemo.get(record.tabId);
     const memoHit =
       cached !== undefined &&
       cached.key === lookupKey &&
-      cached.liveAtFill === isLive;
+      cached.liveAtFill === isLive &&
+      !MainBackend.memoTrailingMiss(record, cached, now);
 
     let loc: SessionLocation;
     let title = record.cachedTitle;
@@ -3813,8 +3848,9 @@ export class MainBackend {
       }
       if (hydrateOk && spendOk) {
         this.diskMemo.set(record.tabId, {
-          key: MainBackend.diskMemoKey(record),
+          key: MainBackend.diskMemoKey(record, isLive),
           liveAtFill: isLive,
+          exactModified: record.cachedModified,
           filledAt: now,
           spendPlanAt: now,
           loc,

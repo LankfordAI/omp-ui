@@ -2971,7 +2971,7 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
       );
       expect(broadcast).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(3_000);
       expect(broadcast).toHaveBeenCalledTimes(2);
       // The registry converged even while broadcasts were throttled.
       expect(registry.sessions[0]!.cachedModified).toBe(
@@ -3019,7 +3019,7 @@ describe("turn latch published state (issue #434)", () => {
       expect(manager.isTurnRunning(TAB)).toBe(false);
       // Same instant on the fake clock: the end rides the trailing throttle.
       expect(broadcast).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(3_000);
       expect(broadcast).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -3055,9 +3055,10 @@ describe("human-answer published state (issue #436)", () => {
 
     manager.rpcSend(TAB, answer("c1"));
     expect(manager.pendingAnswer(TAB)).toBe(false);
-    // Within a second of the raise edge: the fall rides the trailing throttle.
+    // Within a second of the raise edge: the fall rides the trailing throttle
+    // (WATCHER_BROADCAST_MS is now 3 s).
     await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(2), {
-      timeout: 3_000,
+      timeout: 6_000,
     });
   });
 
@@ -3083,7 +3084,7 @@ describe("human-answer published state (issue #436)", () => {
     manager.rpcSend(TAB, answer("q1"));
     expect(manager.pendingAnswer(TAB)).toBe(false);
     await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(2), {
-      timeout: 3_000,
+      timeout: 6_000,
     });
   });
 
