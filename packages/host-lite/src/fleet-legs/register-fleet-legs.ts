@@ -21,7 +21,7 @@
  * answer would pretend otherwise), and the owner-local fleet verbs, which are
  * off REMOTE_PROXY_CHANNELS by design.
  */
-import { CH, FLEET_LABEL_MAX, MIN_SUPPORTED_OMP, compareVersions, fleetEffectiveRung, fleetGrantOf, fleetRungAtLeast, fleetRungRank, isUnsafeFleetId } from "@omp-ui/core";
+import { CH, FLEET_LABEL_MAX, FLEET_BINDING_REFUSAL, MIN_SUPPORTED_OMP, compareVersions, fleetEffectiveRung, fleetGrantOf, fleetRungAtLeast, fleetRungRank, isUnsafeFleetId } from "@omp-ui/core";
 import type {
   ChannelTable,
   FleetAuditEntry,
@@ -151,7 +151,7 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
     ) {
       return {
         ok: false,
-        reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine",
+        reason: FLEET_BINDING_REFUSAL,
       };
     }
     const ceiling = registry.getSetting("fleetExecCeiling");
@@ -221,7 +221,7 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
     const existing = fleetGrantOf(registry.getSetting("fleetGrants"), req.requester.instanceId);
     if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
       audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
-      return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };
+      return { ok: false, reason: FLEET_BINDING_REFUSAL };
     }
     const ceiling = registry.getSetting("fleetExecCeiling");
     if (fleetRungRank(req.targetRung) > fleetRungRank(ceiling)) {

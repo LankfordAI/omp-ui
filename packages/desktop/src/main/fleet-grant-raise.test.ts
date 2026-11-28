@@ -16,6 +16,8 @@ const machine = (key: string, nickname: string | null, grantRung: FleetRung | nu
   report: null,
   receivedAt: 0,
   grantRung,
+  grantCeiling: null,
+  memberExecEnabled: null,
   address: null,
   sshReachable: null,
   maintenance: null,

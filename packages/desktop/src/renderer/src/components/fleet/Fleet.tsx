@@ -171,6 +171,7 @@ function MachineRow({
 }) {
   const setFleetPlacement = useStore((s) => s.setFleetPlacement);
   const openFleetTerminal = useStore((s) => s.openFleetTerminal);
+  const openGrantCeremony = useStore((s) => s.openGrantCeremony);
   const holdsTerminal = machine.grantRung !== null && fleetRungAtLeast(machine.grantRung, "terminal");
   const name = machine.nickname ?? "This computer";
   const face = STATUS_FACE[machine.status];
@@ -217,6 +218,22 @@ function MachineRow({
           <Chip tone={holdsFull(machine) ? "copper" : "neutral"}>
             {`access ${RUNG_LABEL[machine.grantRung]}`}
           </Chip>
+        )}
+        {/* #1398: the rung-gated buttons stay disabled, but the chip carries
+            its way in — one ghost button opens the shared ceremony for the
+            rung those actions need (Terminal needs terminal, the rest full).
+            A null rung (probe timed out, older peer) and a Full-without-Terminal
+            row both leave a gate closed, so the affordance shows there too; it
+            hides only when nothing is left to ask for. */}
+        {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && (machine.grantRung === null || !fleetRungAtLeast(machine.grantRung, "terminal")) && (
+          <Button
+            size="xs"
+            variant="ghost"
+            data-request-access={machine.key}
+            onClick={() => openGrantCeremony(machine.key, name, "full")}
+          >
+            Request access
+          </Button>
         )}
         {/* #904: where an agent's own ssh reaches this member, and whether port 22 answered. */}
         {machine.address !== null && (
@@ -267,7 +284,7 @@ function MachineRow({
             size="xs"
             variant="ghost"
             disabled={!holdsTerminal}
-            title={holdsTerminal ? `Open a login shell on ${name}; closing the terminal ends it` : "Needs the Terminal rung on this machine"}
+            title={holdsTerminal ? `Open a login shell on ${name}; closing the terminal ends it` : "Needs the Terminal rung on that machine — use Request access"}
             onClick={() => void openFleetTerminal(machine.key, TERMINAL_OPEN_COLS, TERMINAL_OPEN_ROWS)}
           >
             Terminal
@@ -277,7 +294,7 @@ function MachineRow({
             size="xs"
             variant="ghost"
             disabled={!holdsFull(machine)}
-            title={!holdsFull(machine) ? "Needs Full control on this machine" : undefined}
+            title={!holdsFull(machine) ? "Needs Full control on that machine — use Request access" : undefined}
             onClick={() => onRollout(machine)}
           >
             Roll out keys
@@ -291,7 +308,7 @@ function MachineRow({
               report?.packageFormat === "container"
                 ? "Containerized member — pull and redeploy the container image to update omp-ui or omp"
                 : !holdsFull(machine)
-                  ? "Needs Full control on this machine"
+                  ? "Needs Full control on that machine — use Request access"
                   : undefined
             }
             onClick={() => onUpdate(machine)}

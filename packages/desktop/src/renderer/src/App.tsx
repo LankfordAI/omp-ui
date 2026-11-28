@@ -22,6 +22,7 @@ import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewSessionDialog } from "./components/NewSessionDialog";
 import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
 import { CopyProjectDialog } from "./components/fleet/CopyProjectDialog";
+import { GrantCeremonyDialog } from "./components/fleet/GrantCeremonyDialog";
 import { ProjectQuickOpen } from "./components/ProjectQuickOpen";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
@@ -294,6 +295,7 @@ export default function App() {
   const projectQuickOpen = useStore((s) => s.projectQuickOpen);
   const migrateDialog = useStore((s) => s.migrateDialog);
   const copyProjectDialog = useStore((s) => s.copyProjectDialog);
+  const grantCeremony = useStore((s) => s.grantCeremony);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
@@ -707,6 +709,7 @@ export default function App() {
           name={copyProjectDialog.name}
         />
       )}
+      {grantCeremony !== null && <GrantCeremonyDialog key={`${grantCeremony.instanceId}-${grantCeremony.neededRung}`} />}
       {experimentDialog !== null && experimentsEnabled && (
         <NewExperimentDialog
           key={experimentDialog.proposalTabId ?? "blank"}

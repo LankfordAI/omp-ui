@@ -76,16 +76,18 @@ export class FleetTerminalClient {
       const message = messageOf(err);
       return {
         status: "refused",
-        reason: message.includes("unknown channel") ? `${remote.nickname} runs an omp-ui without fleet terminals; update omp-ui there` : message,
+        reason: message.includes("unknown channel") ? `${remote.nickname} runs an omp-ui without fleet terminals; update omp-ui there` : `On ${remote.nickname}: ${message}`,
       };
     } finally {
       clearTimeout(timer);
     }
     if (answer === "timeout") {
       // The member may have opened it after all; its lease ends it unrenewed.
-      return { status: "refused", reason: `no answer from ${remote.nickname} within ${OPEN_DEADLINE_MS / 1000} s` };
+      return { status: "refused", reason: `On ${remote.nickname}: no answer within ${OPEN_DEADLINE_MS / 1000} s` };
     }
-    if (answer.status !== "accepted") return answer;
+    if (answer.status !== "accepted") {
+      return { ...answer, reason: `On ${remote.nickname}: ${answer.reason}` };
+    }
     const terminal: FleetTerminalRecord = {
       terminalId,
       machineKey,

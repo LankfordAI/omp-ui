@@ -12,6 +12,8 @@ function member(patch: Partial<FleetMachine> = {}, user: string | null = "ada"):
     report: { user } as FleetHostReport,
     receivedAt: 0,
     grantRung: null,
+    grantCeiling: null,
+    memberExecEnabled: null,
     address: "box.tailnet",
     sshReachable: true,
     maintenance: null,

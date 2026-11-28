@@ -22,6 +22,7 @@ import {
   fleetRungRank,
   isUnsafeFleetId,
   maskCommandSecrets,
+  FLEET_BINDING_REFUSAL,
   type AppUpdateState,
   type FleetAuditEntry,
   type FleetDetachedExecRequest,
@@ -231,7 +232,7 @@ export class FleetServer {
     ) {
       return {
         ok: false,
-        reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine",
+        reason: FLEET_BINDING_REFUSAL,
       };
     }
     const ceiling = registry.getSetting("fleetExecCeiling");
@@ -824,7 +825,7 @@ export class FleetServer {
     const existing = fleetGrantOf(registry.getSetting("fleetGrants"), req.requester.instanceId);
     if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
       this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
-      return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };
+      return { ok: false, reason: FLEET_BINDING_REFUSAL };
     }
     const ceiling = registry.getSetting("fleetExecCeiling");
     if (fleetRungRank(req.targetRung) > fleetRungRank(ceiling)) {

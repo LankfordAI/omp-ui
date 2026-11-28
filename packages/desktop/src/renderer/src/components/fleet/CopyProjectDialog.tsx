@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   LOCAL_MACHINE_KEY,
   fleetRungAtLeast,
@@ -26,9 +26,17 @@ function skipLabel(reason: ProjectCopySkipReason, envName?: string | null): stri
 /** Why a member cannot take a copy, or null when it can. */
 function memberBlock(machine: FleetMachine): string | null {
   if (machine.status !== "ready") return "not connected";
-  if (machine.grantRung !== null && !fleetRungAtLeast(machine.grantRung, "manage")) return "needs the Manage projects rung on that machine";
+  // A timed-out probe is an unknown, not a refusal (issue #1398): the row is
+  // ineligible with its own copy instead of a surprising "needs Manage".
+  if (machine.grantRung === null) return "access unknown — that machine did not answer the access probe; Reconnect or Refresh state on its settings row";
+  if (!fleetRungAtLeast(machine.grantRung, "manage")) return "needs the Manage projects rung on that machine";
   if (machine.report?.projectRoots?.length === 0) return "declares no fleet project roots";
   return null;
+}
+
+/** True when the block is the rung refusal, so the row offers Request access. */
+function isRungBlock(machine: FleetMachine): boolean {
+  return machine.status === "ready" && machine.grantRung !== null && !fleetRungAtLeast(machine.grantRung, "manage");
 }
 
 function formatBytes(bytes: number): string {
@@ -50,13 +58,26 @@ function formatBytes(bytes: number): string {
 export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; name: string }) {
   const close = useStore((s) => s.closeCopyProjectDialog);
   const stageLifecycleConfirmation = useStore((s) => s.stageLifecycleConfirmation);
+  const openGrantCeremony = useStore((s) => s.openGrantCeremony);
+  const grantCeremony = useStore((s) => s.grantCeremony);
   const readMachines = useCallback(() => backend.fleetMachines(), []);
-  const { load: machinesLoad } = useLoad(readMachines);
+  const { load: machinesLoad, retry: reloadMachines } = useLoad(readMachines);
   const [withFiles, setWithFiles] = useState(false);
   const readPreview = useCallback(() => backend.fleetProjectCopyPreview(projectCwd), [projectCwd]);
   const { load: previewLoad } = useLoad<ProjectCopyPreview>(readPreview);
   const [picked, setPicked] = useState<string | null>(null);
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(() => new Set());
+  // A granted ceremony unlocks the member in place: re-read the machine list
+  // once the modal closes (issue #1398).
+  const wasCeremonyOpen = useRef(false);
+  useEffect(() => {
+    if (grantCeremony !== null) {
+      wasCeremonyOpen.current = true;
+    } else if (wasCeremonyOpen.current) {
+      wasCeremonyOpen.current = false;
+      if (machinesLoad.status === "loaded") reloadMachines();
+    }
+  }, [grantCeremony, machinesLoad.status, reloadMachines]);
 
   const members = useMemo(
     () => (machinesLoad.status === "loaded" ? machinesLoad.value.filter((m) => m.key !== LOCAL_MACHINE_KEY) : []),
@@ -107,6 +128,7 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
         {members.map((machine) => {
           const block = memberBlock(machine);
           const roots = machine.report?.projectRoots ?? null;
+          const rungBlocked = isRungBlock(machine);
           return (
             <li key={machine.key}>
               <label
@@ -135,6 +157,20 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
                         : `into ${roots.join(", ")}`}
                   </span>
                 </span>
+                {/* The rung refusal gets its way in (issue #1398): opening the
+                    ceremony keeps this dialog open; a grant re-reads the list. */}
+                {rungBlocked && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    data-request-access={machine.key}
+                    onClick={() =>
+                      openGrantCeremony(machine.key, machine.nickname ?? machine.key, "manage")
+                    }
+                  >
+                    Request access…
+                  </Button>
+                )}
               </label>
             </li>
           );

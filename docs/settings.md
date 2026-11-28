@@ -176,7 +176,7 @@ Webhooks let an outside event start a session: each webhook is an endpoint `POST
 
 ## Remote instances
 
-Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. Check connectivity status in Fleet or on this page; the sidebar footer does not show an offline-host warning.
+Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. What this app may do on that host is that host's decision, made on its own access ladder (see [Remote instances](remote-instances.md)); joining itself puts the instance in the sidebar. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. Check connectivity status in Fleet or on this page; the sidebar footer does not show an offline-host warning.
 
 The **Join** form takes:
 
@@ -190,6 +190,7 @@ Each joined instance is a panel showing its nickname, URL, status, the remote's 
 
 - **Reconnect** drops any current connection and retries immediately, from any status.
 - **Refresh state** (joined instances only) re-reads the instance's session list now, for when a sidebar row looks stale.
+- **Request access…** (joined instances only) opens the grant-raise ceremony for that member: re-type its password or access token, pick the rung, and its answer shows in the dialog. When the Fleet view's machine snapshot is loaded, the panel also shows one access line built from what that machine reported — its effective rung, any ceiling cap, and whether its fleet-exec switch is off.
 - **Edit** changes the nickname, the URL, or the credential inline. A nickname change applies without reconnecting; a URL or credential change signs in again and reconnects.
 - **Remove** asks for confirmation, then forgets the connection and its credential and drops that instance's sessions and tabs from this app. The remote's sessions keep running.
 

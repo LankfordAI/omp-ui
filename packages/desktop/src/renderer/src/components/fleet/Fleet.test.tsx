@@ -203,6 +203,8 @@ function machine(patch: Partial<FleetMachine> & { key: string }): FleetMachine {
     report: report(),
     receivedAt: 0,
     grantRung: null,
+    grantCeiling: null,
+    memberExecEnabled: null,
     address: null,
     sshReachable: null,
     maintenance: null,
@@ -240,6 +242,8 @@ const MACHINES: FleetMachine[] = [
     key: "inst-full",
     nickname: "studio",
     grantRung: "full",
+    grantCeiling: null,
+    memberExecEnabled: null,
     report: report({ os: { name: "macOS", version: "15.1" }, packageManagers: [] }),
   }),
   // Predates #905: no os, no package managers, no version facts.
@@ -249,6 +253,8 @@ const MACHINES: FleetMachine[] = [
     key: "inst-below",
     nickname: "old-box",
     grantRung: "manage",
+    grantCeiling: null,
+    memberExecEnabled: null,
     report: report({
       version: "1.0.0",
       ompVersion: "18.9.0",
@@ -262,6 +268,8 @@ const MACHINES: FleetMachine[] = [
     key: "inst-staged",
     nickname: "stage-box",
     grantRung: "full",
+    grantCeiling: null,
+    memberExecEnabled: null,
     report: report({
       version: "1.0.0",
       ompVersion: "18.13.1",
@@ -493,6 +501,73 @@ describe("Fleet view", () => {
     expect(row("inst-dispatch").querySelector("[data-machine-os]")).toBeNull();
   });
 
+  it("offers Request access beside the access chip on a ready member below Full control (#1398)", () => {
+    seedMachines();
+    render();
+
+    // A member below Full control gets the affordance; a Full row keeps it too
+    // (its Terminal button may still need Terminal); this computer does not.
+    const dispatchRow = row("inst-dispatch");
+    const [request] = buttons(dispatchRow, "Request access");
+    expect(request).toBeDefined();
+    expect(buttons(row("inst-full"), "Request access")).toHaveLength(1);
+    expect(buttons(row("local"), "Request access")).toHaveLength(0);
+
+    // Opening it stages the shared ceremony pre-filled for the rung those actions need.
+    act(() => request!.click());
+    expect(useStore.getState().grantCeremony).toEqual({
+      instanceId: "inst-dispatch",
+      machineName: "box-a",
+      neededRung: "full",
+    });
+  });
+
+  it("offers Request access even when a ready member's rung is unknown (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      // Probe timed out / older peer: every gate is closed and unknown.
+      machine({ key: "inst-unknown", nickname: "mystery", grantRung: null }),
+    ]);
+    render();
+
+    const mysteryRow = row("inst-unknown");
+    expect(buttons(mysteryRow, "Terminal")).toHaveLength(1);
+    const [request] = buttons(mysteryRow, "Request access");
+    expect(request).toBeDefined();
+    act(() => request!.click());
+    expect(useStore.getState().grantCeremony).toMatchObject({
+      instanceId: "inst-unknown",
+      machineName: "mystery",
+      neededRung: "full",
+    });
+  });
+
+  it("keeps Request access on a Full-control row without Terminal, whose disabled Terminal tooltip points at it (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      machine({ key: "inst-full", nickname: "studio", grantRung: "full" }),
+    ]);
+    render();
+
+    const fullRow = row("inst-full");
+    const [terminal] = buttons(fullRow, "Terminal");
+    expect(terminal!.disabled).toBe(true);
+    expect(terminal!.title).toContain("use Request access");
+    expect(buttons(fullRow, "Request access")).toHaveLength(1);
+  });
+
+  it("hides Request access only when Terminal is already held (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      machine({ key: "inst-term", nickname: "shelly", grantRung: "terminal" }),
+    ]);
+    render();
+
+    expect(buttons(row("inst-term"), "Request access")).toHaveLength(0);
+    const [terminal] = buttons(row("inst-term"), "Terminal");
+    expect(terminal!.disabled).toBe(false);
+  });
+
   it("offers Roll out keys on joined members only, enabled at Full control", () => {
     seedMachines();
     render();
@@ -502,7 +577,7 @@ describe("Fleet view", () => {
     expect(full!.disabled).toBe(false);
     const [dispatch] = buttons(row("inst-dispatch"), "Roll out keys");
     expect(dispatch!.disabled).toBe(true);
-    expect(dispatch!.title).toBe("Needs Full control on this machine");
+    expect(dispatch!.title).toBe("Needs Full control on that machine — use Request access");
   });
 
   it("stages the rollout confirmation with only the checked, injectable env names", async () => {
@@ -583,7 +658,7 @@ describe("Fleet view", () => {
     expect(full!.disabled).toBe(false);
     const [manage] = buttons(row("inst-below"), "Update versions…");
     expect(manage!.disabled).toBe(true);
-    expect(manage!.title).toBe("Needs Full control on this machine");
+    expect(manage!.title).toBe("Needs Full control on that machine — use Request access");
   });
 
   it("shows the last maintenance we started as a status chip", () => {
@@ -592,6 +667,8 @@ describe("Fleet view", () => {
         key: "inst-run",
         nickname: "runner",
         grantRung: "full",
+        grantCeiling: null,
+        memberExecEnabled: null,
         maintenance: maintenance({ state: "running", progress: 42 }),
       }),
       machine({
@@ -744,6 +821,8 @@ describe("Fleet view", () => {
         key: "inst-container",
         nickname: "docker-lite",
         grantRung: "full",
+        grantCeiling: null,
+        memberExecEnabled: null,
         report: report({ version: "0.40.0", packageFormat: "container", ompVersion: "19.2.1", ompPinned: true }),
       }),
     ]);
@@ -789,6 +868,8 @@ describe("Fleet view", () => {
       key: "inst-container",
       nickname: "docker-lite",
       grantRung: "full",
+      grantCeiling: null,
+      memberExecEnabled: null,
       report: report({ version: "0.40.0", packageFormat: "container", ompVersion: "19.2.1", ompPinned: true }),
     });
     const host = document.createElement("div");

@@ -2282,7 +2282,7 @@ describe("Settings page footer dispatch (issue #300)", () => {
     { page: "updates", marker: "Downloads always need a click." },
     { page: "remote", marker: "Changing anything here restarts only the server" },
     { page: "webhooks", marker: null },
-    { page: "remote-instances", marker: "A joined instance grants this app full control" },
+    { page: "remote-instances", marker: "what this app may do on that host is that host's decision" },
     { page: "providers", marker: "omp reads credentials from the environment" },
     { page: "memory", marker: "Memory configuration applies to sessions started after the change" },
     { page: "knowledge-vault", marker: null },

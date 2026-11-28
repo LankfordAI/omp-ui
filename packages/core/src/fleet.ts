@@ -108,6 +108,16 @@ export type FleetRung = (typeof FLEET_RUNGS)[number];
 export const FLEET_RAISE_RUNGS = ["manage", "full", "terminal"] as const;
 export type FleetRaiseRung = (typeof FLEET_RAISE_RUNGS)[number];
 
+/**
+ * The exact refusal a member gives when a dispatcher id is bound to a
+ * different credential (issue #1398). Single source: fleet-server and host-lite
+ * return it verbatim and the manager's grant ceremony matches it to offer the
+ * recovery path instead of a doomed retry. Changing the wording here changes
+ * what both members say and what the ceremony looks for.
+ */
+export const FLEET_BINDING_REFUSAL =
+  "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine";
+
 /** 1..5 ladder depth; compare rungs through ranks. */
 export function fleetRungRank(r: FleetRung): 1 | 2 | 3 | 4 | 5 {
   return (FLEET_RUNGS.indexOf(r) + 1) as 1 | 2 | 3 | 4 | 5;
@@ -486,6 +496,14 @@ export interface FleetMachine {
    * LOCAL_MACHINE_KEY: this computer needs no grants.
    */
   grantRung: FleetRung | null;
+  /**
+   * That member's reported fleet-exec ceiling (issue #1398): the highest rung
+   * any grant there can take effect. Null whenever `grantRung` is null (probe
+   * failed, older peer, LOCAL_MACHINE_KEY).
+   */
+  grantCeiling: FleetRung | null;
+  /** The member's reported fleet-exec master switch (issue #1398); null under the same contract as `grantCeiling`. */
+  memberExecEnabled: boolean | null;
   /**
    * The host this app reaches the member at: its join URL's hostname, IPv6
    * brackets stripped (issue #904). Null for LOCAL_MACHINE_KEY.
