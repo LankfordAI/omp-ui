@@ -222,8 +222,9 @@ function MachineRow({
         {/* #1398: the rung-gated buttons stay disabled, but the chip carries
             its way in — one ghost button opens the shared ceremony for the
             first rung those actions need (Terminal needs terminal, the rest
-            full). Shown when the row is ready and falls short. */}
-        {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && machine.grantRung !== null && !fleetRungAtLeast(machine.grantRung, "full") && (
+            full). A null rung (probe timed out, older peer) leaves every gate
+            closed too, so the affordance shows there as well. */}
+        {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && (machine.grantRung === null || !fleetRungAtLeast(machine.grantRung, "full")) && (
           <Button
             size="xs"
             variant="ghost"

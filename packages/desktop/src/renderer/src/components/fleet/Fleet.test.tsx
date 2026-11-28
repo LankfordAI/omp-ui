@@ -521,6 +521,26 @@ describe("Fleet view", () => {
     });
   });
 
+  it("offers Request access even when a ready member's rung is unknown (#1398)", () => {
+    seedWith([
+      machine({ key: "local" }),
+      // Probe timed out / older peer: every gate is closed and unknown.
+      machine({ key: "inst-unknown", nickname: "mystery", grantRung: null }),
+    ]);
+    render();
+
+    const mysteryRow = row("inst-unknown");
+    expect(buttons(mysteryRow, "Terminal")).toHaveLength(1);
+    const [request] = buttons(mysteryRow, "Request access");
+    expect(request).toBeDefined();
+    act(() => request!.click());
+    expect(useStore.getState().grantCeremony).toMatchObject({
+      instanceId: "inst-unknown",
+      machineName: "mystery",
+      neededRung: "full",
+    });
+  });
+
   it("offers Roll out keys on joined members only, enabled at Full control", () => {
     seedMachines();
     render();
