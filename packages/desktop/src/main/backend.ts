@@ -897,8 +897,8 @@ export class MainBackend {
       dispatch: (clientId, req, dispatchOpts) => this.fleet.dispatch(req, { kind: "mcp", sourceTabId: clientId }, dispatchOpts),
       send: (clientId, args) => this.fleet.send(clientId, args, "mcp"),
       finish: (clientId, args) => this.fleet.finish(clientId, args, "mcp"),
-      stop: (clientId, dispatchId) => this.fleet.stop(clientId, dispatchId),
-      settle: (clientId, dispatchId) => this.fleet.settle(clientId, dispatchId),
+      stop: (clientId, dispatchId) => this.fleet.stop(clientId, dispatchId, "mcp"),
+      settle: (clientId, dispatchId) => this.fleet.settle(clientId, dispatchId, "mcp"),
       nextBroadcast: (timeoutMs) => this.#nextBroadcast(timeoutMs),
       publish: (state) => this.send(CH.onMcpEndpointState, state),
     });

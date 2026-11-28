@@ -1129,6 +1129,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
         update: async () => ({ kind: "refused", reason: "not wired in this fixture" }),
         send: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         finish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        stop: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        settle: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         grantRaise: async () => ({ ok: false, reason: "not wired in this fixture" }),
         ...fleet,
       },
@@ -1731,6 +1733,93 @@ describe("HostBridge fleet tools (issue #899)", () => {
     ]);
     expect(dispatch).not.toHaveBeenCalled();
     expect(machines).not.toHaveBeenCalled();
+  });
+
+  it("answers omp-ui_fleet_stop and omp-ui_fleet_settle for each outcome, logging ids only (issue #1400)", async () => {
+    const stopOutcomes = [
+      { status: "stopped" },
+      { status: "idle" },
+      { status: "pending" },
+      { status: "refused", reason: "only the session that dispatched this work can stop it" },
+    ] as const;
+    const settleOutcomes = [
+      { status: "settled" },
+      { status: "refused", reason: "the session is still working; stop it first" },
+    ] as const;
+    let nextStop = 0;
+    let nextSettle = 0;
+    const calls: Array<{ verb: string; tabId: string; dispatchId: string }> = [];
+    const { bridge, sent, logs } = fleetBridge({
+      stop: async (tabId, dispatchId) => {
+        calls.push({ verb: "stop", tabId, dispatchId });
+        return stopOutcomes[nextStop++]!;
+      },
+      settle: async (tabId, dispatchId) => {
+        calls.push({ verb: "settle", tabId, dispatchId });
+        return settleOutcomes[nextSettle++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("s0", FLEET_TOOLS[8], { dispatchId: " d-1 " }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("s1", FLEET_TOOLS[8], { dispatchId: "d-2" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("s2", FLEET_TOOLS[8], { dispatchId: "d-3" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("s3", FLEET_TOOLS[8], { dispatchId: "d-4" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("t0", FLEET_TOOLS[10], { dispatchId: "e-1" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("t1x", FLEET_TOOLS[10], { dispatchId: "e-2" }), send);
+    await settled();
+
+    expect(calls).toEqual([
+      { verb: "stop", tabId: "t1", dispatchId: "d-1" },
+      { verb: "stop", tabId: "t1", dispatchId: "d-2" },
+      { verb: "stop", tabId: "t1", dispatchId: "d-3" },
+      { verb: "stop", tabId: "t1", dispatchId: "d-4" },
+      { verb: "settle", tabId: "t1", dispatchId: "e-1" },
+      { verb: "settle", tabId: "t1", dispatchId: "e-2" },
+    ]);
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(sent.map(resultText)).toEqual([
+      "stopped: stopped",
+      "stopped: idle",
+      "stopped: pending",
+      "refused — only the session that dispatched this work can stop it",
+      "settled",
+      "refused — the session is still working; stop it first",
+    ]);
+    expect(logs).toEqual([
+      "omp-ui_fleet_stop from t1: d-1 stopped",
+      "omp-ui_fleet_stop from t1: d-2 idle",
+      "omp-ui_fleet_stop from t1: d-3 pending",
+      "omp-ui_fleet_stop from t1: d-4 refused",
+      "omp-ui_fleet_settle from t1: e-1 settled",
+      "omp-ui_fleet_settle from t1: e-2 refused",
+    ]);
+  });
+
+  it("refuses malformed stop and settle arguments without calling the deps", async () => {
+    const stop = vi.fn();
+    const settle = vi.fn();
+    const { bridge, sent } = fleetBridge({ stop, settle });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", FLEET_TOOLS[8], { dispatchId: "d-1", landedOn: "x" }), send);
+    bridge.route("t1", toolCallFrame("b", FLEET_TOOLS[8], { dispatchId: "  " }), send);
+    bridge.route("t1", toolCallFrame("c", FLEET_TOOLS[10], {}), send);
+    bridge.route("t1", toolCallFrame("d", FLEET_TOOLS[10], { dispatchId: 7 }), send);
+    await settled();
+    expect(sent).toHaveLength(4);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(sent.map(resultText)).toEqual([
+      'unknown argument "landedOn"',
+      "dispatchId must be a non-empty string",
+      "dispatchId must be a non-empty string",
+      "dispatchId must be a non-empty string",
+    ]);
+    expect(stop).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
   });
 
   it("routes omp-ui_fleet_grant_raise through deps and answers success and refusal as text (#1393)", async () => {

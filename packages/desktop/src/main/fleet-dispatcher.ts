@@ -758,17 +758,17 @@ export class FleetDispatcher {
     return this.#toOwner(owned.row, CH.fleetFinish, req, () => this.#deps.finishLocal(req));
   }
 
-  /** MCP stop_session (#1164): the client id stands in the requester's sourceTabId, kind "mcp". */
-  async stop(clientId: string, dispatchId: string): Promise<FleetStopOutcome> {
-    const owned = await this.#ownedChild(dispatchId, "mcp", clientId, "stop");
+  /** MCP stop_session (#1164) or `omp-ui_fleet_stop` (#1400): abort the running turn. */
+  async stop(tabId: string, dispatchId: string, kind: "agent" | "mcp" = "agent"): Promise<FleetStopOutcome> {
+    const owned = await this.#ownedChild(dispatchId, kind, tabId, "stop");
     if (!owned.ok) return { status: "refused", reason: owned.reason };
     const req: FleetSessionRequest = { requester: owned.requester, dispatchId };
     return this.#toOwner(owned.row, CH.fleetStop, req, () => this.#deps.stopLocal(req));
   }
 
-  /** MCP settle_session (#1165). */
-  async settle(clientId: string, dispatchId: string): Promise<FleetSettleOutcome> {
-    const owned = await this.#ownedChild(dispatchId, "mcp", clientId, "settle");
+  /** MCP settle_session (#1165) or `omp-ui_fleet_settle` (#1400): reap the child. */
+  async settle(tabId: string, dispatchId: string, kind: "agent" | "mcp" = "agent"): Promise<FleetSettleOutcome> {
+    const owned = await this.#ownedChild(dispatchId, kind, tabId, "settle");
     if (!owned.ok) return { status: "refused", reason: owned.reason };
     const req: FleetSessionRequest = { requester: owned.requester, dispatchId };
     return this.#toOwner(owned.row, CH.fleetSettle, req, () => this.#deps.settleLocal(req));

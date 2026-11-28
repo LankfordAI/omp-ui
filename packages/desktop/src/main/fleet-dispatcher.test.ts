@@ -8,6 +8,7 @@ import {
   type FleetHostReport,
   type FleetFinishRequest,
   type FleetSendRequest,
+  type FleetSessionRequest,
   type NewRpcSpawnRequest,
   type RemoteInstanceSummary,
   type SessionRoutine,
@@ -731,9 +732,9 @@ describe("FleetDispatcher wake-up, long-poll status, send (issues #957-#959)", (
         if (ch === channel) return { status: verb === "stop" ? "stopped" : "settled" };
         throw new Error(`unexpected ${ch}`);
       });
-      expect((await h.dispatcher[verb]("client-2", "d1")).status).toBe("refused");
+      expect((await h.dispatcher[verb]("client-2", "d1", "mcp")).status).toBe("refused");
       expect(h.request).not.toHaveBeenCalled();
-      expect(await h.dispatcher[verb]("client-1", "d1")).toEqual({ status: verb === "stop" ? "stopped" : "settled" });
+      expect(await h.dispatcher[verb]("client-1", "d1", "mcp")).toEqual({ status: verb === "stop" ? "stopped" : "settled" });
       const call = h.request.mock.calls.find(([, ch]) => ch === channel)!;
       expect(call[0]).toBe("r1");
       expect(call[2][0]).toEqual({
@@ -742,6 +743,123 @@ describe("FleetDispatcher wake-up, long-poll status, send (issues #957-#959)", (
       });
     },
   );
+
+  it.each([
+    ["stop", CH.fleetStop, { status: "stopped" }],
+    ["settle", CH.fleetSettle, { status: "settled" }],
+  ] as const)(
+    "routes an agent's %s for a remote child through the owner channel with the agent requester",
+    async (verb, channel, answer) => {
+      const h = harness({
+        local: report([project()]),
+        remotes: { r1: { report: async () => report([]) } },
+        deps: { fleetSessions: async () => [fleetSession("r1", "d1")] },
+      });
+      h.request.mockImplementation(async (_id, ch) => {
+        if (ch === channel) return answer;
+        throw new Error(`unexpected ${ch}`);
+      });
+      expect(await h.dispatcher[verb]("parent", "d1")).toEqual(answer);
+      const call = h.request.mock.calls.find(([, ch]) => ch === channel)!;
+      expect(call[0]).toBe("r1");
+      expect(call[2][0]).toEqual({
+        requester: { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "parent" },
+        dispatchId: "d1",
+      });
+    },
+  );
+
+  it.each([
+    ["stop", CH.fleetStop],
+    ["settle", CH.fleetSettle],
+  ] as const)("answers %s for a local child through stopLocal/settleLocal", async (verb, channel) => {
+    const seen: FleetSessionRequest[] = [];
+    const h = harness({
+      local: report([project()]),
+      deps: {
+        fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1")],
+        stopLocal: async (req) => {
+          seen.push(req);
+          return { status: "idle" };
+        },
+        settleLocal: async (req) => {
+          seen.push(req);
+          return { status: "settled" };
+        },
+      },
+    });
+    expect(await h.dispatcher[verb]("parent", "d1")).toEqual(verb === "stop" ? { status: "idle" } : { status: "settled" });
+    expect(seen[0]!.requester).toEqual({ instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "parent" });
+    expect(h.request.mock.calls.some(([, ch]) => ch === channel)).toBe(false);
+  });
+
+  it.each([
+    ["stop", "stop"],
+    ["settle", "settle"],
+  ] as const)("refuses a stranger's %s without contacting the owner", async (verb, noun) => {
+    const stopLocal = vi.fn(async () => ({ status: "stopped" as const }));
+    const settleLocal = vi.fn(async () => ({ status: "settled" as const }));
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: { stopLocal, settleLocal, fleetSessions: async () => [fleetSession("r1", "d1")] },
+    });
+    const outcome = await h.dispatcher[verb]("stranger", "d1");
+    expect(outcome).toEqual({ status: "refused", reason: `only the session that dispatched this work can ${noun} it` });
+    expect(stopLocal).not.toHaveBeenCalled();
+    expect(settleLocal).not.toHaveBeenCalled();
+    expect(h.request.mock.calls.some(([, ch]) => ch === CH.fleetStop || ch === CH.fleetSettle)).toBe(false);
+  });
+
+  it.each(["stop", "settle"] as const)("refuses an agent's %s on an MCP-started child", async (verb) => {
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: {
+        fleetSessions: async () => [
+          fleetSession("r1", "d1", {
+            fleet: {
+              dispatchId: "d1",
+              batchId: null,
+              title: "Fix the flaky test",
+              prompt: "Fix the flaky test",
+              requestedBy: { instanceId: "dispatcher", label: "desk", kind: "mcp", sourceTabId: "client-1" },
+            },
+          } as unknown as Partial<SessionSummary>),
+        ],
+      },
+    });
+    const outcome = await h.dispatcher[verb]("parent", "d1");
+    expect(outcome).toEqual({ status: "refused", reason: `only the session that dispatched this work can ${verb} it` });
+    expect(h.request).not.toHaveBeenCalled();
+  });
+
+  it.each(["stop", "settle"] as const)("refuses %s for an unknown dispatch id, naming a pending dispatch as unknown", async (verb) => {
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: {
+        // Spawn fails with the owner-lost message, so dispatch records the outcome as pending.
+        request: async (_id: string, channel: string) => {
+          if (channel === CH.fleetHostReport) return report([project()]);
+          throw new Error("remote connection lost");
+        },
+        fleetSessions: async () => [fleetSession("r1", "d1")],
+      },
+    });
+    const dispatchResult = await h.dispatcher.dispatch(explicit([{ machineKey: "r1", projectCwd: "/work/app" }]), {
+      kind: "agent",
+      sourceTabId: "parent",
+    });
+    const dispatchId = dispatchResult.outcomes[0]!.dispatchId;
+    const outcome = await h.dispatcher[verb]("parent", "nope");
+    expect(outcome.status).toBe("refused");
+    if (outcome.status !== "refused") throw new Error(`expected refusal, got ${outcome.status}`);
+    expect(outcome.reason).toMatch(/no dispatched session has dispatch/);
+
+    const pendingOutcome = await h.dispatcher[verb]("parent", dispatchId);
+    expect(pendingOutcome).toEqual({ status: "refused", reason: "that dispatch's outcome is still unknown" });
+  });
 });
 
 describe("FleetDispatcher fleet ladder (issue #901)", () => {

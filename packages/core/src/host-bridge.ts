@@ -762,7 +762,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project, execPoll, update, send, finish, grantRaise] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll, update, send, stop, finish, settle, grantRaise] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -945,6 +945,20 @@ function fleetTools(): RpcHostToolDefinition[] {
       },
     },
     {
+      name: stop,
+      loadMode: "essential",
+      description:
+        "Stop the running turn of a session you started with omp-ui_fleet_dispatch. Sends an abort into the child's running turn; answers idle when nothing is running and pending when the child did not confirm within its ack window. Refused while the child is waiting for the user's answer — only the user can answer it. Never touches the child's worktree, branch, or record; follow with omp-ui_fleet_settle to close the session.",
+      parameters: {
+        type: "object",
+        properties: {
+          dispatchId: { type: "string", description: "The dispatchId omp-ui_fleet_dispatch reported." },
+        },
+        required: ["dispatchId"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: finish,
       loadMode: "essential",
       description:
@@ -958,6 +972,20 @@ function fleetTools(): RpcHostToolDefinition[] {
             description:
               "Optional local branch the work already landed on when it is not the base branch (for example a release branch you merged into and pushed). Omit for the usual landing on the base.",
           },
+        },
+        required: ["dispatchId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: settle,
+      loadMode: "essential",
+      description:
+        "Settle a session you started with omp-ui_fleet_dispatch: its process stops and its row moves to Settled. Refused while the child is still working (stop it first), waiting for the user's answer, or mid-operation. This is the close path for a checkout-workspace child, which omp-ui_fleet_finish cannot finish; for worktree children prefer omp-ui_fleet_finish, which also removes the worktree and merged branches.",
+      parameters: {
+        type: "object",
+        properties: {
+          dispatchId: { type: "string", description: "The dispatchId omp-ui_fleet_dispatch reported." },
         },
         required: ["dispatchId"],
         additionalProperties: false,

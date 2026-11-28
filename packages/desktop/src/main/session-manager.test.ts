@@ -10450,6 +10450,24 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(manager.isLive(tabId)).toBe(false);
       expect(registry.sessions.find((s) => s.tabId === tabId)!.settledAtMs).toEqual(expect.any(Number));
     });
+
+    it("accepts the agent requester that dispatched the child for stop and settle (#1400)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { tabId } = await childSpawn(manager, requester());
+      const client = rpcInstances.at(-1)!;
+      client.kill.mockImplementation(() => client.exit(0));
+
+      client.frame({ type: "agent_start" });
+      const outcome = manager.fleetStop(sessionReq(requester()));
+      const cmd = client.send.mock.calls[0]![0] as Cmd;
+      client.frame({ type: "response", id: cmd.id, command: "abort", success: true });
+      await expect(outcome).resolves.toEqual({ status: "stopped" });
+
+      client.frame({ type: "agent_end", messages: [] });
+      await expect(manager.fleetSettle(sessionReq(requester()))).resolves.toEqual({ status: "settled" });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.settledAtMs).toEqual(expect.any(Number));
+    });
   });
 
   // Real git worktrees (spawn, commit, cherry-pick, worktree removal): on the

@@ -177,7 +177,9 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
         "omp-ui_fleet_send",
+        "omp-ui_fleet_stop",
         "omp-ui_fleet_finish",
+        "omp-ui_fleet_settle",
         "omp-ui_fleet_grant_raise",
       ],
     ],
@@ -221,7 +223,9 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
         "omp-ui_fleet_send",
+        "omp-ui_fleet_stop",
         "omp-ui_fleet_finish",
+        "omp-ui_fleet_settle",
         "omp-ui_fleet_grant_raise",
       ],
     ],
@@ -290,7 +294,7 @@ describe("host registration definitions", () => {
       expect(tool.parameters.type).toBe("object");
       expect(tool.parameters.additionalProperties).toBe(false);
     }
-    expect(fleet).toHaveLength(10);
+    expect(fleet).toHaveLength(12);
     expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([
       [],
       ["prompt", "project"],
@@ -301,6 +305,8 @@ describe("host registration definitions", () => {
       ["machine", "target", "action"],
       ["dispatchId", "message"],
       ["dispatchId"],
+      ["dispatchId"],
+      ["dispatchId"],
       ["machine", "rung"],
     ]);
     const status = fleet[2]!.parameters.properties as Record<string, Record<string, unknown>>;
@@ -310,7 +316,7 @@ describe("host registration definitions", () => {
     const exec = fleet[3]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(exec.detach).toMatchObject({ type: "boolean" });
     expect(exec.timeoutMs).toMatchObject({ type: "integer", minimum: 100, maximum: 30 * 60_000 });
-    const finish = fleet[8]!.parameters.properties as Record<string, Record<string, unknown>>;
+    const finish = fleet[9]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(finish).toMatchObject({ dispatchId: { type: "string" }, landedOn: { type: "string" } });
     const poll = fleet[5]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(poll).toMatchObject({

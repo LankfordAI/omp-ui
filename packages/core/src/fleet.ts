@@ -73,7 +73,7 @@ export const FLEET_MEMBER_TERMINAL_EXIT = "fleet:memberTerminalExit";
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The nine agent-facing host tools (§6, issues #901, #905, #959, #978), in registration order. */
+/** The eleven agent-facing host tools (§6, issues #901, #905, #959, #978, #1400), in registration order. */
 export const FLEET_TOOLS = [
   "omp-ui_fleet_machines",
   "omp-ui_fleet_dispatch",
@@ -83,7 +83,9 @@ export const FLEET_TOOLS = [
   "omp-ui_fleet_exec_poll",
   "omp-ui_fleet_update",
   "omp-ui_fleet_send",
+  "omp-ui_fleet_stop",
   "omp-ui_fleet_finish",
+  "omp-ui_fleet_settle",
   "omp-ui_fleet_grant_raise",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
@@ -1573,6 +1575,12 @@ export interface FleetToolFinishArgs {
   dispatchId: string;
   landedOn?: string;
 }
+export interface FleetToolStopArgs {
+  dispatchId: string;
+}
+export interface FleetToolSettleArgs {
+  dispatchId: string;
+}
 /** A branch the agent checked out inside the worktree besides the minted one, and what finish did with it. */
 export interface FleetFinishWorkingBranch {
   branch: string;
@@ -1918,7 +1926,9 @@ export type FleetToolArguments =
   | { ok: true; tool: "execPoll"; args: FleetToolExecPollArgs }
   | { ok: true; tool: "update"; args: FleetToolUpdateArgs }
   | { ok: true; tool: "send"; args: FleetToolSendArgs }
+  | { ok: true; tool: "stop"; args: FleetToolStopArgs }
   | { ok: true; tool: "finish"; args: FleetToolFinishArgs }
+  | { ok: true; tool: "settle"; args: FleetToolSettleArgs }
   | { ok: true; tool: "grantRaise"; args: FleetToolGrantRaiseArgs }
   | { ok: false; reason: string };
 
@@ -2063,6 +2073,13 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     }
     // #1013: no own `landedOn` key when unset, so older owners keep decoding.
     return { ok: true, tool: "finish", args: { dispatchId: a.dispatchId.trim(), ...(landedOn === undefined ? {} : { landedOn }) } };
+  }
+  if (name === "omp-ui_fleet_stop" || name === "omp-ui_fleet_settle") {
+    const extra = unknownKey(["dispatchId"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.dispatchId !== "string" || a.dispatchId.trim() === "")
+      return refuse("dispatchId must be a non-empty string");
+    return { ok: true, tool: name === "omp-ui_fleet_stop" ? "stop" : "settle", args: { dispatchId: a.dispatchId.trim() } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode", "model", "thinkingLevel"]);
